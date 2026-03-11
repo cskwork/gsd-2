@@ -22,7 +22,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
-import { createBashTool } from "@mariozechner/pi-coding-agent";
+import { createBashTool, createWriteTool, createReadTool, createEditTool } from "@mariozechner/pi-coding-agent";
 
 import { registerGSDCommand } from "./commands.js";
 import { registerWorktreeCommand, getWorktreeOriginalCwd, getActiveWorktreeName } from "./worktree-command.js";
@@ -63,16 +63,99 @@ export default function (pi: ExtensionAPI) {
   registerGSDCommand(pi);
   registerWorktreeCommand(pi);
 
-  // ── Dynamic-cwd bash tool ──────────────────────────────────────────────
+  // ── /exit — kill the process immediately ──────────────────────────────
+  pi.registerCommand("exit", {
+    description: "Exit GSD immediately",
+    handler: async (_ctx) => {
+      process.exit(0);
+    },
+  });
+
+  // ── Dynamic-cwd bash tool with default timeout ────────────────────────
   // The built-in bash tool captures cwd at startup. This replacement uses
   // a spawnHook to read process.cwd() dynamically so that process.chdir()
   // (used by /worktree switch) propagates to shell commands.
-  const dynamicBash = createBashTool(process.cwd(), {
+  //
+  // The upstream SDK's bash tool has no default timeout — if the LLM omits
+  // the timeout parameter, commands run indefinitely, causing hangs on
+  // Windows where process killing is unreliable (see #40). We wrap execute
+  // to inject a 120-second default when no timeout is provided.
+  const DEFAULT_BASH_TIMEOUT_SECS = 120;
+  const baseBash = createBashTool(process.cwd(), {
     spawnHook: (ctx) => ({ ...ctx, cwd: process.cwd() }),
   });
+  const dynamicBash = {
+    ...baseBash,
+    execute: async (
+      toolCallId: string,
+      params: { command: string; timeout?: number },
+      signal?: AbortSignal,
+      onUpdate?: any,
+      ctx?: any,
+    ) => {
+      const paramsWithTimeout = {
+        ...params,
+        timeout: params.timeout ?? DEFAULT_BASH_TIMEOUT_SECS,
+      };
+      return baseBash.execute(toolCallId, paramsWithTimeout, signal, onUpdate, ctx);
+    },
+  };
   pi.registerTool(dynamicBash as any);
 
-  // ── session_start: render branded GSD header ───────────────────────────
+  // ── Dynamic-cwd file tools (write, read, edit) ────────────────────────
+  // The built-in file tools capture cwd at startup. When process.chdir()
+  // moves us into a worktree, relative paths still resolve against the
+  // original launch directory. These replacements delegate to freshly-
+  // created tools on each call so that process.cwd() is read dynamically.
+  const baseWrite = createWriteTool(process.cwd());
+  const dynamicWrite = {
+    ...baseWrite,
+    execute: async (
+      toolCallId: string,
+      params: { path: string; content: string },
+      signal?: AbortSignal,
+      onUpdate?: any,
+      ctx?: any,
+    ) => {
+      const fresh = createWriteTool(process.cwd());
+      return fresh.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+  };
+  pi.registerTool(dynamicWrite as any);
+
+  const baseRead = createReadTool(process.cwd());
+  const dynamicRead = {
+    ...baseRead,
+    execute: async (
+      toolCallId: string,
+      params: { path: string; offset?: number; limit?: number },
+      signal?: AbortSignal,
+      onUpdate?: any,
+      ctx?: any,
+    ) => {
+      const fresh = createReadTool(process.cwd());
+      return fresh.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+  };
+  pi.registerTool(dynamicRead as any);
+
+  const baseEdit = createEditTool(process.cwd());
+  const dynamicEdit = {
+    ...baseEdit,
+    execute: async (
+      toolCallId: string,
+      params: { path: string; oldText: string; newText: string },
+      signal?: AbortSignal,
+      onUpdate?: any,
+      ctx?: any,
+    ) => {
+      const fresh = createEditTool(process.cwd());
+      return fresh.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+  };
+  pi.registerTool(dynamicEdit as any);
+
+  // ── session_start: render branded GSD header + remote channel status ──
   pi.on("session_start", async (_event, ctx) => {
     const theme = ctx.ui.theme;
     const version = process.env.GSD_VERSION || "0.0.0";
@@ -82,6 +165,22 @@ export default function (pi: ExtensionAPI) {
 
     const headerContent = `${logoText}\n${titleLine}`;
     ctx.ui.setHeader((_ui, _theme) => new Text(headerContent, 1, 0));
+
+    // Notify remote questions status if configured
+    try {
+      const [{ getRemoteConfigStatus }, { getLatestPromptSummary }] = await Promise.all([
+        import("../remote-questions/config.js"),
+        import("../remote-questions/status.js"),
+      ]);
+      const status = getRemoteConfigStatus();
+      const latest = getLatestPromptSummary();
+      if (!status.includes("not configured")) {
+        const suffix = latest ? `\nLast remote prompt: ${latest.id} (${latest.status})` : "";
+        ctx.ui.notify(`${status}${suffix}`, status.includes("disabled") ? "warning" : "info");
+      }
+    } catch {
+      // Remote questions module not available — ignore
+    }
   });
 
   // ── Ctrl+Alt+G shortcut — GSD dashboard overlay ────────────────────────

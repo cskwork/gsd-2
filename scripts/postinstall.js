@@ -35,11 +35,21 @@ const banner =
 
 process.stderr.write(banner)
 
-// Install Playwright chromium for browser tools (non-fatal)
-const args = os.platform() === 'linux' ? '--with-deps' : ''
+// Apply patches to upstream dependencies (non-fatal)
 try {
-  execSync(`npx playwright install chromium ${args}`, { stdio: 'inherit' })
+  execSync('npx patch-package', { stdio: 'inherit', cwd: resolve(__dirname, '..') })
+  process.stderr.write(`\n  ${green}✓${reset} Patches applied\n`)
+} catch {
+  process.stderr.write(`\n  ${yellow}⚠${reset}  Failed to apply patches — run ${cyan}npx patch-package${reset} manually\n`)
+}
+
+// Install Playwright chromium for browser tools (non-fatal)
+try {
+  execSync('npx playwright install chromium', { stdio: 'inherit' })
   process.stderr.write(`\n  ${green}✓${reset} Browser tools ready\n\n`)
 } catch {
-  process.stderr.write(`\n  ${yellow}⚠${reset}  Browser tools unavailable — run ${cyan}npx playwright install chromium${reset} to enable\n\n`)
+  const hint = os.platform() === 'linux'
+    ? `${cyan}npx playwright install --with-deps chromium${reset}`
+    : `${cyan}npx playwright install chromium${reset}`
+  process.stderr.write(`\n  ${yellow}⚠${reset}  Browser tools unavailable — run ${hint} to enable\n\n`)
 }
