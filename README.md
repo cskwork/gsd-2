@@ -11,7 +11,7 @@
 
 The original GSD went viral as a prompt framework for Claude Code. It worked, but it was fighting the tool — injecting prompts through slash commands, hoping the LLM would follow instructions, with no actual control over context windows, sessions, or execution.
 
-This version is different. GSD is now a standalone CLI built on the [Pi SDK](https://github.com/nicholasgasior/pi-coding-agent), which gives it direct TypeScript access to the agent harness itself. That means GSD can actually *do* what v1 could only *ask* the LLM to do: clear context between tasks, inject exactly the right files at dispatch time, manage git branches, track cost and tokens, detect stuck loops, recover from crashes, and auto-advance through an entire milestone without human intervention.
+This version is different. GSD is now a standalone CLI built on the [Pi SDK](https://github.com/badlogic/pi-mono), which gives it direct TypeScript access to the agent harness itself. That means GSD can actually *do* what v1 could only *ask* the LLM to do: clear context between tasks, inject exactly the right files at dispatch time, manage git branches, track cost and tokens, detect stuck loops, recover from crashes, and auto-advance through an entire milestone without human intervention.
 
 One command. Walk away. Come back to a built project with clean git history.
 
@@ -120,6 +120,17 @@ The wizard is the on-ramp. Auto mode is the highway.
 ```bash
 npm install -g gsd-pi
 ```
+
+### Log in to a provider
+
+First, choose your LLM provider:
+
+```bash
+gsd
+/login
+```
+
+Select from 20+ providers — Anthropic, OpenAI, Google, OpenRouter, GitHub Copilot, and more. If you have a Claude Max or Copilot subscription, the OAuth flow handles everything. Otherwise, paste your API key when prompted.
 
 ### Use it
 
@@ -340,7 +351,7 @@ Optional:
 
 ## Use Any Model
 
-GSD isn't locked to one provider. It runs on the [Pi SDK](https://github.com/nicholasgasior/pi-coding-agent), which supports **20+ model providers** out of the box. Use different models for different phases — Opus for planning, Sonnet for execution, a fast model for research.
+GSD isn't locked to one provider. It runs on the [Pi SDK](https://github.com/badlogic/pi-mono), which supports **20+ model providers** out of the box. Use different models for different phases — Opus for planning, Sonnet for execution, a fast model for research.
 
 ### Built-in Providers
 
