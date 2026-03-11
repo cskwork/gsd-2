@@ -21,11 +21,26 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface AskUserQuestionsDetails {
+interface LocalResultDetails {
+	remote?: false;
 	questions: Question[];
 	response: RoundResult | null;
 	cancelled: boolean;
 }
+
+interface RemoteResultDetails {
+	remote: true;
+	channel: string;
+	timed_out: boolean;
+	promptId?: string;
+	threadUrl?: string;
+	status?: string;
+	questions?: Question[];
+	response?: import("./remote-questions/types.js").RemoteAnswer;
+	error?: boolean;
+}
+
+type AskUserQuestionsDetails = LocalResultDetails | RemoteResultDetails;
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -134,13 +149,13 @@ export default function AskUserQuestions(pi: ExtensionAPI) {
 			if (!hasAnswers) {
 				return {
 					content: [{ type: "text", text: "ask_user_questions was cancelled before receiving a response" }],
-					details: { questions: params.questions, response: null, cancelled: true } as AskUserQuestionsDetails,
+					details: { questions: params.questions, response: null, cancelled: true } satisfies LocalResultDetails,
 				};
 			}
 
 			return {
 				content: [{ type: "text", text: formatForLLM(result) }],
-				details: { questions: params.questions, response: result, cancelled: false } as AskUserQuestionsDetails,
+				details: { questions: params.questions, response: result, cancelled: false } satisfies LocalResultDetails,
 			};
 		},
 
@@ -168,31 +183,28 @@ export default function AskUserQuestions(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme) {
-			const details = result.details as (AskUserQuestionsDetails & { remote?: boolean; channel?: string; timed_out?: boolean; threadUrl?: string; promptId?: string; status?: string }) | undefined;
+			const details = result.details as AskUserQuestionsDetails | undefined;
 			if (!details) {
 				const text = result.content[0];
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
 			}
 
-			// Remote channel result
+			// Remote channel result (discriminated on details.remote === true)
 			if (details.remote) {
 				if (details.timed_out) {
-					const channelLabel = details.channel ?? "remote";
 					return new Text(
-						`${theme.fg("warning", `${channelLabel} — timed out`)}${details.threadUrl ? theme.fg("dim", ` ${details.threadUrl}`) : ""}`,
+						`${theme.fg("warning", `${details.channel} — timed out`)}${details.threadUrl ? theme.fg("dim", ` ${details.threadUrl}`) : ""}`,
 						0,
 						0,
 					);
 				}
 
-				const remoteResponse = details.response as import("./remote-questions/channels.js").RemoteAnswer | undefined;
 				const questions = (details.questions ?? []) as Question[];
 				const lines: string[] = [];
-				const channelLabel = details.channel ?? "remote";
-				lines.push(theme.fg("dim", channelLabel));
-				if (remoteResponse) {
+				lines.push(theme.fg("dim", details.channel));
+				if (details.response) {
 					for (const q of questions) {
-						const answer = remoteResponse.answers[q.id];
+						const answer = details.response.answers[q.id];
 						if (!answer) {
 							lines.push(`${theme.fg("accent", q.header)}: ${theme.fg("dim", "(no answer)")}`);
 							continue;
