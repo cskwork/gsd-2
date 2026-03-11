@@ -21,7 +21,7 @@ import {
 import { join } from "node:path";
 import { readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { ensureGitignore } from "./gitignore.js";
+import { ensureGitignore, ensurePreferences } from "./gitignore.js";
 
 // ─── Auto-start after discuss ─────────────────────────────────────────────────
 
@@ -452,6 +452,9 @@ export async function showSmartEntry(
     // Bootstrap .gsd/ silently — the user wants a milestone, not to "init"
     const gsd = gsdRoot(basePath);
     mkdirSync(join(gsd, "milestones"), { recursive: true });
+
+    // ── Create PREFERENCES.md template ────────────────────────────────
+    ensurePreferences(basePath);
     try {
       execSync("git add -A .gsd .gitignore && git commit -m 'chore: init gsd'", {
         cwd: basePath,
