@@ -41,7 +41,6 @@
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.57.1",
-    "gsd-pi": "^0.1.7",
     "playwright": "^1.58.2"
   },
   "devDependencies": {
