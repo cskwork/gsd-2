@@ -387,6 +387,12 @@ Use expensive models where quality matters (planning, complex execution) and che
 
 ---
 
+## Star History
+
+<iframe style="width:100%;height:auto;min-width:600px;min-height:400px;" src="https://www.star-history.com/?repos=gsd-build%2Fgsd-2&type=date&legend=top-left" frameBorder="0"></iframe>
+
+---
+
 ## License
 
 [Business Source License 1.1](LICENSE)
