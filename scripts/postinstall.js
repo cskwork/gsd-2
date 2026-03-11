@@ -33,13 +33,13 @@ const banner =
   `  ${green}✓${reset} Installed successfully\n` +
   `  ${dim}Run ${reset}${cyan}gsd${reset}${dim} to get started.${reset}\n`
 
-console.log(banner)
+process.stderr.write(banner)
 
 // Install Playwright chromium for browser tools (non-fatal)
 const args = os.platform() === 'linux' ? '--with-deps' : ''
 try {
   execSync(`npx playwright install chromium ${args}`, { stdio: 'inherit' })
-  console.log(`\n  ${green}✓${reset} Browser tools ready\n`)
+  process.stderr.write(`\n  ${green}✓${reset} Browser tools ready\n\n`)
 } catch {
-  console.log(`\n  ${yellow}⚠${reset}  Browser tools unavailable — run ${cyan}npx playwright install chromium${reset} to enable\n`)
+  process.stderr.write(`\n  ${yellow}⚠${reset}  Browser tools unavailable — run ${cyan}npx playwright install chromium${reset} to enable\n\n`)
 }
