@@ -38,3 +38,4 @@ dist/
 .gsd*.tgz
 .gsd
 .artifacts/
+AGENTS.md
