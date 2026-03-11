@@ -36,7 +36,7 @@ export async function tryRemoteQuestions(
   try {
     await adapter.validate();
   } catch (err) {
-    markPromptStatus(prompt.id, "failed", String((err as Error).message));
+    markPromptStatus(prompt.id, "failed", sanitizeError(String((err as Error).message)));
     return errorResult(`Remote auth failed (${config.channel}): ${(err as Error).message}`, config.channel);
   }
 
@@ -45,7 +45,7 @@ export async function tryRemoteQuestions(
     dispatch = await adapter.sendPrompt(prompt);
     markPromptDispatched(prompt.id, dispatch.ref);
   } catch (err) {
-    markPromptStatus(prompt.id, "failed", String((err as Error).message));
+    markPromptStatus(prompt.id, "failed", sanitizeError(String((err as Error).message)));
     return errorResult(`Failed to send questions via ${config.channel}: ${(err as Error).message}`, config.channel);
   }
 
@@ -128,7 +128,7 @@ async function pollUntilDone(
       updatePromptRecord(prompt.id, { lastPollAt: Date.now() });
       if (answer) return answer;
     } catch (err) {
-      markPromptStatus(prompt.id, "failed", String((err as Error).message));
+      markPromptStatus(prompt.id, "failed", sanitizeError(String((err as Error).message)));
       return null;
     }
 
@@ -163,9 +163,25 @@ function formatForTool(answer: RemoteAnswer): Record<string, { answers: string[]
   return out;
 }
 
+// Strip token-like strings from error messages before surfacing
+const TOKEN_PATTERNS = [
+  /xoxb-[A-Za-z0-9\-]+/g,    // Slack bot tokens
+  /xoxp-[A-Za-z0-9\-]+/g,    // Slack user tokens
+  /xoxa-[A-Za-z0-9\-]+/g,    // Slack app tokens
+  /[A-Za-z0-9_\-.]{20,}/g,   // Long opaque secrets (Discord tokens, etc.)
+];
+
+export function sanitizeError(msg: string): string {
+  let sanitized = msg;
+  for (const pattern of TOKEN_PATTERNS) {
+    sanitized = sanitized.replace(pattern, "[REDACTED]");
+  }
+  return sanitized;
+}
+
 function errorResult(message: string, channel: string): ToolResult {
   return {
-    content: [{ type: "text", text: message }],
+    content: [{ type: "text", text: sanitizeError(message) }],
     details: { remote: true, channel, error: true, status: "failed" },
   };
 }

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseSlackReply, parseDiscordResponse } from "../../remote-questions/format.ts";
 import { resolveRemoteConfig, isValidChannelId } from "../../remote-questions/config.ts";
+import { sanitizeError } from "../../remote-questions/manager.ts";
 
 test("parseSlackReply handles single-number single-question answers", () => {
   const result = parseSlackReply("2", [{
@@ -129,5 +130,26 @@ test("isValidChannelId rejects invalid Discord channel IDs", () => {
   // Valid: 17-20 digit snowflake
   assert.equal(isValidChannelId("discord", "12345678901234567"), true);
   assert.equal(isValidChannelId("discord", "11234567890123456789"), true);
+});
+
+test("sanitizeError strips Slack token patterns from error messages", () => {
+  assert.equal(
+    sanitizeError("Auth failed: xoxb-1234-5678-abcdef"),
+    "Auth failed: [REDACTED]",
+  );
+  assert.equal(
+    sanitizeError("Bad token xoxp-abc-def-ghi in request"),
+    "Bad token [REDACTED] in request",
+  );
+});
+
+test("sanitizeError strips long opaque secrets", () => {
+  const fakeDiscordToken = "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.G1x2y3.abcdefghijklmnop";
+  assert.ok(!sanitizeError(`Token: ${fakeDiscordToken}`).includes(fakeDiscordToken));
+});
+
+test("sanitizeError preserves short safe messages", () => {
+  assert.equal(sanitizeError("HTTP 401: Unauthorized"), "HTTP 401: Unauthorized");
+  assert.equal(sanitizeError("Connection refused"), "Connection refused");
 });
 

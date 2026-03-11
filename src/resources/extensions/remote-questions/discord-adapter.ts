@@ -114,7 +114,9 @@ export class DiscordAdapter implements ChannelAdapter {
     if (response.status === 204) return {};
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Discord API HTTP ${response.status}: ${text}`);
+      // Limit error body length to avoid leaking verbose Discord error responses
+      const safeText = text.length > 200 ? text.slice(0, 200) + "…" : text;
+      throw new Error(`Discord API HTTP ${response.status}: ${safeText}`);
     }
     return response.json();
   }
