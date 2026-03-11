@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
 [![npm downloads](https://img.shields.io/npm/dm/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
 [![GitHub stars](https://img.shields.io/github/stars/glittercowboy/gsd-pi?style=for-the-badge&logo=github&color=181717)](https://github.com/glittercowboy/gsd-pi)
-[![License](https://img.shields.io/badge/license-BSL%201.1-blue?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 The original GSD went viral as a prompt framework for Claude Code. It worked, but it was fighting the tool — injecting prompts through slash commands, hoping the LLM would follow instructions, with no actual control over context windows, sessions, or execution.
 
@@ -395,7 +395,7 @@ Use expensive models where quality matters (planning, complex execution) and che
 
 ## License
 
-[Business Source License 1.1](LICENSE)
+[MIT License](LICENSE)
 
 ---
 
