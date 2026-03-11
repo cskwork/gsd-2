@@ -37,7 +37,8 @@
     "test": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test 'src/resources/extensions/gsd/tests/*.test.ts' 'src/resources/extensions/gsd/tests/*.test.mjs' 'src/tests/*.test.ts'",
     "dev": "tsc --watch",
     "postinstall": "node scripts/postinstall.js",
-    "prepublishOnly": "npm run build"
+    "sync-pkg-version": "node scripts/sync-pkg-version.cjs",
+    "prepublishOnly": "npm run sync-pkg-version && npm run build"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.57.1",
