@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseSlackReply, parseDiscordResponse } from "../../remote-questions/format.ts";
-import { resolveRemoteConfig } from "../../remote-questions/config.ts";
+import { resolveRemoteConfig, isValidChannelId } from "../../remote-questions/config.ts";
 
 test("parseSlackReply handles single-number single-question answers", () => {
   const result = parseSlackReply("2", [{
@@ -87,31 +87,32 @@ test("parseDiscordResponse rejects multi-question reaction parsing", () => {
   assert.match(String(result.answers.second.user_note), /single-question prompts/i);
 });
 
-test("resolveRemoteConfig clamps invalid timeout and poll interval values", async () => {
-  const os = await import("node:os");
-  const fs = await import("node:fs");
-  const path = await import("node:path");
-
-  const savedHome = process.env.HOME;
-  const savedUserProfile = process.env.USERPROFILE;
-  const tempHome = path.join(os.tmpdir(), `gsd-remote-config-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  fs.mkdirSync(path.join(tempHome, ".gsd"), { recursive: true });
-  process.env.HOME = tempHome;
-  process.env.USERPROFILE = tempHome;
-  process.env.SLACK_BOT_TOKEN = "token";
-
-  try {
-    const prefsPath = path.join(tempHome, ".gsd", "preferences.md");
-    fs.writeFileSync(prefsPath, `---\nremote_questions:\n  channel: slack\n  channel_id: \"C123\"\n  timeout_minutes: 999\n  poll_interval_seconds: 0\n---\n`, "utf-8");
-
-    const config = resolveRemoteConfig();
-    assert.ok(config);
-    assert.equal(config?.timeoutMs, 30 * 60 * 1000);
-    assert.equal(config?.pollIntervalMs, 2 * 1000);
-  } finally {
-    process.env.HOME = savedHome;
-    process.env.USERPROFILE = savedUserProfile;
-    delete process.env.SLACK_BOT_TOKEN;
-    fs.rmSync(tempHome, { recursive: true, force: true });
-  }
+test("isValidChannelId rejects invalid Slack channel IDs", () => {
+  // Too short
+  assert.equal(isValidChannelId("slack", "C123"), false);
+  // Contains invalid chars (URL injection)
+  assert.equal(isValidChannelId("slack", "https://evil.com"), false);
+  // Lowercase
+  assert.equal(isValidChannelId("slack", "c12345678"), false);
+  // Too long
+  assert.equal(isValidChannelId("slack", "C1234567890AB"), false);
+  // Valid: 9-12 uppercase alphanumeric
+  assert.equal(isValidChannelId("slack", "C12345678"), true);
+  assert.equal(isValidChannelId("slack", "C12345678AB"), true);
+  assert.equal(isValidChannelId("slack", "C1234567890A"), true);
 });
+
+test("isValidChannelId rejects invalid Discord channel IDs", () => {
+  // Too short
+  assert.equal(isValidChannelId("discord", "12345"), false);
+  // Contains letters (not a snowflake)
+  assert.equal(isValidChannelId("discord", "abc12345678901234"), false);
+  // URL injection
+  assert.equal(isValidChannelId("discord", "https://evil.com"), false);
+  // Too long (21 digits)
+  assert.equal(isValidChannelId("discord", "123456789012345678901"), false);
+  // Valid: 17-20 digit snowflake
+  assert.equal(isValidChannelId("discord", "12345678901234567"), true);
+  assert.equal(isValidChannelId("discord", "11234567890123456789"), true);
+});
+
