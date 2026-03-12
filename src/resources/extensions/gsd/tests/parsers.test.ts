@@ -1250,6 +1250,7 @@ console.log('\n=== parseRequirementCounts: total is sum of all section counts ==
 
 // ═══════════════════════════════════════════════════════════════════════════
 <<<<<<< HEAD
+<<<<<<< HEAD
 // parseSummary: bare scalar frontmatter fields (regression test for #91)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1342,6 +1343,8 @@ Nothing.
   assertEq(s.frontmatter.drill_down_paths.length, 0, 'missing drill_down_paths = empty array');
   assertEq(s.frontmatter.observability_surfaces.length, 0, 'missing observability_surfaces = empty array');
 =======
+=======
+>>>>>>> gsd/M002/S01
 // parseSecretsManifest / formatSecretsManifest tests
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1579,6 +1582,9 @@ console.log('\n=== parseSecretsManifest + formatSecretsManifest: round-trip ==='
       assertEq(e2.guidance[j], e1.guidance[j], `round-trip entry ${i} guidance[${j}]`);
     }
   }
+<<<<<<< HEAD
+>>>>>>> gsd/M002/S01
+=======
 >>>>>>> gsd/M002/S01
 }
 

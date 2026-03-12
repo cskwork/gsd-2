@@ -2,6 +2,7 @@
 
 **Active Milestone:** M002 — Proactive Secret Management
 <<<<<<< HEAD
+<<<<<<< HEAD
 **Active Slice:** —
 **Active Task:** —
 **Phase:** pre-planning
@@ -23,6 +24,8 @@
 
 - (none)
 =======
+=======
+>>>>>>> gsd/M002/S01
 **Active Slice:** S02 — Enhanced Collection UX
 **Phase:** planning
 **Requirements Status:** 10 active · 0 validated · 2 deferred · 2 out of scope
@@ -39,4 +42,7 @@
 
 ## Next Action
 Plan slice S02 (Enhanced Collection UX).
+<<<<<<< HEAD
+>>>>>>> gsd/M002/S01
+=======
 >>>>>>> gsd/M002/S01
