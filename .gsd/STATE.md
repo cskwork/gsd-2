@@ -2,7 +2,7 @@
 
 **Active Milestone:** M001 — Deterministic GitService
 **Active Slice:** S02 — Wire GitService into codebase
-**Phase:** planning
+**Phase:** researching
 **Requirements Status:** 18 active · 0 validated · 3 deferred · 6 out of scope
 
 ## Milestone Registry
@@ -15,4 +15,4 @@
 - None
 
 ## Next Action
-Plan slice S02 (Wire GitService into codebase).
+Research slice S02 (Wire GitService into codebase).
