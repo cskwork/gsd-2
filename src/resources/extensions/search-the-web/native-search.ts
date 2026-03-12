@@ -74,13 +74,17 @@ export function registerNativeSearchHooks(pi: NativeSearchPI): { getIsAnthropic:
       );
     } else if (!isAnthropicProvider && wasAnthropic && !hasBrave) {
       // Switching away from Anthropic without Brave — re-enable so the user
-      // sees the "missing key" error rather than tools silently vanishing
+      // sees the "missing key" error rather than tools silently vanishing.
+      // Only add tools not already active to avoid duplicates on repeated toggles.
       const active = pi.getActiveTools();
-      pi.setActiveTools([...active, ...BRAVE_TOOL_NAMES]);
+      const toAdd = BRAVE_TOOL_NAMES.filter((t) => !active.includes(t));
+      if (toAdd.length > 0) {
+        pi.setActiveTools([...active, ...toAdd]);
+      }
     }
 
     // Show provider-aware diagnostics on first selection or provider change
-    if (isAnthropicProvider && !wasAnthropic) {
+    if (isAnthropicProvider && !wasAnthropic && event.source !== "restore") {
       ctx.ui.notify("Native Anthropic web search active", "info");
     } else if (!isAnthropicProvider && !hasBrave) {
       ctx.ui.notify(

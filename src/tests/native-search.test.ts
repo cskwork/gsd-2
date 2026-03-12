@@ -52,11 +52,14 @@ function createMockPI() {
       activeTools = tools;
     },
     async fire(event: string, eventData: any, ctx?: any) {
+      let lastResult: any;
       for (const h of handlers) {
         if (h.event === event) {
-          return await h.handler(eventData, ctx ?? mockCtx);
+          const result = await h.handler(eventData, ctx ?? mockCtx);
+          if (result !== undefined) lastResult = result;
         }
       }
+      return lastResult;
     },
   };
 
@@ -399,6 +402,123 @@ test("before_provider_request keeps Brave tools in payload when BRAVE_API_KEY se
     if (originalKey) process.env.BRAVE_API_KEY = originalKey;
     else delete process.env.BRAVE_API_KEY;
   }
+});
+
+// ─── BUG-1 regression: duplicate Brave tools on repeated provider toggle ────
+
+test("model_select re-enable does not duplicate Brave tools across toggle cycles", async () => {
+  const originalKey = process.env.BRAVE_API_KEY;
+  delete process.env.BRAVE_API_KEY;
+
+  try {
+    const pi = createMockPI();
+    registerNativeSearchHooks(pi);
+
+    // Cycle 1: Anthropic disables Brave tools
+    await pi.fire("model_select", {
+      type: "model_select",
+      model: { provider: "anthropic", name: "claude-sonnet-4-6" },
+      previousModel: undefined,
+      source: "set",
+    });
+    assert.ok(!pi.getActiveTools().includes("search-the-web"), "Disabled after 1st Anthropic select");
+
+    // Cycle 1: switch away re-enables
+    await pi.fire("model_select", {
+      type: "model_select",
+      model: { provider: "openai", name: "gpt-4o" },
+      previousModel: { provider: "anthropic", name: "claude-sonnet-4-6" },
+      source: "set",
+    });
+    let active = pi.getActiveTools();
+    assert.equal(
+      active.filter((t) => t === "search-the-web").length, 1,
+      "search-the-web exactly once after first re-enable"
+    );
+
+    // Cycle 2: Anthropic again
+    await pi.fire("model_select", {
+      type: "model_select",
+      model: { provider: "anthropic", name: "claude-sonnet-4-6" },
+      previousModel: { provider: "openai", name: "gpt-4o" },
+      source: "set",
+    });
+
+    // Cycle 2: switch away again — must NOT accumulate duplicates
+    await pi.fire("model_select", {
+      type: "model_select",
+      model: { provider: "openai", name: "gpt-4o" },
+      previousModel: { provider: "anthropic", name: "claude-sonnet-4-6" },
+      source: "set",
+    });
+    active = pi.getActiveTools();
+    assert.equal(
+      active.filter((t) => t === "search-the-web").length, 1,
+      "search-the-web exactly once after second re-enable (no duplicates)"
+    );
+    assert.equal(
+      active.filter((t) => t === "search_and_read").length, 1,
+      "search_and_read exactly once (no duplicates)"
+    );
+  } finally {
+    if (originalKey) process.env.BRAVE_API_KEY = originalKey;
+    else delete process.env.BRAVE_API_KEY;
+  }
+});
+
+// ─── BUG-3 regression: mock fire() must call all handlers, not just first ───
+
+test("mock fire() calls all handlers for the same event", async () => {
+  const pi = createMockPI();
+  const callOrder: number[] = [];
+
+  // Register two handlers for the same event
+  pi.on("test_event", async () => { callOrder.push(1); return "first"; });
+  pi.on("test_event", async () => { callOrder.push(2); return "second"; });
+
+  const result = await pi.fire("test_event", {});
+
+  assert.deepEqual(callOrder, [1, 2], "Both handlers should be called");
+  assert.equal(result, "second", "Should return last non-undefined result");
+});
+
+// ─── BUG-4 regression: no notification noise on session restore ─────────────
+
+test("model_select suppresses 'Native search active' notification on session restore", async () => {
+  const pi = createMockPI();
+  registerNativeSearchHooks(pi);
+
+  await pi.fire("model_select", {
+    type: "model_select",
+    model: { provider: "anthropic", name: "claude-sonnet-4-6" },
+    previousModel: undefined,
+    source: "restore",  // session restore, not user action
+  });
+
+  const nativeNotif = pi.notifications.find(
+    (n) => n.message.includes("Native Anthropic web search active")
+  );
+  assert.equal(
+    nativeNotif, undefined,
+    "Should NOT show 'Native search active' on session restore"
+  );
+});
+
+test("model_select DOES show notification on explicit user set", async () => {
+  const pi = createMockPI();
+  registerNativeSearchHooks(pi);
+
+  await pi.fire("model_select", {
+    type: "model_select",
+    model: { provider: "anthropic", name: "claude-sonnet-4-6" },
+    previousModel: undefined,
+    source: "set",
+  });
+
+  const nativeNotif = pi.notifications.find(
+    (n) => n.message.includes("Native Anthropic web search active")
+  );
+  assert.ok(nativeNotif, "Should show notification on explicit 'set' source");
 });
 
 // ─── stripThinkingFromHistory tests ─────────────────────────────────────────
