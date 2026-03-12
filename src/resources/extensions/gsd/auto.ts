@@ -78,7 +78,7 @@ function completedKeysPath(base: string): string {
   return join(base, ".gsd", "completed-units.json");
 }
 
-/** Write a completed unit key to disk atomically (append to set). */
+/** Write a completed unit key to disk (read-modify-write append to set). */
 function persistCompletedKey(base: string, key: string): void {
   const file = completedKeysPath(base);
   let keys: string[] = [];
@@ -1194,8 +1194,9 @@ async function dispatchNextUnit(
       `Skipping ${unitType} ${unitId} — already completed in a prior session. Advancing.`,
       "info",
     );
-    // Don't increment dispatch count — just advance by calling dispatchNextUnit again.
-    // First, force state re-derive so the scheduler sees the completed artifact.
+    // Yield to the event loop before re-dispatching to avoid tight recursion
+    // when many units are already completed (e.g., after crash recovery).
+    await new Promise(r => setImmediate(r));
     await dispatchNextUnit(ctx, pi);
     return;
   }
@@ -2348,7 +2349,7 @@ async function recoverTimedOutUnit(
         { triggerTurn: true, deliverAs: "steer" },
       );
       ctx.ui.notify(
-        `${reason === "idle" ? "Idle" : "Timeout"} recovery: steering ${unitType} ${unitId} to finish durable output (attempt ${recoveryAttempts + 1}/${maxRecoveryAttempts}) (attempt ${attemptNumber}).`,
+        `${reason === "idle" ? "Idle" : "Timeout"} recovery: steering ${unitType} ${unitId} to finish durable output (attempt ${attemptNumber}, session ${recoveryAttempts + 1}/${maxRecoveryAttempts}).`,
         "warning",
       );
       return "recovered";
@@ -2452,7 +2453,7 @@ async function recoverTimedOutUnit(
       { triggerTurn: true, deliverAs: "steer" },
     );
     ctx.ui.notify(
-      `${reason === "idle" ? "Idle" : "Timeout"} recovery: steering ${unitType} ${unitId} to produce ${expected} (attempt ${recoveryAttempts + 1}/${maxRecoveryAttempts}) (attempt ${attemptNumber}).`,
+      `${reason === "idle" ? "Idle" : "Timeout"} recovery: steering ${unitType} ${unitId} to produce ${expected} (attempt ${attemptNumber}, session ${recoveryAttempts + 1}/${maxRecoveryAttempts}).`,
       "warning",
     );
     return "recovered";
