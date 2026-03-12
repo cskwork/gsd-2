@@ -93,6 +93,18 @@ function persistCompletedKey(base: string, key: string): void {
   }
 }
 
+/** Remove a stale completed unit key from disk. */
+function removePersistedKey(base: string, key: string): void {
+  const file = completedKeysPath(base);
+  try {
+    if (existsSync(file)) {
+      let keys: string[] = JSON.parse(readFileSync(file, "utf-8"));
+      keys = keys.filter(k => k !== key);
+      writeFileSync(file, JSON.stringify(keys), "utf-8");
+    }
+  } catch { /* non-fatal */ }
+}
+
 /** Load all completed unit keys from disk into the in-memory set. */
 function loadPersistedKeys(base: string, target: Set<string>): void {
   const file = completedKeysPath(base);
@@ -1190,15 +1202,27 @@ async function dispatchNextUnit(
   // Idempotency: skip units already completed in a prior session.
   const idempotencyKey = `${unitType}/${unitId}`;
   if (completedKeySet.has(idempotencyKey)) {
-    ctx.ui.notify(
-      `Skipping ${unitType} ${unitId} — already completed in a prior session. Advancing.`,
-      "info",
-    );
-    // Yield to the event loop before re-dispatching to avoid tight recursion
-    // when many units are already completed (e.g., after crash recovery).
-    await new Promise(r => setImmediate(r));
-    await dispatchNextUnit(ctx, pi);
-    return;
+    // Cross-validate: does the expected artifact actually exist?
+    const artifactExists = verifyExpectedArtifact(unitType, unitId, basePath);
+    if (artifactExists) {
+      ctx.ui.notify(
+        `Skipping ${unitType} ${unitId} — already completed in a prior session. Advancing.`,
+        "info",
+      );
+      // Yield to the event loop before re-dispatching to avoid tight recursion
+      // when many units are already completed (e.g., after crash recovery).
+      await new Promise(r => setImmediate(r));
+      await dispatchNextUnit(ctx, pi);
+      return;
+    } else {
+      // Stale completion record — artifact missing. Remove and re-run.
+      completedKeySet.delete(idempotencyKey);
+      removePersistedKey(basePath, idempotencyKey);
+      ctx.ui.notify(
+        `Re-running ${unitType} ${unitId} — marked complete but expected artifact missing.`,
+        "warning",
+      );
+    }
   }
 
   // Stuck detection — tracks total dispatches per unit (not just consecutive repeats).
@@ -1234,20 +1258,26 @@ async function dispatchNextUnit(
     snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId);
     saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
 
-    // Persist completion to disk BEFORE updating memory — so a crash here is recoverable.
+    // Only mark the previous unit as completed if:
+    // 1. We're not about to re-dispatch the same unit (retry scenario)
+    // 2. The expected artifact actually exists on disk
     const closeoutKey = `${currentUnit.type}/${currentUnit.id}`;
-    persistCompletedKey(basePath, closeoutKey);
-    completedKeySet.add(closeoutKey);
+    const incomingKey = `${unitType}/${unitId}`;
+    const artifactVerified = verifyExpectedArtifact(currentUnit.type, currentUnit.id, basePath);
+    if (closeoutKey !== incomingKey && artifactVerified) {
+      persistCompletedKey(basePath, closeoutKey);
+      completedKeySet.add(closeoutKey);
 
-    completedUnits.push({
-      type: currentUnit.type,
-      id: currentUnit.id,
-      startedAt: currentUnit.startedAt,
-      finishedAt: Date.now(),
-    });
-    clearUnitRuntimeRecord(basePath, currentUnit.type, currentUnit.id);
-    unitDispatchCount.delete(`${currentUnit.type}/${currentUnit.id}`);
-    unitRecoveryCount.delete(`${currentUnit.type}/${currentUnit.id}`);
+      completedUnits.push({
+        type: currentUnit.type,
+        id: currentUnit.id,
+        startedAt: currentUnit.startedAt,
+        finishedAt: Date.now(),
+      });
+      clearUnitRuntimeRecord(basePath, currentUnit.type, currentUnit.id);
+      unitDispatchCount.delete(`${currentUnit.type}/${currentUnit.id}`);
+      unitRecoveryCount.delete(`${currentUnit.type}/${currentUnit.id}`);
+    }
   }
   currentUnit = { type: unitType, id: unitId, startedAt: Date.now() };
   writeUnitRuntimeRecord(basePath, unitType, unitId, currentUnit.startedAt, {
@@ -2587,6 +2617,15 @@ export function resolveExpectedArtifactPath(unitType: string, unitId: string, ba
       const dir = resolveSlicePath(base, mid, sid!);
       return dir ? join(dir, buildSliceFileName(sid!, "UAT-RESULT")) : null;
     }
+    case "execute-task": {
+      const tid = parts[2];
+      const dir = resolveSlicePath(base, mid, sid!);
+      return dir && tid ? join(dir, "tasks", buildTaskFileName(tid, "SUMMARY")) : null;
+    }
+    case "complete-slice": {
+      const dir = resolveSlicePath(base, mid, sid!);
+      return dir ? join(dir, buildSliceFileName(sid!, "SUMMARY")) : null;
+    }
     case "complete-milestone": {
       const dir = resolveMilestonePath(base, mid);
       return dir ? join(dir, buildMilestoneFileName(mid, "SUMMARY")) : null;
@@ -2594,6 +2633,17 @@ export function resolveExpectedArtifactPath(unitType: string, unitId: string, ba
     default:
       return null;
   }
+}
+
+/**
+ * Check whether the expected artifact for a unit exists on disk.
+ * Returns true if the artifact file exists, or if the unit type has no
+ * single verifiable artifact (e.g., replan-slice).
+ */
+function verifyExpectedArtifact(unitType: string, unitId: string, base: string): boolean {
+  const absPath = resolveExpectedArtifactPath(unitType, unitId, base);
+  if (!absPath) return true;
+  return existsSync(absPath);
 }
 
 /**
