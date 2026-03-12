@@ -548,7 +548,7 @@ If files disagree, **pause and surface to the user**:
 1. **Slice starts** → create branch `gsd/M001/S01` from main
 2. **Per-task commits** on the branch — atomic, descriptive, bisectable
 3. **Slice completes** → squash merge to main as one clean commit
-4. **Branch kept** — not deleted, available for per-task history
+4. **Branch deleted** — squash commit on main is the permanent record
 
 ### What Main Looks Like
 
@@ -566,21 +566,21 @@ One commit per slice. Individually revertable. Reads like a changelog.
 gsd/M001/S01:
   test(S01): round-trip tests passing
   feat(S01/T03): file writer with round-trip fidelity
-  checkpoint(S01/T03): pre-task
+  chore(S01/T03): auto-commit after task
   feat(S01/T02): markdown parser for plan files
-  checkpoint(S01/T02): pre-task
+  chore(S01/T02): auto-commit after task
   feat(S01/T01): core types and interfaces
-  checkpoint(S01/T01): pre-task
+  chore(S01/T01): auto-commit after task
 ```
 
 ### Commit Conventions
 
 | When | Format | Example |
 |------|--------|---------|
-| Before each task | `checkpoint(S01/T02): pre-task` | Safety net for `git reset` |
+| Auto-commit (dirty state) | `chore(S01/T02): auto-commit after task` | Automatic save of work in progress |
 | After task verified | `feat(S01/T02): <what was built>` | The real work |
 | Plan/docs committed | `docs(S01): add slice plan` | Bundled with first task |
-| Slice squash to main | `feat(M001/S01): <slice title>` | Clean one-liner on main |
+| Slice squash to main | `type(M001/S01): <slice title>` | Type inferred from title (`feat`, `fix`, `docs`, etc.) |
 
 Commit types: `feat`, `fix`, `test`, `refactor`, `docs`, `chore`
 
@@ -601,7 +601,7 @@ Tasks completed:
 
 | Problem | Fix |
 |---------|-----|
-| Bad task | `git reset --hard` to checkpoint on the branch |
+| Bad task | `git reset --hard HEAD~1` to previous commit on the branch |
 | Bad slice | `git revert <squash commit>` on main |
 | UAT failure after merge | Fix tasks on `gsd/M001/S01-fix` branch, squash as `fix(M001/S01): <fix>` |
 

@@ -252,17 +252,18 @@ Branch-per-slice with squash merge. Fully automated.
 
 ```
 main:
-  feat(M001/S03): auth and session management
+  docs(M001/S04): workflow documentation and examples
+  fix(M001/S03): bug fixes and doc corrections
   feat(M001/S02): API endpoints and middleware
   feat(M001/S01): data model and type system
 
-gsd/M001/S01 (preserved):
+gsd/M001/S01 (deleted after merge):
   feat(S01/T03): file writer with round-trip fidelity
   feat(S01/T02): markdown parser for plan files
   feat(S01/T01): core types and interfaces
 ```
 
-One commit per slice on main. Per-task history preserved on branches. Git bisect works. Individual slices are revertable.
+One commit per slice on main. Squash commits are the permanent record — branches are deleted after merge. Git bisect works. Individual slices are revertable.
 
 ### Verification
 

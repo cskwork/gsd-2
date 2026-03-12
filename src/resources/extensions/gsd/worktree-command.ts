@@ -19,6 +19,7 @@ import {
   createWorktree,
   listWorktrees,
   removeWorktree,
+  mergeWorktreeToMain,
   diffWorktreeAll,
   diffWorktreeNumstat,
   getMainBranch,
@@ -28,7 +29,9 @@ import {
   worktreeBranchName,
   worktreePath,
 } from "./worktree-manager.js";
+import { inferCommitType } from "./git-service.js";
 import type { FileLineStat } from "./worktree-manager.js";
+import { execSync } from "node:child_process";
 import { existsSync, realpathSync, readFileSync, readdirSync, rmSync, unlinkSync, utimesSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
@@ -349,12 +352,13 @@ async function handleCreate(
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   try {
+    // Auto-commit dirty files before leaving current workspace (must happen
+    // before createWorktree so the new worktree forks from committed HEAD)
+    const commitMsg = autoCommitCurrentBranch(basePath, "worktree-switch", name);
+
     // Create from the main tree, not from inside another worktree
     const mainBase = originalCwd ?? basePath;
     const info = createWorktree(mainBase, name);
-
-    // Auto-commit dirty files before leaving current workspace
-    const commitMsg = autoCommitCurrentBranch(basePath, "worktree-switch", name);
 
     // Track original cwd before switching
     if (!originalCwd) originalCwd = basePath;
@@ -655,9 +659,8 @@ async function handleMerge(
       return;
     }
 
-    // Switch to the main tree before dispatching the merge.
-    // The LLM needs to run git merge --squash from the main branch, and if
-    // it later removes the worktree, the agent's CWD must not be inside it.
+    // Switch to the main tree before merging.
+    // Must be on the main branch to run git merge --squash.
     if (originalCwd) {
       const prevCwd = process.cwd();
       process.chdir(basePath);
@@ -665,6 +668,45 @@ async function handleMerge(
       originalCwd = null;
     }
 
+    // --- Deterministic merge path (preferred) ---
+    // Try a direct squash-merge first. Only fall back to LLM on conflict.
+    const commitType = inferCommitType(name);
+    const commitMessage = `${commitType}(${name}): merge worktree ${name}`;
+    try {
+      mergeWorktreeToMain(basePath, name, commitMessage);
+      ctx.ui.notify(
+        [
+          `${CLR.ok("✓")} Merged ${CLR.name(name)} → ${CLR.branch(mainBranch)} ${CLR.muted("(deterministic squash)")}`,
+          "",
+          `  ${totalChanges} file${totalChanges === 1 ? "" : "s"} changed, ${CLR.ok(`+${totalAdded}`)} ${RED}-${totalRemoved}${RESET} lines`,
+          `  ${CLR.muted("commit:")} ${commitMessage}`,
+        ].join("\n"),
+        "info",
+      );
+      return;
+    } catch (mergeErr) {
+      const mergeMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+      const isConflict = /conflict/i.test(mergeMsg);
+
+      if (isConflict) {
+        // Abort the failed merge so the working tree is clean for LLM retry
+        try {
+          execSync("git merge --abort", { cwd: basePath, stdio: "pipe" });
+        } catch { /* already clean */ }
+
+        ctx.ui.notify(
+          `${CLR.muted("Deterministic merge hit conflicts — falling back to LLM-guided merge.")}`,
+          "warning",
+        );
+        // Fall through to LLM dispatch below
+      } else {
+        // Non-conflict error — surface it directly, don't fall back
+        ctx.ui.notify(`Failed to merge: ${mergeMsg}`, "error");
+        return;
+      }
+    }
+
+    // --- LLM fallback path (conflict resolution) ---
     // Format file lists for the prompt
     const formatFiles = (files: string[]) =>
       files.length > 0 ? files.map(f => `- \`${f}\``).join("\n") : "_(none)_";

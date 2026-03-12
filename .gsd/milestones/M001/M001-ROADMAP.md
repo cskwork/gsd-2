@@ -58,7 +58,7 @@ This milestone is complete only when all are true:
 - [x] **S02: Wire GitService into codebase** `risk:high` `depends:[S01]`
   > After this: auto.ts and worktree.ts delegate to GitService. Git preferences schema added to preferences.ts. `npm run build` passes. Existing worktree tests still pass.
 
-- [ ] **S03: Bug fixes and doc corrections** `risk:medium` `depends:[S02]`
+- [x] **S03: Bug fixes and doc corrections** `risk:medium` `depends:[S02]`
   > After this: Worktree create commits before fork. Worktree merge uses deterministic helper by default. README and GSD-WORKFLOW match actual branch deletion and snapshot behavior. Build passes.
 
 - [ ] **S04: Remove git commands from prompts** `risk:low` `depends:[S02]`
