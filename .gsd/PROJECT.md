@@ -10,7 +10,7 @@ A single `npm install -g gsd-pi` gives any developer a fully configured, GSD-bra
 
 ## Current State
 
-M001/S01, S02, and S03 complete. `gsd` binary compiles and launches with "gsd" TUI branding. All 11 bundled extensions load without errors. State goes to `~/.gsd/`. `~/.pi/` is untouched. AGENTS.md auto-deployed to `~/.gsd/agent/` on first launch. First-run wizard fires for missing optional keys (Brave/Context7/Jina), stores them with masked input, and skips on subsequent launches. Only S04 (npm publish and install smoke test) remains.
+M001 complete. `gsd-pi` published to npm (v2.3.7). `npm install -g gsd-pi` installs a working `gsd` binary that launches with GSD ASCII art branding, loads all 11 bundled extensions without errors, stores state in `~/.gsd/`, and runs the first-run wizard for optional API keys. All 9 M001 requirements validated. M002 (Branded Installer & Onboarding Experience) is in progress — S01 complete, S02-S03 planned.
 
 Key structural artifact: `pkg/` shim directory — `PI_PACKAGE_DIR` points here (not project root) to avoid pi's `getThemesDir()` collision with our real `src/` dir. Committed; `pkg/dist/modes/interactive/theme/` populated by `npm run copy-themes` at build time.
 
@@ -32,5 +32,6 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 
 ## Milestone Sequence
 
-- [ ] M001: MVP CLI — `npm install -g gsd-pi` installs, launches, and runs with all bundled extensions and first-run setup
+- [x] M001: MVP CLI — `npm install -g gsd-pi` installs, launches, and runs with all bundled extensions and first-run setup
+- [ ] M002: Branded Installer & Onboarding Experience — ASCII logo, postinstall banner, unified onboarding wizard
 - [ ] M003: AI-Driven Test Flows — intent-based YAML test specs the agent writes during development and executes autonomously at UAT time (browser, mac, api targets)
