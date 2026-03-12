@@ -7,6 +7,7 @@ import {
   inferCommitType,
   GitServiceImpl,
   RUNTIME_EXCLUSION_PATHS,
+  VALID_BRANCH_NAME,
   runGit,
   type GitPreferences,
   type CommitOptions,
@@ -1226,6 +1227,68 @@ async function main(): Promise<void> {
     // No snapshot ref should exist
     const refs = run("git for-each-ref refs/gsd/snapshots/", repo);
     assertEq(refs, "", "no snapshot ref when snapshots pref is not set");
+
+    rmSync(repo, { recursive: true, force: true });
+  }
+
+  // ─── VALID_BRANCH_NAME regex ──────────────────────────────────────────
+
+  console.log("\n=== VALID_BRANCH_NAME regex ===");
+
+  {
+    // Valid branch names
+    assert(VALID_BRANCH_NAME.test("main"), "VALID_BRANCH_NAME accepts 'main'");
+    assert(VALID_BRANCH_NAME.test("master"), "VALID_BRANCH_NAME accepts 'master'");
+    assert(VALID_BRANCH_NAME.test("develop"), "VALID_BRANCH_NAME accepts 'develop'");
+    assert(VALID_BRANCH_NAME.test("feature/foo"), "VALID_BRANCH_NAME accepts 'feature/foo'");
+    assert(VALID_BRANCH_NAME.test("release-1.0"), "VALID_BRANCH_NAME accepts 'release-1.0'");
+    assert(VALID_BRANCH_NAME.test("my_branch"), "VALID_BRANCH_NAME accepts 'my_branch'");
+    assert(VALID_BRANCH_NAME.test("v2.0.1"), "VALID_BRANCH_NAME accepts 'v2.0.1'");
+
+    // Invalid / injection attempts
+    assert(!VALID_BRANCH_NAME.test("main; rm -rf /"), "VALID_BRANCH_NAME rejects shell injection");
+    assert(!VALID_BRANCH_NAME.test("main && echo pwned"), "VALID_BRANCH_NAME rejects && injection");
+    assert(!VALID_BRANCH_NAME.test(""), "VALID_BRANCH_NAME rejects empty string");
+    assert(!VALID_BRANCH_NAME.test("branch name"), "VALID_BRANCH_NAME rejects spaces");
+    assert(!VALID_BRANCH_NAME.test("branch`cmd`"), "VALID_BRANCH_NAME rejects backticks");
+    assert(!VALID_BRANCH_NAME.test("branch$(cmd)"), "VALID_BRANCH_NAME rejects $() subshell");
+  }
+
+  // ─── getMainBranch: configured main_branch preference ──────────────────
+
+  console.log("\n=== getMainBranch: configured main_branch ===");
+
+  {
+    const repo = initBranchTestRepo();
+    const svc = new GitServiceImpl(repo, { main_branch: "trunk" });
+
+    assertEq(svc.getMainBranch(), "trunk", "getMainBranch returns configured main_branch preference");
+
+    rmSync(repo, { recursive: true, force: true });
+  }
+
+  // ─── getMainBranch: falls back to auto-detection when not set ──────────
+
+  console.log("\n=== getMainBranch: fallback to auto-detection ===");
+
+  {
+    const repo = initBranchTestRepo();
+    const svc = new GitServiceImpl(repo, {});
+
+    assertEq(svc.getMainBranch(), "main", "getMainBranch falls back to auto-detection when main_branch not set");
+
+    rmSync(repo, { recursive: true, force: true });
+  }
+
+  // ─── getMainBranch: ignores invalid branch names ───────────────────────
+
+  console.log("\n=== getMainBranch: ignores invalid branch name ===");
+
+  {
+    const repo = initBranchTestRepo();
+    const svc = new GitServiceImpl(repo, { main_branch: "main; rm -rf /" });
+
+    assertEq(svc.getMainBranch(), "main", "getMainBranch ignores invalid branch name and falls back to auto-detection");
 
     rmSync(repo, { recursive: true, force: true });
   }
