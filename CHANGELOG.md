@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.10] - 2026-03-12
+
+### Added
+- Branded postinstall experience with animated spinners, progress indicators, and clean summary (#115)
+
+### Fixed
+- Ctrl+Alt shortcuts (dashboard, bg manager, voice) now show slash-command fallback in terminals that lack Kitty keyboard protocol support — macOS Terminal.app, JetBrains IDEs (#100, #104)
+
 ## [2.3.9] - 2026-03-12
 
 ### Added
@@ -175,7 +183,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.3.8...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.3.10...HEAD
+[2.3.10]: https://github.com/gsd-build/gsd-2/compare/v2.3.9...v2.3.10
 [2.3.9]: https://github.com/gsd-build/gsd-2/compare/v2.3.8...v2.3.9
 [2.3.8]: https://github.com/gsd-build/gsd-2/compare/v2.3.7...v2.3.8
 [2.3.7]: https://github.com/gsd-build/gsd-2/compare/v2.3.6...v2.3.7
