@@ -21,6 +21,7 @@ function run(cmd, options = {}) {
     })
   })
 }
+<<<<<<< HEAD
 
 // ---------------------------------------------------------------------------
 // Redirect stdout → stderr so npm always shows postinstall output.
@@ -57,19 +58,46 @@ const banner =
 
   let p, pc
 
+=======
+
+// ---------------------------------------------------------------------------
+// Redirect stdout → stderr so npm always shows postinstall output.
+// npm ≥7 suppresses stdout from lifecycle scripts by default; stderr is
+// always forwarded. Clack writes to process.stdout, so we reroute it.
+// ---------------------------------------------------------------------------
+process.stdout.write = process.stderr.write.bind(process.stderr)
+
+// ---------------------------------------------------------------------------
+// Main — wrapped in async IIFE, with graceful fallback if clack fails
+// ---------------------------------------------------------------------------
+;(async () => {
+  let p, pc
+
+>>>>>>> gsd/M002/S01
   try {
     p = await import('@clack/prompts')
     pc = (await import('picocolors')).default
   } catch {
     // Clack or picocolors unavailable — fall back to minimal output
+<<<<<<< HEAD
     process.stderr.write(`  Run gsd to get started.\n\n`)
     await run('npx patch-package')
     await run('npx playwright install chromium')
+=======
+    process.stderr.write(`\n  GSD v${pkg.version} installed.\n  Run gsd to get started.\n\n`)
+    await run('npx patch-package')
+    const args = os.platform() === 'linux' ? '--with-deps' : ''
+    await run(`npx playwright install chromium ${args}`)
+>>>>>>> gsd/M002/S01
     return
   }
 
   // --- Branded intro -------------------------------------------------------
+<<<<<<< HEAD
   p.intro('Setup')
+=======
+  p.intro(pc.bgCyan(pc.black(' gsd ')) + '  ' + pc.dim(`v${pkg.version}`))
+>>>>>>> gsd/M002/S01
 
   const results = []
   const s = p.spinner()
@@ -89,14 +117,21 @@ const banner =
   }
 
   // --- Step 2: Playwright browser ------------------------------------------
+<<<<<<< HEAD
   // Avoid --with-deps: install scripts should not block on interactive sudo
   // prompts. If Linux libs are missing, suggest the explicit follow-up.
   s.start('Setting up browser tools…')
   const pwResult = await run('npx playwright install chromium')
+=======
+  s.start('Setting up browser tools…')
+  const pwArgs = os.platform() === 'linux' ? ' --with-deps' : ''
+  const pwResult = await run(`npx playwright install chromium${pwArgs}`)
+>>>>>>> gsd/M002/S01
   if (pwResult.ok) {
     s.stop('Browser tools ready')
     results.push({ label: 'Browser tools ready', ok: true })
   } else {
+<<<<<<< HEAD
     const output = `${pwResult.stdout ?? ''}${pwResult.stderr ?? ''}`
     if (os.platform() === 'linux' && output.includes('Host system is missing dependencies to run browsers.')) {
       s.stop(pc.yellow('Browser downloaded, missing Linux deps'))
@@ -111,6 +146,13 @@ const banner =
         ok: false,
       })
     }
+=======
+    s.stop(pc.yellow('Browser tools — skipped (non-fatal)'))
+    results.push({
+      label: 'Browser tools unavailable — run ' + pc.cyan('npx playwright install chromium'),
+      ok: false,
+    })
+>>>>>>> gsd/M002/S01
   }
 
   // --- Summary note --------------------------------------------------------

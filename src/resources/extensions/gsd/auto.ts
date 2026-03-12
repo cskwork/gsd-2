@@ -1634,6 +1634,7 @@ async function buildPlanMilestonePrompt(mid: string, midTitle: string, base: str
 
   const outputRelPath = relMilestoneFile(base, mid, "ROADMAP");
   const outputAbsPath = resolveMilestoneFile(base, mid, "ROADMAP") ?? join(base, outputRelPath);
+  const secretsOutputPath = relMilestoneFile(base, mid, "SECRETS");
   return loadPrompt("plan-milestone", {
     milestoneId: mid, milestoneTitle: midTitle,
     milestonePath: relMilestonePath(base, mid),
@@ -1641,6 +1642,7 @@ async function buildPlanMilestonePrompt(mid: string, midTitle: string, base: str
     researchPath: researchRel,
     outputPath: outputRelPath,
     outputAbsPath,
+    secretsOutputPath,
     inlinedContext,
   });
 }

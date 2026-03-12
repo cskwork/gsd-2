@@ -116,6 +116,26 @@ export interface Continue {
   nextAction: string;
 }
 
+// ─── Secrets Manifest ──────────────────────────────────────────────────────
+
+export type SecretsManifestEntryStatus = 'pending' | 'collected' | 'skipped';
+
+export interface SecretsManifestEntry {
+  key: string;              // e.g. "OPENAI_API_KEY"
+  service: string;          // e.g. "OpenAI"
+  dashboardUrl: string;     // e.g. "https://platform.openai.com/api-keys" — empty if unknown
+  guidance: string[];       // numbered setup steps
+  formatHint: string;       // e.g. "starts with sk-" — empty if unknown
+  status: SecretsManifestEntryStatus;
+  destination: string;      // e.g. "dotenv", "vercel", "convex"
+}
+
+export interface SecretsManifest {
+  milestone: string;        // e.g. "M001"
+  generatedAt: string;      // ISO 8601 timestamp
+  entries: SecretsManifestEntry[];
+}
+
 // ─── GSD State (Derived Dashboard) ────────────────────────────────────────
 
 export interface ActiveRef {

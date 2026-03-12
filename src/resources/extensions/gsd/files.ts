@@ -13,6 +13,7 @@ import type {
   Summary, SummaryFrontmatter, SummaryRequires, FileModified,
   Continue, ContinueFrontmatter, ContinueStatus,
   RequirementCounts,
+  SecretsManifest, SecretsManifestEntry, SecretsManifestEntryStatus,
 } from './types.ts';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -261,6 +262,75 @@ export function parseRoadmap(content: string): Roadmap {
   }
 
   return { title, vision, successCriteria, slices, boundaryMap };
+}
+
+// ─── Secrets Manifest Parser ───────────────────────────────────────────────
+
+const VALID_STATUSES = new Set<SecretsManifestEntryStatus>(['pending', 'collected', 'skipped']);
+
+export function parseSecretsManifest(content: string): SecretsManifest {
+  const milestone = extractBoldField(content, 'Milestone') || '';
+  const generatedAt = extractBoldField(content, 'Generated') || '';
+
+  const h3Sections = extractAllSections(content, 3);
+  const entries: SecretsManifestEntry[] = [];
+
+  for (const [heading, sectionContent] of h3Sections) {
+    const key = heading.trim();
+    if (!key) continue;
+
+    const service = extractBoldField(sectionContent, 'Service') || '';
+    const dashboardUrl = extractBoldField(sectionContent, 'Dashboard') || '';
+    const formatHint = extractBoldField(sectionContent, 'Format hint') || '';
+    const rawStatus = (extractBoldField(sectionContent, 'Status') || 'pending').toLowerCase().trim() as SecretsManifestEntryStatus;
+    const status: SecretsManifestEntryStatus = VALID_STATUSES.has(rawStatus) ? rawStatus : 'pending';
+    const destination = extractBoldField(sectionContent, 'Destination') || 'dotenv';
+
+    // Extract numbered guidance list (lines matching "1. ...", "2. ...", etc.)
+    const guidance: string[] = [];
+    for (const line of sectionContent.split('\n')) {
+      const numMatch = line.match(/^\s*\d+\.\s+(.+)/);
+      if (numMatch) {
+        guidance.push(numMatch[1].trim());
+      }
+    }
+
+    entries.push({ key, service, dashboardUrl, guidance, formatHint, status, destination });
+  }
+
+  return { milestone, generatedAt, entries };
+}
+
+// ─── Secrets Manifest Formatter ───────────────────────────────────────────
+
+export function formatSecretsManifest(manifest: SecretsManifest): string {
+  const lines: string[] = [];
+
+  lines.push('# Secrets Manifest');
+  lines.push('');
+  lines.push(`**Milestone:** ${manifest.milestone}`);
+  lines.push(`**Generated:** ${manifest.generatedAt}`);
+
+  for (const entry of manifest.entries) {
+    lines.push('');
+    lines.push(`### ${entry.key}`);
+    lines.push('');
+    lines.push(`**Service:** ${entry.service}`);
+    if (entry.dashboardUrl) {
+      lines.push(`**Dashboard:** ${entry.dashboardUrl}`);
+    }
+    if (entry.formatHint) {
+      lines.push(`**Format hint:** ${entry.formatHint}`);
+    }
+    lines.push(`**Status:** ${entry.status}`);
+    lines.push(`**Destination:** ${entry.destination}`);
+    lines.push('');
+    for (let i = 0; i < entry.guidance.length; i++) {
+      lines.push(`${i + 1}. ${entry.guidance[i]}`);
+    }
+  }
+
+  return lines.join('\n') + '\n';
 }
 
 // ─── Slice Plan Parser ─────────────────────────────────────────────────────

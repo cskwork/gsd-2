@@ -611,8 +611,9 @@ export async function showSmartEntry(
       });
 
       if (choice === "plan") {
+        const secretsOutputPath = relMilestoneFile(basePath, milestoneId, "SECRETS");
         dispatchWorkflow(pi, loadPrompt("guided-plan-milestone", {
-          milestoneId, milestoneTitle,
+          milestoneId, milestoneTitle, secretsOutputPath,
         }));
       } else if (choice === "discuss") {
         dispatchWorkflow(pi, loadPrompt("guided-discuss-milestone", {
