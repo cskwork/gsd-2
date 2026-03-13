@@ -48,6 +48,8 @@ GSD v2 solves all of these because it's not a prompt framework anymore — it's 
 
 ### Migrating from v1
 
+> **Note:** Migration works best with a `ROADMAP.md` file for milestone structure. Without one, milestones are inferred from the `phases/` directory.
+
 If you have projects with `.planning` directories from the original Get Shit Done, you can migrate them to GSD-2's `.gsd` format:
 
 ```bash
@@ -198,7 +200,7 @@ Both terminals read and write the same `.gsd/` files on disk. Your decisions in 
 
 ### First launch
 
-On first run, GSD prompts for optional API keys (Brave Search, Google Gemini, Context7, Jina) for web research and documentation tools. All optional — press Enter to skip any.
+On first run, GSD launches a branded setup wizard that walks you through LLM provider selection (OAuth or API key), then optional tool API keys (Brave Search, Context7, Jina, Slack, Discord). Every step is skippable — press Enter to skip any. If you have an existing Pi installation, your provider credentials (LLM and tool keys) are imported automatically. Run `gsd config` anytime to re-run the wizard.
 
 ### Commands
 
@@ -221,6 +223,8 @@ On first run, GSD prompts for optional API keys (Brave Search, Google Gemini, Co
 | `Ctrl+Alt+G` | Toggle dashboard overlay |
 | `Ctrl+Alt+V` | Toggle voice transcription |
 | `Ctrl+Alt+B` | Show background shell processes |
+| `gsd config` | Re-run the setup wizard (LLM provider + tool keys) |
+| `gsd --continue` (`-c`) | Resume the most recent session for the current directory |
 
 ---
 
@@ -249,17 +253,18 @@ Branch-per-slice with squash merge. Fully automated.
 
 ```
 main:
-  feat(M001/S03): auth and session management
+  docs(M001/S04): workflow documentation and examples
+  fix(M001/S03): bug fixes and doc corrections
   feat(M001/S02): API endpoints and middleware
   feat(M001/S01): data model and type system
 
-gsd/M001/S01 (preserved):
+gsd/M001/S01 (deleted after merge):
   feat(S01/T03): file writer with round-trip fidelity
   feat(S01/T02): markdown parser for plan files
   feat(S01/T01): core types and interfaces
 ```
 
-One commit per slice on main. Per-task history preserved on branches. Git bisect works. Individual slices are revertable.
+One commit per slice on main. Squash commits are the permanent record — branches are deleted after merge. Git bisect works. Individual slices are revertable.
 
 ### Verification
 
@@ -326,7 +331,7 @@ GSD ships with 13 extensions, all loaded automatically:
 |-----------|-----------------|
 | **GSD** | Core workflow engine, auto mode, commands, dashboard |
 | **Browser Tools** | Playwright-based browser for UI verification |
-| **Search the Web** | Brave Search + Jina page extraction |
+| **Search the Web** | Brave Search, Tavily, or Jina page extraction |
 | **Google Search** | Gemini-powered web search with AI-synthesized answers |
 | **Context7** | Up-to-date library/framework documentation |
 | **Background Shell** | Long-running process management with readiness detection |
@@ -358,7 +363,8 @@ GSD is a TypeScript application that embeds the Pi coding agent SDK.
 gsd (CLI binary)
   └─ loader.ts          Sets PI_PACKAGE_DIR, GSD env vars, dynamic-imports cli.ts
       └─ cli.ts         Wires SDK managers, loads extensions, starts InteractiveMode
-          ├─ wizard.ts       First-run API key collection (Brave/Gemini/Context7/Jina)
+          ├─ onboarding.ts   First-run setup wizard (LLM provider + tool keys)
+          ├─ wizard.ts       Env hydration from stored auth.json credentials
           ├─ app-paths.ts    ~/.gsd/agent/, ~/.gsd/sessions/, auth.json
           ├─ resource-loader.ts  Syncs bundled extensions + agents to ~/.gsd/agent/
           └─ src/resources/
@@ -386,6 +392,7 @@ gsd (CLI binary)
 
 Optional:
 - Brave Search API key (web research)
+- Tavily API key (web research — alternative to Brave)
 - Google Gemini API key (web research via Gemini Search grounding)
 - Context7 API key (library docs)
 - Jina API key (page extraction)

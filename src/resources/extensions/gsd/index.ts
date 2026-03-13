@@ -21,8 +21,8 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
-import { createBashTool, createWriteTool, createReadTool, createEditTool } from "@mariozechner/pi-coding-agent";
+} from "@gsd/pi-coding-agent";
+import { createBashTool, createWriteTool, createReadTool, createEditTool } from "@gsd/pi-coding-agent";
 
 import { registerGSDCommand } from "./commands.js";
 import { registerWorktreeCommand, getWorktreeOriginalCwd, getActiveWorktreeName } from "./worktree-command.js";
@@ -44,10 +44,11 @@ import {
   relSliceFile, relSlicePath, relTaskFile,
   buildSliceFileName, gsdRoot,
 } from "./paths.js";
-import { Key } from "@mariozechner/pi-tui";
+import { Key } from "@gsd/pi-tui";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { Text } from "@mariozechner/pi-tui";
+import { shortcutDesc } from "../shared/terminal.js";
+import { Text } from "@gsd/pi-tui";
 
 // ── ASCII logo ────────────────────────────────────────────────────────────
 const GSD_LOGO_LINES = [
@@ -63,9 +64,20 @@ export default function (pi: ExtensionAPI) {
   registerGSDCommand(pi);
   registerWorktreeCommand(pi);
 
-  // ── /exit — kill the process immediately ──────────────────────────────
+  // ── /exit — graceful exit (cleanup auto-mode, save state) ──────────────
   pi.registerCommand("exit", {
-    description: "Exit GSD immediately",
+    description: "Exit GSD gracefully (saves auto-mode state)",
+    handler: async (_ctx) => {
+      // Gracefully stop auto-mode if running (saves activity log, clears locks)
+      const { stopAuto } = await import("./auto.js");
+      await stopAuto(_ctx, pi);
+      process.exit(0);
+    },
+  });
+
+  // ── /kill — immediate exit (bypass cleanup) ─────────────────────────────
+  pi.registerCommand("kill", {
+    description: "Exit GSD immediately (no cleanup)",
     handler: async (_ctx) => {
       process.exit(0);
     },
@@ -157,14 +169,19 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start: render branded GSD header + remote channel status ──
   pi.on("session_start", async (_event, ctx) => {
-    const theme = ctx.ui.theme;
-    const version = process.env.GSD_VERSION || "0.0.0";
+    // Theme access throws in RPC mode (no TUI) — header is decorative, skip it
+    try {
+      const theme = ctx.ui.theme;
+      const version = process.env.GSD_VERSION || "0.0.0";
 
-    const logoText = GSD_LOGO_LINES.map((line) => theme.fg("accent", line)).join("\n");
-    const titleLine = `  ${theme.bold("Get Shit Done")} ${theme.fg("dim", `v${version}`)}`;
+      const logoText = GSD_LOGO_LINES.map((line) => theme.fg("accent", line)).join("\n");
+      const titleLine = `  ${theme.bold("Get Shit Done")} ${theme.fg("dim", `v${version}`)}`;
 
-    const headerContent = `${logoText}\n${titleLine}`;
-    ctx.ui.setHeader((_ui, _theme) => new Text(headerContent, 1, 0));
+      const headerContent = `${logoText}\n${titleLine}`;
+      ctx.ui.setHeader((_ui, _theme) => new Text(headerContent, 1, 0));
+    } catch {
+      // RPC mode — no TUI, skip header rendering
+    }
 
     // Notify remote questions status if configured
     try {
@@ -185,7 +202,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── Ctrl+Alt+G shortcut — GSD dashboard overlay ────────────────────────
   pi.registerShortcut(Key.ctrlAlt("g"), {
-    description: "Open GSD dashboard",
+    description: shortcutDesc("Open GSD dashboard", "/gsd status"),
     handler: async (ctx) => {
       // Only show if .gsd/ exists
       if (!existsSync(join(process.cwd(), ".gsd"))) {

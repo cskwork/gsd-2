@@ -23,31 +23,32 @@
  *   /bg — interactive process manager overlay
  */
 
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum } from "@gsd/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	Theme,
-} from "@mariozechner/pi-coding-agent";
+} from "@gsd/pi-coding-agent";
 import {
 	truncateHead,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	getShellConfig,
-} from "@mariozechner/pi-coding-agent";
+} from "@gsd/pi-coding-agent";
 import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
 	matchesKey,
 	Key,
-} from "@mariozechner/pi-tui";
+} from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { shortcutDesc } from "../shared/terminal.js";
 import { createRequire } from "node:module";
 
 // ── Windows VT Input Restoration ────────────────────────────────────────────
@@ -2356,7 +2357,7 @@ export default function (pi: ExtensionAPI) {
 	// ── Ctrl+Alt+B shortcut ──────────────────────────────────────────────
 
 	pi.registerShortcut(Key.ctrlAlt("b"), {
-		description: "Open background process manager",
+		description: shortcutDesc("Open background process manager", "/bg"),
 		handler: async (ctx) => {
 			latestCtx = ctx;
 			await ctx.ui.custom<void>(
