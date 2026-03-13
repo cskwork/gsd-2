@@ -27,6 +27,7 @@ export interface GitPreferences {
   pre_merge_check?: boolean | string;
   commit_type?: string;
   main_branch?: string;
+  merge_strategy?: "squash" | "merge";
 }
 
 export const VALID_BRANCH_NAME = /^[a-zA-Z0-9_\-\/.]+$/;
@@ -526,25 +527,33 @@ export class GitServiceImpl {
     // Pull latest main before merging to avoid conflicts from remote changes
     this.git(["pull", "--rebase", "origin", mainBranch], { allowFailure: true });
 
-    // Squash merge — abort cleanly on conflict so the working tree is never
-    // left in a half-merged state (see: merge-bug-fix).
+    // Merge slice branch — strategy is configurable via git.merge_strategy
+    // preference. Default: "squash" (preserves existing behavior).
+    // "merge" uses --no-ff which is more resilient to conflicts from
+    // long-lived branches or frequently-changing .gsd/* artifacts.
+    const strategy = this.prefs.merge_strategy ?? "squash";
+    const mergeArgs = strategy === "merge"
+      ? ["merge", "--no-ff", "-m", message, branch]
+      : ["merge", "--squash", branch];
+
     try {
-      this.git(["merge", "--squash", branch]);
+      this.git(mergeArgs);
     } catch (mergeError) {
-      // git merge --squash exits non-zero on conflict. The working tree now
-      // has conflict markers and a dirty index. Reset to restore a clean state.
+      // Merge exits non-zero on conflict. Reset to restore a clean state.
       this.git(["reset", "--hard", "HEAD"], { allowFailure: true });
       const msg = mergeError instanceof Error ? mergeError.message : String(mergeError);
       throw new Error(
-        `Squash-merge of "${branch}" into "${mainBranch}" failed with conflicts. ` +
+        `${strategy === "merge" ? "Merge" : "Squash-merge"} of "${branch}" into "${mainBranch}" failed with conflicts. ` +
         `Working tree has been reset to a clean state. ` +
-        `Resolve manually: git checkout ${mainBranch} && git merge --squash ${branch}\n` +
+        `Resolve manually: git checkout ${mainBranch} && git merge ${strategy === "merge" ? "--no-ff" : "--squash"} ${branch}\n` +
         `Original error: ${msg}`,
       );
     }
 
-    // Commit with rich message via stdin pipe
-    this.git(["commit", "-F", "-"], { input: message });
+    // Squash merge needs a separate commit; --no-ff merge already committed
+    if (strategy === "squash") {
+      this.git(["commit", "-F", "-"], { input: message });
+    }
 
     // Delete the merged branch
     this.git(["branch", "-D", branch]);
