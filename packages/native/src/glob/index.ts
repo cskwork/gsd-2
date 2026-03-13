@@ -28,7 +28,7 @@ export function glob(
   options: GlobOptions,
   onMatch?: (match: GlobMatch) => void,
 ): Promise<GlobResult> {
-  return native.glob(options, onMatch) as Promise<GlobResult>;
+  return native.glob(options, onMatch as ((match: unknown) => void) | undefined) as Promise<GlobResult>;
 }
 
 /**

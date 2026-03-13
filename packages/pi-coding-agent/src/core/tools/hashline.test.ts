@@ -12,7 +12,7 @@ import {
 	stripNewLinePrefixes,
 	type HashlineEdit,
 	type Anchor,
-} from "./hashline.ts";
+} from "./hashline.js";
 
 function makeTag(line: number, content: string): Anchor {
 	return parseTag(formatLineTag(line, content));
