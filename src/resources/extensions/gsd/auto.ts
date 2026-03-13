@@ -1262,7 +1262,7 @@ async function dispatchNextUnit(
     return;
   }
 
-  await emitObservabilityWarnings(ctx, unitType, unitId);
+  const observabilityIssues = await collectObservabilityWarnings(ctx, unitType, unitId);
 
   // Idempotency: skip units already completed in a prior session.
   const idempotencyKey = `${unitType}/${unitId}`;
@@ -1400,6 +1400,13 @@ async function dispatchNextUnit(
         : diagnostic;
       finalPrompt = `**RETRY — your previous attempt did not produce the required artifact.**\n\nDiagnostic from previous attempt:\n${cappedDiag}\n\nFix whatever went wrong and make sure you write the required file this time.\n\n---\n\n${finalPrompt}`;
     }
+  }
+
+  // Inject observability repair instructions so the agent fixes gaps before
+  // proceeding with the unit (see #174).
+  const repairBlock = buildObservabilityRepairBlock(observabilityIssues);
+  if (repairBlock) {
+    finalPrompt = `${finalPrompt}${repairBlock}`;
   }
 
   // Switch model if preferences specify one for this unit type
@@ -2365,17 +2372,17 @@ function ensurePreconditions(
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-async function emitObservabilityWarnings(
+async function collectObservabilityWarnings(
   ctx: ExtensionContext,
   unitType: string,
   unitId: string,
-): Promise<void> {
+): Promise<import("./observability-validator.ts").ValidationIssue[]> {
   const parts = unitId.split("/");
   const mid = parts[0];
   const sid = parts[1];
   const tid = parts[2];
 
-  if (!mid || !sid) return;
+  if (!mid || !sid) return [];
 
   let issues = [] as Awaited<ReturnType<typeof validatePlanBoundary>>;
 
@@ -2387,12 +2394,38 @@ async function emitObservabilityWarnings(
     issues = await validateCompleteBoundary(basePath, mid, sid);
   }
 
-  if (issues.length === 0) return;
+  if (issues.length > 0) {
+    ctx.ui.notify(
+      `Observability check (${unitType}) found ${issues.length} warning${issues.length === 1 ? "" : "s"}:\n${formatValidationIssues(issues)}`,
+      "warning",
+    );
+  }
 
-  ctx.ui.notify(
-    `Observability check (${unitType}) found ${issues.length} warning${issues.length === 1 ? "" : "s"}:\n${formatValidationIssues(issues)}`,
-    "warning",
-  );
+  return issues;
+}
+
+function buildObservabilityRepairBlock(issues: import("./observability-validator.ts").ValidationIssue[]): string {
+  if (issues.length === 0) return "";
+  const items = issues.map(issue => {
+    const fileName = issue.file.split("/").pop() || issue.file;
+    let line = `- **${fileName}**: ${issue.message}`;
+    if (issue.suggestion) line += ` → ${issue.suggestion}`;
+    return line;
+  });
+  return [
+    "",
+    "---",
+    "",
+    "## Pre-flight: Observability gaps to fix FIRST",
+    "",
+    "The following issues were detected in plan/summary files for this unit.",
+    "**Read each flagged file, apply the fix described, then proceed with the unit.**",
+    "",
+    ...items,
+    "",
+    "---",
+    "",
+  ].join("\n");
 }
 
 async function recoverTimedOutUnit(
