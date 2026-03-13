@@ -67,7 +67,7 @@ This milestone is complete only when all are true:
 - [x] **S03: Screenshot pipeline** `risk:low` `depends:[S01]`
   > After this: constrainScreenshot uses sharp instead of canvas; browser_navigate returns no screenshot by default with an explicit parameter to opt in — verified by build success and running browser_navigate to confirm no screenshot in response.
 
-- [ ] **S04: Form intelligence** `risk:medium` `depends:[S01]`
+- [x] **S04: Form intelligence** `risk:medium` `depends:[S01]`
   > After this: browser_analyze_form returns field inventory (labels, types, required, values, validation) for any form; browser_fill_form fills fields by label/name/placeholder mapping and optionally submits — verified by running both tools against a real multi-field form.
 
 - [ ] **S05: Intent-ranked retrieval and semantic actions** `risk:medium` `depends:[S01]`

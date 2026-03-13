@@ -1,7 +1,7 @@
 # GSD State
 
 **Active Milestone:** M002 — Browser Tools Performance & Intelligence
-**Active Slice:** S04 — Form intelligence
+**Active Slice:** S05 — Intent-ranked retrieval and semantic actions
 **Phase:** planning
 **Requirements Status:** 7 active · 15 validated · 3 deferred · 3 out of scope
 
@@ -16,4 +16,4 @@
 - None
 
 ## Next Action
-Plan slice S04 (Form intelligence).
+Plan slice S05 (Intent-ranked retrieval and semantic actions).

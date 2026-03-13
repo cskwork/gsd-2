@@ -28,24 +28,24 @@ This file is the explicit capability and coverage contract for the project.
 
 ### R022 — Form analysis tool (browser_analyze_form)
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A browser_analyze_form tool that takes a form selector and returns field inventory including: field labels, names, types, required status, current values, validation state, and submit controls.
 - Why it matters: A huge percentage of browser tasks are form tasks. Currently the agent needs 3-8 tool calls to analyze a form. This collapses that into one call.
 - Source: user
 - Primary owning slice: M002/S04
 - Supporting slices: M002/S01
-- Validation: unmapped
+- Validation: browser_analyze_form registered (45 tools total), 7-level label resolution (aria-labelledby → aria-label → label[for] → wrapping label → placeholder → title → humanized name), form auto-detection, fieldset grouping, submit button discovery. Verified end-to-end against 12-field test form with diverse label associations. Build passes.
 - Notes: Must handle label association via for/id, wrapping label, aria-label, aria-labelledby, and placeholder.
 
 ### R023 — Form fill tool (browser_fill_form)
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A browser_fill_form tool that takes a form selector, a values object mapping field identifiers to values, and an optional submit flag. Maps labels/names/placeholders to inputs and fills them.
 - Why it matters: Filling a login form currently takes 3-5 tool calls (find inputs, type email, type password, click submit). This collapses it to one call.
 - Source: user
 - Primary owning slice: M002/S04
 - Supporting slices: M002/S01
-- Validation: unmapped
+- Validation: browser_fill_form registered (45 tools total), 5-strategy field resolution (label exact/loose → name → placeholder → aria-label), type-aware filling via Playwright APIs (fill/selectOption/setChecked), file/hidden skip, ambiguity detection, optional submit, post-fill validation. Verified end-to-end: 10 fields filled correctly, file input skipped, unmatched key reported. Build passes.
 - Notes: Returns matched fields, unmatched values, fields skipped, and validation state after fill.
 
 ### R024 — Intent-ranked element retrieval (browser_find_best)
@@ -343,8 +343,8 @@ This file is the explicit capability and coverage contract for the project.
 | R019 | core-capability | validated | M002/S02 | none | zero_mutation_shortcut settle reason, combined readSettleState poll, 60ms/30ms thresholds in D019 |
 | R020 | core-capability | validated | M002/S03 | M002/S01 | sharp-based constrainScreenshot, zero page.evaluate in capture.ts, build passes |
 | R021 | core-capability | validated | M002/S03 | none | screenshot param default false, capture gated, browser_reload unchanged, build passes |
-| R022 | core-capability | active | M002/S04 | M002/S01 | unmapped |
-| R023 | core-capability | active | M002/S04 | M002/S01 | unmapped |
+| R022 | core-capability | validated | M002/S04 | M002/S01 | 7-level label resolution, form auto-detection, verified against 12-field test form |
+| R023 | core-capability | validated | M002/S04 | M002/S01 | 5-strategy field resolution, type-aware fill, verified end-to-end with 10 fields |
 | R024 | core-capability | active | M002/S05 | M002/S01 | unmapped |
 | R025 | core-capability | active | M002/S05 | M002/S04 | unmapped |
 | R026 | quality-attribute | active | M002/S06 | all M002 | unmapped |
@@ -353,8 +353,8 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 5
-- Validated requirements: 17
+- Active requirements: 3
+- Validated requirements: 19
 - Deferred requirements: 3
 - Out of scope: 3
-- Unmapped active requirements: 5
+- Unmapped active requirements: 3

@@ -16,7 +16,7 @@ The GSD extension is fully functional with:
 - Guided `/gsd` wizard flow
 - `secure_env_collect` tool with masked TUI input, multi-destination write support, guidance display, and summary screen
 - Proactive secret management: planning prompts forecast secrets, manifests persist them, auto-mode collects them before first dispatch
-- Browser-tools extension with 43 registered tools covering navigation, interaction, inspection, verification, tracing, and debugging
+- Browser-tools extension with 45 registered tools covering navigation, interaction, inspection, verification, tracing, debugging, and form intelligence (browser_analyze_form, browser_fill_form)
 - Browser-tools `core.js` with shared utilities for action timeline, page registry, state diffing, assertions, fingerprinting
 
 ## Architecture / Key Patterns
@@ -26,7 +26,7 @@ The GSD extension is fully functional with:
 - **Secrets gate**: `startAuto()` checks `getManifestStatus()` before first dispatch
 - **Disk-driven state**: `.gsd/` files are the source of truth, `STATE.md` is derived cache
 - **File parsing**: `files.ts` has markdown parsers for all GSD file types
-- **Browser-tools**: Modular structure — slim `index.ts` orchestrator (47 lines), 8 focused infrastructure modules (state.ts, utils.ts, evaluate-helpers.ts, lifecycle.ts, capture.ts, settle.ts, refs.ts), 9 categorized tool files under `tools/`, shared infrastructure in `core.js` (~1000 lines). Browser-side utilities injected once via `addInitScript` under `window.__pi` namespace. Uses Playwright for browser control. Accessibility-first state representation, deterministic versioned refs, adaptive DOM settling, compact post-action summaries.
+- **Browser-tools**: Modular structure — slim `index.ts` orchestrator, 8 focused infrastructure modules (state.ts, utils.ts, evaluate-helpers.ts, lifecycle.ts, capture.ts, settle.ts, refs.ts), 10 categorized tool files under `tools/` (including forms.ts), shared infrastructure in `core.js` (~1000 lines). Browser-side utilities injected once via `addInitScript` under `window.__pi` namespace. Uses Playwright for browser control. Accessibility-first state representation, deterministic versioned refs, adaptive DOM settling, compact post-action summaries. Form tools use Playwright locator APIs for type-aware filling with structured result reporting.
 - **Prompt templates**: `prompts/` directory with mustache-like `{{var}}` substitution
 - **TUI components**: `@gsd/pi-tui` provides `Editor`, `Text`, key handling, themes
 - **Branch-per-slice**: git branches isolate slice work, squash-merged to main on completion

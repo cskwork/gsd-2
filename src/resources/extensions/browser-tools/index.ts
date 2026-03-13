@@ -15,6 +15,7 @@ import { registerAssertionTools } from "./tools/assertions.js";
 import { registerRefTools } from "./tools/refs.js";
 import { registerWaitTools } from "./tools/wait.js";
 import { registerPageTools } from "./tools/pages.js";
+import { registerFormTools } from "./tools/forms.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => { await closeBrowser(); });
@@ -44,4 +45,5 @@ export default function (pi: ExtensionAPI) {
 	registerSessionTools(pi, deps);     registerAssertionTools(pi, deps);
 	registerRefTools(pi, deps);         registerWaitTools(pi, deps);
 	registerPageTools(pi, deps);
+	registerFormTools(pi, deps);
 }
