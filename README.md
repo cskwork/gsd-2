@@ -330,7 +330,7 @@ budget_ceiling: 50.00
 
 ### Bundled Tools
 
-GSD ships with 13 extensions, all loaded automatically:
+GSD ships with 14 extensions, all loaded automatically:
 
 | Extension | What it provides |
 |-----------|-----------------|
@@ -345,6 +345,7 @@ GSD ships with 13 extensions, all loaded automatically:
 | **MCPorter** | Lazy on-demand MCP server integration |
 | **Voice** | Real-time speech-to-text transcription (macOS) |
 | **Slash Commands** | Custom command creation |
+| **LSP** | Language Server Protocol integration — diagnostics, go-to-definition, references, hover, symbols, rename, code actions |
 | **Ask User Questions** | Structured user input with single/multi-select |
 | **Secure Env Collect** | Masked secret collection without manual .env editing |
 
