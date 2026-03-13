@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.10.2] - 2026-03-13
+
+### Added
+- Native Rust TTSR regex engine — pre-compiles all stream rule conditions into a single `RegexSet` for one-pass DFA matching instead of O(rules × conditions) JS regex iteration
+- Native Rust diff engine — fuzzy text matching (`fuzzyFindText`, `normalizeForFuzzyMatch`) and unified diff generation (`generateDiff`) via the `similar` crate, replacing the `diff` npm package
+- Native Rust GSD file parser — frontmatter parsing, section extraction, batch `.gsd/` directory parsing, and structured roadmap parsing with transparent JS fallback
+
 ## [2.10.1] - 2026-03-13
 
 ### Fixed
@@ -395,7 +402,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.10.1...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.10.2...HEAD
+[2.10.2]: https://github.com/gsd-build/gsd-2/compare/v2.10.1...v2.10.2
 [2.10.1]: https://github.com/gsd-build/gsd-2/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/gsd-build/gsd-2/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/gsd-build/gsd-2/compare/v2.8.3...v2.9.0
