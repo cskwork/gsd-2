@@ -25,6 +25,7 @@
     "pkg",
     "src/resources",
     "scripts/postinstall.js",
+    "native/addon",
     "package.json",
     "README.md"
   ],

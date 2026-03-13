@@ -33,10 +33,19 @@ function loadNative(): Record<string, unknown> {
   }
 
   const details = errors.map((e) => `  - ${e}`).join("\n");
+  const supportedPlatforms = [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-x64",
+    "linux-arm64",
+    "win32-x64",
+  ];
   throw new Error(
     `Failed to load gsd_engine native addon for ${platformTag}.\n\n` +
       `Tried:\n${details}\n\n` +
-      `Build with: npm run build:native -w @gsd/native`,
+      `Supported platforms: ${supportedPlatforms.join(", ")}\n` +
+      `If your platform is listed, try reinstalling: npm i -g gsd-pi\n` +
+      `Otherwise, please open an issue: https://github.com/gsd-build/gsd-2/issues`,
   );
 }
 
