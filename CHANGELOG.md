@@ -6,7 +6,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [2.10.3] - 2026-03-13
+## [2.10.4] - 2026-03-13
 
 ### Fixed
 - Native binary distribution — `.node` binaries were missing from the npm tarball, causing startup crashes on all platforms since v2.10.0
@@ -413,8 +413,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.10.3...HEAD
-[2.10.3]: https://github.com/gsd-build/gsd-2/compare/v2.10.2...v2.10.3
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.10.4...HEAD
+[2.10.4]: https://github.com/gsd-build/gsd-2/compare/v2.10.2...v2.10.4
 [2.10.2]: https://github.com/gsd-build/gsd-2/compare/v2.10.1...v2.10.2
 [2.10.1]: https://github.com/gsd-build/gsd-2/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/gsd-build/gsd-2/compare/v2.9.0...v2.10.0
