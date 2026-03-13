@@ -50,24 +50,24 @@ This file is the explicit capability and coverage contract for the project.
 
 ### R024 — Intent-ranked element retrieval (browser_find_best)
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A browser_find_best tool that takes an intent string (e.g. "submit form", "close dialog", "primary CTA") and returns scored candidates with reasons, using deterministic heuristic ranking.
 - Why it matters: The agent frequently needs "which button submits this form?" Currently it does browser_find → gets 15 candidates → reasons about which one. A heuristic ranker cuts a round trip and reduces reasoning tokens.
 - Source: user
 - Primary owning slice: M002/S05
 - Supporting slices: M002/S01
-- Validation: unmapped
+- Validation: 8 intents implemented with 4-dimension scoring (submit_form, close_dialog, primary_cta, search_field, next_step, dismiss, auth_action, back_navigation). Each returns up to 5 candidates sorted by score with CSS selectors and reason strings. Intent normalization accepts underscores/spaces/hyphens. Verified via Playwright tests against real HTML pages with differentiated rankings. Build passes, tool count = 47.
 - Notes: Deterministic heuristics only. No hidden LLM calls.
 
 ### R025 — Semantic action tool (browser_act)
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A browser_act tool that takes a semantic intent (e.g. "submit the current form", "close the active modal", "click the primary CTA") and executes the obvious action sequence internally.
 - Why it matters: Each of these common micro-tasks currently takes 2-4 tool calls. browser_act collapses them into one.
 - Source: user
 - Primary owning slice: M002/S05
 - Supporting slices: M002/S04
-- Validation: unmapped
+- Validation: Resolves top candidate via same scoring engine as browser_find_best. Executes via Playwright locator.click() with getByRole fallback (focus for search_field). Settles via settleAfterActionAdaptive, returns before/after diff. Zero-candidate returns isError:true without throwing. Verified via Playwright test scripts. Build passes, tool count = 47.
 - Notes: Builds on browser_find_best for element selection. Bounded — does not loop or retry.
 
 ### R026 — Test coverage for new and refactored code
@@ -345,16 +345,16 @@ This file is the explicit capability and coverage contract for the project.
 | R021 | core-capability | validated | M002/S03 | none | screenshot param default false, capture gated, browser_reload unchanged, build passes |
 | R022 | core-capability | validated | M002/S04 | M002/S01 | 7-level label resolution, form auto-detection, verified against 12-field test form |
 | R023 | core-capability | validated | M002/S04 | M002/S01 | 5-strategy field resolution, type-aware fill, verified end-to-end with 10 fields |
-| R024 | core-capability | active | M002/S05 | M002/S01 | unmapped |
-| R025 | core-capability | active | M002/S05 | M002/S04 | unmapped |
+| R024 | core-capability | validated | M002/S05 | M002/S01 | 8-intent scoring, Playwright tests, differentiated rankings, build passes |
+| R025 | core-capability | validated | M002/S05 | M002/S04 | top candidate execution via Playwright locator, settle + diff, graceful error, build passes |
 | R026 | quality-attribute | active | M002/S06 | all M002 | unmapped |
 | R027 | core-capability | deferred | none | none | unmapped |
 | R028 | anti-feature | out-of-scope | none | none | n/a |
 
 ## Coverage Summary
 
-- Active requirements: 3
-- Validated requirements: 19
+- Active requirements: 1
+- Validated requirements: 21
 - Deferred requirements: 3
 - Out of scope: 3
 - Unmapped active requirements: 3

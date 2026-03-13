@@ -70,7 +70,7 @@ This milestone is complete only when all are true:
 - [x] **S04: Form intelligence** `risk:medium` `depends:[S01]`
   > After this: browser_analyze_form returns field inventory (labels, types, required, values, validation) for any form; browser_fill_form fills fields by label/name/placeholder mapping and optionally submits — verified by running both tools against a real multi-field form.
 
-- [ ] **S05: Intent-ranked retrieval and semantic actions** `risk:medium` `depends:[S01]`
+- [x] **S05: Intent-ranked retrieval and semantic actions** `risk:medium` `depends:[S01]`
   > After this: browser_find_best returns scored candidates for intents like "submit form", "close dialog", "primary CTA"; browser_act executes common micro-tasks in one call — verified by running both tools against real pages.
 
 - [ ] **S06: Test coverage** `risk:low` `depends:[S01,S02,S03,S04,S05]`

@@ -16,6 +16,7 @@ import { registerRefTools } from "./tools/refs.js";
 import { registerWaitTools } from "./tools/wait.js";
 import { registerPageTools } from "./tools/pages.js";
 import { registerFormTools } from "./tools/forms.js";
+import { registerIntentTools } from "./tools/intent.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => { await closeBrowser(); });
@@ -46,4 +47,5 @@ export default function (pi: ExtensionAPI) {
 	registerRefTools(pi, deps);         registerWaitTools(pi, deps);
 	registerPageTools(pi, deps);
 	registerFormTools(pi, deps);
+	registerIntentTools(pi, deps);
 }

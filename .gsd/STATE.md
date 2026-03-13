@@ -1,7 +1,7 @@
 # GSD State
 
 **Active Milestone:** M002 — Browser Tools Performance & Intelligence
-**Active Slice:** S05 — Intent-ranked retrieval and semantic actions
+**Active Slice:** S06 — Test coverage
 **Phase:** planning
 **Requirements Status:** 7 active · 15 validated · 3 deferred · 3 out of scope
 
@@ -16,4 +16,4 @@
 - None
 
 ## Next Action
-Plan slice S05 (Intent-ranked retrieval and semantic actions).
+Plan slice S06 (Test coverage).
