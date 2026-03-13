@@ -48,7 +48,7 @@ import {
   validateCompleteBoundary,
   formatValidationIssues,
 } from "./observability-validator.js";
-import { ensureGitignore } from "./gitignore.js";
+import { ensureGitignore, untrackRuntimeFiles } from "./gitignore.js";
 import { runGSDDoctor, rebuildState } from "./doctor.js";
 import { snapshotSkills, clearSkillSnapshot } from "./skill-discovery.js";
 import {
@@ -381,6 +381,7 @@ export async function startAuto(
 
   // Ensure .gitignore has baseline patterns
   ensureGitignore(base);
+  untrackRuntimeFiles(base);
 
   // Bootstrap .gsd/ if it doesn't exist
   const gsdDir = join(base, ".gsd");
