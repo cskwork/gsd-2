@@ -21,7 +21,7 @@ import {
 import { join } from "node:path";
 import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
-import { ensureGitignore, ensurePreferences } from "./gitignore.js";
+import { ensureGitignore, ensurePreferences, untrackRuntimeFiles } from "./gitignore.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 import { showConfirm } from "../shared/confirm-ui.js";
 
@@ -457,6 +457,7 @@ export async function showSmartEntry(
 
   // ── Ensure .gitignore has baseline patterns ──────────────────────────
   ensureGitignore(basePath);
+  untrackRuntimeFiles(basePath);
 
   // ── No GSD project OR no milestone → Create first/next milestone ────
   if (!existsSync(join(basePath, ".gsd"))) {
