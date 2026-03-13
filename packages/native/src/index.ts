@@ -2,8 +2,16 @@
  * @gsd/native — High-performance Rust modules exposed via N-API.
  *
  * Modules:
+ * - clipboard: native clipboard access (text + image)
  * - grep: ripgrep-backed regex search (content + filesystem)
  */
+
+export {
+  copyToClipboard,
+  readTextFromClipboard,
+  readImageFromClipboard,
+} from "./clipboard/index.js";
+export type { ClipboardImage } from "./clipboard/index.js";
 
 export { searchContent, grep } from "./grep/index.js";
 export type {
