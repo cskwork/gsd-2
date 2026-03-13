@@ -112,6 +112,15 @@ function findMilestoneIds(basePath: string): string[] {
   }
 }
 
+/** Derive the next milestone ID from existing IDs using max-based approach to avoid collisions after deletions. */
+function nextMilestoneId(milestoneIds: string[]): string {
+  const maxNum = milestoneIds.reduce((max, id) => {
+    const num = parseInt(id.replace(/^M/, ""), 10);
+    return num > max ? num : max;
+  }, 0);
+  return `M${String(maxNum + 1).padStart(3, "0")}`;
+}
+
 // ─── Queue ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -157,7 +166,7 @@ export async function showQueue(
     const num = parseInt(id.replace(/^M/, ""), 10);
     return num > max ? num : max;
   }, 0);
-  const nextId = `M${String(maxNum + 1).padStart(3, "0")}`;
+  const nextId = nextMilestoneId(milestoneIds);
   const nextIdPlus1 = `M${String(maxNum + 2).padStart(3, "0")}`;
 
   // ── Build preamble ──────────────────────────────────────────────────
@@ -508,7 +517,7 @@ export async function showSmartEntry(
     }
 
     const milestoneIds = findMilestoneIds(basePath);
-    const nextId = `M${String(milestoneIds.length + 1).padStart(3, "0")}`;
+    const nextId = nextMilestoneId(milestoneIds);
     const isFirst = milestoneIds.length === 0;
 
     if (isFirst) {
@@ -570,7 +579,7 @@ export async function showSmartEntry(
 
     if (choice === "new_milestone") {
       const milestoneIds = findMilestoneIds(basePath);
-      const nextId = `M${String(milestoneIds.length + 1).padStart(3, "0")}`;
+      const nextId = nextMilestoneId(milestoneIds);
 
       pendingAutoStart = { ctx, pi, basePath, milestoneId: nextId, step: stepMode };
       dispatchWorkflow(pi, buildDiscussPrompt(nextId,
@@ -638,7 +647,7 @@ export async function showSmartEntry(
         }));
       } else if (choice === "skip_milestone") {
         const milestoneIds = findMilestoneIds(basePath);
-        const nextId = `M${String(milestoneIds.length + 1).padStart(3, "0")}`;
+        const nextId = nextMilestoneId(milestoneIds);
         pendingAutoStart = { ctx, pi, basePath, milestoneId: nextId, step: stepMode };
         dispatchWorkflow(pi, buildDiscussPrompt(nextId,
           `New milestone ${nextId}.`,
