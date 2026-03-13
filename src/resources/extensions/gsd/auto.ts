@@ -18,9 +18,10 @@ import type {
 
 import { deriveState } from "./state.js";
 import type { GSDState } from "./types.js";
-import { loadFile, parseContinue, parsePlan, parseRoadmap, parseSummary, extractUatType, inlinePriorMilestoneSummary } from "./files.js";
+import { loadFile, parseContinue, parsePlan, parseRoadmap, parseSummary, extractUatType, inlinePriorMilestoneSummary, getManifestStatus } from "./files.js";
 export { inlinePriorMilestoneSummary };
 import type { UatType } from "./files.js";
+import { collectSecretsFromManifest } from "../get-secrets-from-user.js";
 import { loadPrompt } from "./prompt-loader.js";
 import {
   gsdRoot, resolveMilestoneFile, resolveSliceFile, resolveSlicePath,
@@ -473,6 +474,24 @@ export async function startAuto(
     ? `Will loop through ${pendingCount} milestones.`
     : "Will loop until milestone complete.";
   ctx.ui.notify(`${modeLabel} started. ${scopeMsg}`, "info");
+
+  // Secrets collection gate — collect pending secrets before first dispatch
+  const mid = state.activeMilestone.id;
+  try {
+    const manifestStatus = await getManifestStatus(base, mid);
+    if (manifestStatus && manifestStatus.pending.length > 0) {
+      const result = await collectSecretsFromManifest(base, mid, ctx);
+      ctx.ui.notify(
+        `Secrets collected: ${result.applied.length} applied, ${result.skipped.length} skipped, ${result.existingSkipped.length} already set.`,
+        "info",
+      );
+    }
+  } catch (err) {
+    ctx.ui.notify(
+      `Secrets collection error: ${err instanceof Error ? err.message : String(err)}`,
+      "warning",
+    );
+  }
 
   // Self-heal: clear stale runtime records where artifacts already exist
   await selfHealRuntimeRecords(base, ctx);

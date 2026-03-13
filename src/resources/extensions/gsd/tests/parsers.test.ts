@@ -1489,6 +1489,196 @@ console.log('\n=== parseSecretsManifest + formatSecretsManifest: round-trip ==='
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LLM-style round-trip tests — realistic manifest variations
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== LLM round-trip: extra whitespace ===');
+{
+  // LLMs often produce inconsistent indentation and trailing spaces
+  const messy = `# Secrets Manifest
+
+**Milestone:**   M010  
+**Generated:**   2025-07-01T12:00:00Z  
+
+###   OPENAI_API_KEY  
+
+**Service:**   OpenAI  
+**Dashboard:**   https://platform.openai.com/api-keys  
+**Format hint:**   starts with sk-  
+**Status:**   pending  
+**Destination:**   dotenv  
+
+1.   Go to the API keys page  
+2.   Create a new key  
+
+###   REDIS_URL  
+
+**Service:**   Upstash  
+**Status:**   collected  
+**Destination:**   vercel  
+
+1.   Open console  
+`;
+
+  const parsed1 = parseSecretsManifest(messy);
+  const formatted = formatSecretsManifest(parsed1);
+  const parsed2 = parseSecretsManifest(formatted);
+
+  assertEq(parsed2.milestone, parsed1.milestone, 'whitespace round-trip milestone');
+  assertEq(parsed2.generatedAt, parsed1.generatedAt, 'whitespace round-trip generatedAt');
+  assertEq(parsed2.entries.length, parsed1.entries.length, 'whitespace round-trip entry count');
+  assertEq(parsed2.entries.length, 2, 'whitespace: two entries parsed');
+
+  for (let i = 0; i < parsed1.entries.length; i++) {
+    const e1 = parsed1.entries[i];
+    const e2 = parsed2.entries[i];
+    assertEq(e2.key, e1.key, `whitespace round-trip entry ${i} key`);
+    assertEq(e2.service, e1.service, `whitespace round-trip entry ${i} service`);
+    assertEq(e2.dashboardUrl, e1.dashboardUrl, `whitespace round-trip entry ${i} dashboardUrl`);
+    assertEq(e2.formatHint, e1.formatHint, `whitespace round-trip entry ${i} formatHint`);
+    assertEq(e2.status, e1.status, `whitespace round-trip entry ${i} status`);
+    assertEq(e2.destination, e1.destination, `whitespace round-trip entry ${i} destination`);
+    assertEq(e2.guidance.length, e1.guidance.length, `whitespace round-trip entry ${i} guidance length`);
+    for (let j = 0; j < e1.guidance.length; j++) {
+      assertEq(e2.guidance[j], e1.guidance[j], `whitespace round-trip entry ${i} guidance[${j}]`);
+    }
+  }
+
+  // Verify the parser correctly stripped trailing whitespace
+  assertEq(parsed1.milestone, 'M010', 'whitespace: milestone trimmed');
+  assertEq(parsed1.entries[0].key, 'OPENAI_API_KEY', 'whitespace: key trimmed');
+  assertEq(parsed1.entries[0].service, 'OpenAI', 'whitespace: service trimmed');
+}
+
+console.log('\n=== LLM round-trip: missing optional fields ===');
+{
+  // LLMs may omit Dashboard and Format hint lines entirely
+  const minimal = `# Secrets Manifest
+
+**Milestone:** M011
+**Generated:** 2025-07-02T08:00:00Z
+
+### DATABASE_URL
+
+**Service:** Neon
+**Status:** pending
+**Destination:** dotenv
+
+1. Create a Neon project
+2. Copy connection string
+
+### WEBHOOK_SECRET
+
+**Service:** Stripe
+**Status:** collected
+**Destination:** dotenv
+
+1. Go to webhooks
+`;
+
+  const parsed1 = parseSecretsManifest(minimal);
+
+  // Verify missing optional fields get defaults
+  assertEq(parsed1.entries[0].dashboardUrl, '', 'missing-optional: no dashboard → empty string');
+  assertEq(parsed1.entries[0].formatHint, '', 'missing-optional: no format hint → empty string');
+  assertEq(parsed1.entries[1].dashboardUrl, '', 'missing-optional: entry 2 no dashboard → empty string');
+  assertEq(parsed1.entries[1].formatHint, '', 'missing-optional: entry 2 no format hint → empty string');
+
+  // Round-trip: formatter omits empty optional fields, re-parse preserves defaults
+  const formatted = formatSecretsManifest(parsed1);
+  const parsed2 = parseSecretsManifest(formatted);
+
+  assertEq(parsed2.entries.length, parsed1.entries.length, 'missing-optional round-trip entry count');
+
+  for (let i = 0; i < parsed1.entries.length; i++) {
+    const e1 = parsed1.entries[i];
+    const e2 = parsed2.entries[i];
+    assertEq(e2.key, e1.key, `missing-optional round-trip entry ${i} key`);
+    assertEq(e2.service, e1.service, `missing-optional round-trip entry ${i} service`);
+    assertEq(e2.dashboardUrl, e1.dashboardUrl, `missing-optional round-trip entry ${i} dashboardUrl`);
+    assertEq(e2.formatHint, e1.formatHint, `missing-optional round-trip entry ${i} formatHint`);
+    assertEq(e2.status, e1.status, `missing-optional round-trip entry ${i} status`);
+    assertEq(e2.destination, e1.destination, `missing-optional round-trip entry ${i} destination`);
+    assertEq(e2.guidance.length, e1.guidance.length, `missing-optional round-trip entry ${i} guidance length`);
+  }
+}
+
+console.log('\n=== LLM round-trip: extra blank lines ===');
+{
+  // LLMs sometimes insert excessive blank lines between sections
+  const blanky = `# Secrets Manifest
+
+
+**Milestone:** M012
+**Generated:** 2025-07-03T14:00:00Z
+
+
+
+### API_KEY_ONE
+
+
+**Service:** ServiceOne
+**Dashboard:** https://one.example.com
+
+
+**Format hint:** key_...
+**Status:** pending
+**Destination:** dotenv
+
+
+
+1. Go to settings
+
+
+2. Generate key
+
+
+
+### API_KEY_TWO
+
+
+
+**Service:** ServiceTwo
+**Status:** skipped
+**Destination:** dotenv
+
+
+1. Not needed
+`;
+
+  const parsed1 = parseSecretsManifest(blanky);
+
+  assertEq(parsed1.entries.length, 2, 'blank-lines: two entries parsed');
+  assertEq(parsed1.milestone, 'M012', 'blank-lines: milestone parsed');
+  assertEq(parsed1.entries[0].key, 'API_KEY_ONE', 'blank-lines: first key');
+  assertEq(parsed1.entries[0].guidance.length, 2, 'blank-lines: first entry guidance count');
+  assertEq(parsed1.entries[1].key, 'API_KEY_TWO', 'blank-lines: second key');
+  assertEq(parsed1.entries[1].status, 'skipped', 'blank-lines: second entry status');
+
+  // Round-trip produces clean output
+  const formatted = formatSecretsManifest(parsed1);
+  const parsed2 = parseSecretsManifest(formatted);
+
+  assertEq(parsed2.entries.length, parsed1.entries.length, 'blank-lines round-trip entry count');
+
+  for (let i = 0; i < parsed1.entries.length; i++) {
+    const e1 = parsed1.entries[i];
+    const e2 = parsed2.entries[i];
+    assertEq(e2.key, e1.key, `blank-lines round-trip entry ${i} key`);
+    assertEq(e2.service, e1.service, `blank-lines round-trip entry ${i} service`);
+    assertEq(e2.dashboardUrl, e1.dashboardUrl, `blank-lines round-trip entry ${i} dashboardUrl`);
+    assertEq(e2.formatHint, e1.formatHint, `blank-lines round-trip entry ${i} formatHint`);
+    assertEq(e2.status, e1.status, `blank-lines round-trip entry ${i} status`);
+    assertEq(e2.destination, e1.destination, `blank-lines round-trip entry ${i} destination`);
+    assertEq(e2.guidance.length, e1.guidance.length, `blank-lines round-trip entry ${i} guidance length`);
+  }
+
+  // Verify the formatted output is cleaner (fewer consecutive blank lines)
+  const consecutiveBlanks = formatted.match(/\n{4,}/g);
+  assert(consecutiveBlanks === null, 'blank-lines: formatted output has no 4+ consecutive newlines');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Results
 // ═══════════════════════════════════════════════════════════════════════════
 

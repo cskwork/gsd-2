@@ -136,6 +136,13 @@ export interface SecretsManifest {
   entries: SecretsManifestEntry[];
 }
 
+export interface ManifestStatus {
+  pending: string[];    // manifest status = pending AND not in env
+  collected: string[];  // manifest status = collected AND not in env
+  skipped: string[];    // manifest status = skipped
+  existing: string[];   // key present in .env or process.env (regardless of manifest status)
+}
+
 // ─── GSD State (Derived Dashboard) ────────────────────────────────────────
 
 export interface ActiveRef {

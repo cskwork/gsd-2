@@ -4,7 +4,7 @@
 // Pure functions, zero Pi dependencies — uses only Node built-ins.
 
 import { promises as fs, readdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { milestonesDir, resolveMilestoneFile, relMilestoneFile } from './paths.js';
 
 import type {
@@ -14,7 +14,10 @@ import type {
   Continue, ContinueFrontmatter, ContinueStatus,
   RequirementCounts,
   SecretsManifest, SecretsManifestEntry, SecretsManifestEntryStatus,
+  ManifestStatus,
 } from './types.ts';
+
+import { checkExistingEnvKeys } from '../get-secrets-from-user.ts';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -799,4 +802,45 @@ export async function inlinePriorMilestoneSummary(mid: string, base: string): Pr
   const content = absPath ? await loadFile(absPath) : null;
   if (!content) return null;
   return `### Prior Milestone Summary\nSource: \`${relPath}\`\n\n${content.trim()}`;
+}
+
+// ─── Manifest Status ──────────────────────────────────────────────────────
+
+/**
+ * Read a secrets manifest from disk and cross-reference each entry's status
+ * with the current environment (.env + process.env).
+ *
+ * Returns `null` when no manifest file exists (path resolution failure or
+ * file not on disk) — callers can distinguish "no manifest" from "empty manifest".
+ */
+export async function getManifestStatus(
+  base: string, milestoneId: string,
+): Promise<ManifestStatus | null> {
+  const resolvedPath = resolveMilestoneFile(base, milestoneId, 'SECRETS');
+  if (!resolvedPath) return null;
+
+  const content = await loadFile(resolvedPath);
+  if (!content) return null;
+
+  const manifest = parseSecretsManifest(content);
+  const keys = manifest.entries.map(e => e.key);
+  const existingKeys = await checkExistingEnvKeys(keys, resolve(base, '.env'));
+  const existingSet = new Set(existingKeys);
+
+  const result: ManifestStatus = {
+    pending: [],
+    collected: [],
+    skipped: [],
+    existing: [],
+  };
+
+  for (const entry of manifest.entries) {
+    if (existingSet.has(entry.key)) {
+      result.existing.push(entry.key);
+    } else {
+      result[entry.status].push(entry.key);
+    }
+  }
+
+  return result;
 }
