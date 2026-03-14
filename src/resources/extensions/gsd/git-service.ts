@@ -694,31 +694,60 @@ export class GitServiceImpl {
       const conflicted = this.git(["diff", "--name-only", "--diff-filter=U"], { allowFailure: true });
       if (conflicted) {
         const conflictedFiles = conflicted.split("\n").filter(Boolean);
-        const allGsd = conflictedFiles.every(f => f.startsWith(".gsd/"));
-        const allRuntime = conflictedFiles.every(f =>
-          RUNTIME_EXCLUSION_PATHS.some(excl => f.startsWith(excl.replace(/\/$/, ""))),
+        const isRuntimeConflict = (f: string) =>
+          RUNTIME_EXCLUSION_PATHS.some(excl => f.startsWith(excl.replace(/\/$/, "")));
+
+        const runtimeConflicts = conflictedFiles.filter(isRuntimeConflict);
+        const gsdConflicts = conflictedFiles.filter(f => f.startsWith(".gsd/") && !isRuntimeConflict(f));
+        const otherConflicts = conflictedFiles.filter(
+          f => !isRuntimeConflict(f) && !f.startsWith(".gsd/"),
         );
-        if (allRuntime) {
-          // Runtime-only conflicts: take ours and remove from index
-          for (const f of conflictedFiles) {
+
+        let resolvedAny = false;
+
+        if (runtimeConflicts.length > 0) {
+          // Runtime conflicts: take theirs and remove from index
+          for (const f of runtimeConflicts) {
             this.git(["checkout", "--theirs", "--", f], { allowFailure: true });
             this.git(["rm", "--cached", "--ignore-unmatch", f], { allowFailure: true });
           }
-          this.git(["add", "-A"], { allowFailure: true });
-          // Don't throw — let the merge proceed
-        } else if (allGsd) {
+          resolvedAny = true;
+        }
+
+        if (gsdConflicts.length > 0) {
           // Non-runtime .gsd/ conflicts (DECISIONS.md, REQUIREMENTS.md, ROADMAP.md, etc.):
           // The slice branch has the authoritative .gsd/ state since the LLM just finished
           // updating these artifacts during complete-slice. Take theirs (the slice branch).
-          for (const f of conflictedFiles) {
+          for (const f of gsdConflicts) {
             this.git(["checkout", "--theirs", "--", f], { allowFailure: true });
           }
+          resolvedAny = true;
+        }
+
+        if (resolvedAny) {
           this.git(["add", "-A"], { allowFailure: true });
-          // Don't throw — let the merge proceed
+
+          // Re-check remaining conflicts after auto-resolving runtime and .gsd/ files
+          const remaining = this.git(["diff", "--name-only", "--diff-filter=U"], {
+            allowFailure: true,
+          });
+          if (remaining) {
+            const remainingFiles = remaining
+              .split("\n")
+              .filter(Boolean)
+              .filter(f => !isRuntimeConflict(f) && !f.startsWith(".gsd/"));
+
+            if (remainingFiles.length > 0) {
+              // Non-runtime, non-.gsd/ conflicts: leave working tree in conflicted state and throw
+              // MergeConflictError so the caller can dispatch a fix-merge session.
+              throw new MergeConflictError(remainingFiles, strategy, branch, mainBranch);
+            }
+          }
+          // No remaining non-runtime, non-.gsd/ conflicts — let the merge proceed
         } else {
-          // Non-.gsd/ conflicts: leave working tree in conflicted state and throw
-          // MergeConflictError so the caller can dispatch a fix-merge session.
-          throw new MergeConflictError(conflictedFiles, strategy, branch, mainBranch);
+          // No runtime or .gsd/ conflicts to auto-resolve; throw with original conflicted files
+          // so the caller can dispatch a fix-merge session.
+          throw new MergeConflictError(otherConflicts.length ? otherConflicts : conflictedFiles, strategy, branch, mainBranch);
         }
       } else {
         // No conflicted files detected but merge still failed — reset and throw
