@@ -301,7 +301,7 @@ function cleanup(base: string): void {
 /** Create a real git repo for fix-merge tests */
 function createGitBase(): string {
   const base = mkdtempSync(join(tmpdir(), "gsd-fixmerge-test-"));
-  execSync("git init", { cwd: base, stdio: "ignore" });
+  execSync("git init -b main", { cwd: base, stdio: "ignore" });
   execSync("git config user.email test@test.com", { cwd: base, stdio: "ignore" });
   execSync("git config user.name Test", { cwd: base, stdio: "ignore" });
   writeFileSync(join(base, "README.md"), "init\n", "utf-8");
