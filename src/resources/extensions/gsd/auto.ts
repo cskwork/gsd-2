@@ -1177,7 +1177,7 @@ async function dispatchNextUnit(
   }
 
   // ── Secrets re-check gate — runs before every dispatch, not just at startAuto ──
-  // plan-milestone writes SECRETS-MANIFEST.md during its unit. By the time we
+  // plan-milestone writes the milestone SECRETS file (e.g., M001-SECRETS.md) during its unit. By the time we
   // reach the next dispatchNextUnit call the manifest exists but hasn't been
   // presented to the user yet. Without this re-check the model would proceed
   // into plan-slice / execute-task with no real credentials and mock everything.
