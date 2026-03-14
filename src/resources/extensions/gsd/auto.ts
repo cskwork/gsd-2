@@ -1057,11 +1057,12 @@ async function dispatchNextUnit(
     if (hasMergeHead || hasSquashMsg) {
       const unmerged = runGit(basePath, ["diff", "--name-only", "--diff-filter=U"], { allowFailure: true });
       if (!unmerged || !unmerged.trim()) {
-        // fix-merge succeeded — finalize the commit if needed (squash case)
-        if (hasSquashMsg && !hasMergeHead) {
+        // fix-merge succeeded — finalize the commit if needed (squash or normal merge)
+        if (hasMergeHead || hasSquashMsg) {
           try {
             runGit(basePath, ["commit", "--no-edit"], { allowFailure: false });
-            ctx.ui.notify("Fix-merge session succeeded — finalized squash commit.", "info");
+            const mode = hasMergeHead ? "merge" : "squash commit";
+            ctx.ui.notify(`Fix-merge session succeeded — finalized ${mode}.`, "info");
           } catch {
             // Commit may already exist; non-fatal
           }
