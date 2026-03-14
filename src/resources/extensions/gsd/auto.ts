@@ -1144,6 +1144,19 @@ async function dispatchNextUnit(
                 "warning",
               );
 
+              // Close out the previously active unit before overwriting currentUnit.
+              if (currentUnit) {
+                const modelId = ctx.model?.id ?? "unknown";
+                snapshotUnitMetrics(
+                  ctx,
+                  currentUnit.type,
+                  currentUnit.id,
+                  currentUnit.startedAt,
+                  modelId,
+                );
+                saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
+              }
+
               // Dispatch fix-merge as the next unit (early-dispatch-and-return)
               const fixMergeUnitType = "fix-merge";
               currentUnit = { type: fixMergeUnitType, id: fixMergeUnitId, startedAt: Date.now() };
