@@ -3042,7 +3042,10 @@ export function verifyExpectedArtifact(unitType: string, unitId: string, base: s
   }
 
   const absPath = resolveExpectedArtifactPath(unitType, unitId, base);
-  if (!absPath) return true;
+  // Unit types with no verifiable artifact always pass (e.g. replan-slice).
+  // For all other types, null means the parent directory is missing on disk
+  // — treat as stale completion state so the key gets evicted (#313).
+  if (!absPath) return unitType === "replan-slice";
   if (!existsSync(absPath)) return false;
 
   // execute-task must also have its checkbox marked [x] in the slice plan
