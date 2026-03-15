@@ -4,9 +4,14 @@
  * Reads marketplace.json from Claude marketplace repos, resolves plugin source paths,
  * parses plugin.json manifests, and inventories available components (skills, agents, commands, MCP servers, LSP servers, hooks).
  * 
- * Handles two marketplace formats:
- * 1. jamie-style (../claude_skills): marketplace.json has {name, source} entries; plugins have .claude-plugin/plugin.json
- * 2. official-style (../claude-plugins-official): marketplace.json entries contain inline metadata
+ * Marketplace roots should reflect the Claude Code model documented by Anthropic:
+ * users add a marketplace source with `/plugin marketplace add ...`, Claude stores
+ * marketplace sources under `~/.claude/plugins/marketplaces/`, and installed plugin
+ * payloads are copied into `~/.claude/plugins/cache/`.
+ * 
+ * Handles two marketplace catalog shapes observed in the wild:
+ * 1. jamie-style: marketplace.json has {name, source} entries; plugins have .claude-plugin/plugin.json
+ * 2. official-style: marketplace.json entries contain inline metadata
  */
 
 import * as fs from 'node:fs';

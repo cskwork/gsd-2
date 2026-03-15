@@ -52,6 +52,9 @@ export function getClaudeSearchRoots(cwd: string): { skillRoots: string[]; plugi
   const parent = resolve(cwd, "..");
   const grandparent = resolve(cwd, "..", "..");
 
+  // Claude Code user-scope skills live under ~/.claude/skills.
+  // Keep sibling/local clone fallbacks for developer workflows, but they are
+  // examples/convenience paths rather than the primary Claude storage model.
   const skillRoots = uniqueExistingDirs([
     join(home, ".claude", "skills"),
     join(home, "repos", "claude_skills"),
@@ -62,7 +65,14 @@ export function getClaudeSearchRoots(cwd: string): { skillRoots: string[]; plugi
     join(grandparent, "skills"),
   ]);
 
+  // Anthropic docs model marketplaces as sources users add with
+  // `/plugin marketplace add ...`, and Claude stores those marketplaces under
+  // ~/.claude/plugins/marketplaces/. Installed plugin payloads are copied into
+  // ~/.claude/plugins/cache/. We prefer those stable Claude-managed locations
+  // before local example clones.
   const pluginRoots = uniqueExistingDirs([
+    join(home, ".claude", "plugins", "marketplaces"),
+    join(home, ".claude", "plugins", "cache"),
     join(home, ".claude", "plugins"),
     join(home, "repos", "claude-plugins-official"),
     join(home, "repos", "claude_skills"),
