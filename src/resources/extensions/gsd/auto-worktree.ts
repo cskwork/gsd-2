@@ -1,5 +1,5 @@
 /**
- * GSD Auto-Worktree — lifecycle management for auto-mode worktrees.
+ * GSD Auto-Worktree -- lifecycle management for auto-mode worktrees.
  *
  * Auto-mode creates worktrees with `milestone/<MID>` branches (distinct from
  * manual `/worktree` which uses `worktree/<name>` branches). This module
@@ -27,16 +27,53 @@ import {
   nativeBranchExists,
   nativeCommitCountBetween,
 } from "./native-git-bridge.js";
-<<<<<<< HEAD
-=======
 import { parseRoadmap } from "./files.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
->>>>>>> gsd/M003/S03
 
 // ─── Module State ──────────────────────────────────────────────────────────
 
 /** Original project root before chdir into auto-worktree. */
 let originalBase: string | null = null;
+
+// ─── Isolation Resolver ────────────────────────────────────────────────────
+
+/**
+ * Determine whether auto-mode should use worktree isolation.
+ *
+ * Resolution order:
+ *  1. Explicit git.isolation preference -> return (isolation === "worktree")
+ *  2. Legacy detection: if gsd branches exist -> return false (branch mode)
+ *  3. Default: return true (worktree mode for new projects)
+ */
+export function shouldUseWorktreeIsolation(basePath: string, overridePrefs?: { isolation?: string }): boolean {
+  const prefs = overridePrefs ?? loadEffectiveGSDPreferences()?.preferences?.git;
+  if (prefs?.isolation) {
+    return prefs.isolation === "worktree";
+  }
+
+  // Legacy detection: check for existing gsd/*/* branches (branch-per-slice pattern)
+  try {
+    const output = execSync("git branch --list 'gsd/*/*'", {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    }).trim();
+    if (output) return false; // Legacy branch-per-slice project
+  } catch {
+    // If git command fails, default to worktree
+  }
+
+  return true; // New project default
+}
+
+/**
+ * Resolve the merge_to_main preference value.
+ * Returns "milestone" (default) or "slice".
+ */
+export function getMergeToMainMode(): "milestone" | "slice" {
+  const prefs = loadEffectiveGSDPreferences()?.preferences?.git;
+  return prefs?.merge_to_main ?? "milestone";
+}
 
 // ─── Git Helpers (local, mirrors worktree-command.ts pattern) ──────────────
 
@@ -110,7 +147,7 @@ export function createAutoWorktree(basePath: string, milestoneId: string): strin
     originalBase = basePath;
   } catch (err) {
     // If chdir fails, the worktree was created but we couldn't enter it.
-    // Don't store originalBase — caller can retry or clean up.
+    // Don't store originalBase -- caller can retry or clean up.
     throw new Error(
       `Auto-worktree created at ${info.path} but chdir failed: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -165,7 +202,7 @@ export function getAutoWorktreePath(basePath: string, milestoneId: string): stri
 
 /**
  * Enter an existing auto-worktree (chdir into it, store originalBase).
- * Use for resume — the worktree already exists from a prior create.
+ * Use for resume -- the worktree already exists from a prior create.
  *
  * Atomic: chdir + originalBase update in same try block.
  */
@@ -198,7 +235,7 @@ export function getAutoWorktreeOriginalBase(): string | null {
   return originalBase;
 }
 
-// ─── Merge Slice → Milestone ───────────────────────────────────────────────
+// ─── Merge Slice -> Milestone ───────────────────────────────────────────────
 
 /**
  * Merge a completed slice branch into the milestone branch via `--no-ff`.
@@ -322,10 +359,8 @@ export function mergeSliceToMilestone(
     deletedBranch,
   };
 }
-<<<<<<< HEAD
-=======
 
-// ─── Merge Milestone → Main ───────────────────────────────────────────────
+// ─── Merge Milestone -> Main ───────────────────────────────────────────────
 
 /**
  * Auto-commit any dirty (uncommitted) state in the given directory.
@@ -435,7 +470,7 @@ export function mergeMilestoneToMain(
     } catch (innerErr) {
       if (innerErr instanceof MergeConflictError) throw innerErr;
     }
-    // Possibly "already up to date" — fall through to commit which will handle nothing-to-commit
+    // Possibly "already up to date" -- fall through to commit which will handle nothing-to-commit
   }
 
   // 8. Commit (handle nothing-to-commit gracefully)
@@ -447,7 +482,7 @@ export function mergeMilestoneToMain(
       encoding: "utf-8",
     });
   } catch (err: unknown) {
-    // execSync errors have stdout/stderr as properties — check those for git's message
+    // execSync errors have stdout/stderr as properties -- check those for git's message
     const errObj = err as { stdout?: string; stderr?: string; message?: string };
     const combined = [errObj.stdout, errObj.stderr, errObj.message].filter(Boolean).join(" ");
     if (combined.includes("nothing to commit") || combined.includes("nothing added to commit") || combined.includes("no changes added")) {
@@ -477,7 +512,7 @@ export function mergeMilestoneToMain(
   try {
     removeWorktree(originalBasePath_, milestoneId, { branch: null as unknown as string, deleteBranch: false });
   } catch {
-    // Best-effort — worktree dir may already be gone
+    // Best-effort -- worktree dir may already be gone
   }
 
   // 11. Delete milestone branch (after worktree removal so ref is unlocked)
@@ -497,4 +532,3 @@ export function mergeMilestoneToMain(
 
   return { commitMessage, pushed };
 }
->>>>>>> gsd/M003/S03

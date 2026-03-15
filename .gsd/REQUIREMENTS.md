@@ -50,24 +50,24 @@ This file is the explicit capability and coverage contract for the project.
 
 ### R033 — `git.isolation` preference
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A `git.isolation` preference with values `"worktree"` (default for new projects) and `"branch"` (legacy model). New projects that have never run GSD default to worktree isolation. Existing projects with an established branch-per-slice history default to branch mode.
 - Why it matters: Backwards compatibility — existing projects must not break. New projects get the better model by default.
 - Source: user
 - Primary owning slice: M003/S04
 - Supporting slices: none
-- Validation: unmapped
+- Validation: Set-based validation in validatePreferences, shouldUseWorktreeIsolation resolver with three-tier resolution (explicit pref > legacy detection > default). 25 test assertions in preferences-git.test.ts and isolation-resolver.test.ts.
 - Notes: Detection heuristic: if the project has existing `gsd/*` branches or milestone metadata with integration branch records, it's a legacy project → default to "branch". Otherwise → default to "worktree".
 
 ### R034 — `git.merge_to_main` preference
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A `git.merge_to_main` preference with values `"milestone"` (default) and `"slice"`. In milestone mode, main only receives commits when milestones complete. In slice mode, each completed slice squash-merges to main immediately (current behavior).
 - Why it matters: Senior engineers who want frequent integration can opt into slice-level merges. Vibe coders get the cleaner milestone-level default.
 - Source: user
 - Primary owning slice: M003/S04
 - Supporting slices: M003/S03
-- Validation: unmapped
+- Validation: Set-based validation in validatePreferences, getMergeToMainMode helper, auto.ts merge routing gated behind preference. Tested in preferences-git.test.ts.
 - Notes: `merge_to_main: "slice"` with `isolation: "worktree"` is valid — slices squash-merge to main from within the worktree, but the worktree still provides `.gsd/` isolation.
 
 ### R035 — Self-healing git repair on failure
@@ -530,8 +530,8 @@ This file is the explicit capability and coverage contract for the project.
 | R030 | core-capability | active | M003/S03 | M003/S01 | unmapped |
 | R031 | core-capability | active | M003/S02 | M003/S01 | unmapped |
 | R032 | core-capability | active | M003/S03 | none | unmapped |
-| R033 | core-capability | active | M003/S04 | none | unmapped |
-| R034 | core-capability | active | M003/S04 | M003/S03 | unmapped |
+| R033 | core-capability | validated | M003/S04 | none | Set-based validation, shouldUseWorktreeIsolation resolver, 25 test assertions |
+| R034 | core-capability | validated | M003/S04 | M003/S03 | Set-based validation, getMergeToMainMode, auto.ts merge routing gated |
 | R035 | core-capability | active | M003/S05 | M003/S01, M003/S02, M003/S03 | unmapped |
 | R036 | quality-attribute | active | M003/S02 | M003/S06 | unmapped |
 | R037 | primary-user-loop | active | M003/S05 | all M003 | unmapped |
@@ -545,9 +545,9 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 13
-- Mapped to slices: 13
-- Validated: 22
+- Active requirements: 11
+- Mapped to slices: 11
+- Validated: 24
 - Deferred: 5
 - Out of scope: 4
 - Unmapped active requirements: 0

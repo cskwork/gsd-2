@@ -62,7 +62,7 @@ This milestone is complete only when all are true:
 - [x] **S03: Milestone-to-main squash merge + worktree teardown** `risk:high` `depends:[S01,S02]`
   > After this: `complete-milestone` squash-merges the milestone branch to main with a rich commit message listing all slices, removes the worktree, `chdir`s back to the main project root. `git log main` shows one clean commit. Auto-push works if enabled. Verified in temp repo with remote.
 
-- [ ] **S04: Preferences + backwards compatibility** `risk:medium` `depends:[S01]`
+- [x] **S04: Preferences + backwards compatibility** `risk:medium` `depends:[S01]`
   > After this: `git.isolation: "worktree"` (default for new projects) / `"branch"` (existing projects) and `git.merge_to_main: "milestone"` / `"slice"` preferences are validated and respected. An existing project with `gsd/*` branches defaults to branch mode and works identically to today. Verified by running tests in both modes.
 
 - [ ] **S05: Self-healing git repair** `risk:medium` `depends:[S01,S02,S03]`

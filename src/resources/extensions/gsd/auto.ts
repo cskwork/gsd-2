@@ -94,10 +94,9 @@ import {
   getAutoWorktreePath,
   getAutoWorktreeOriginalBase,
   mergeSliceToMilestone,
-<<<<<<< HEAD
-=======
   mergeMilestoneToMain,
->>>>>>> gsd/M003/S03
+  shouldUseWorktreeIsolation,
+  getMergeToMainMode,
 } from "./auto-worktree.js";
 import type { GitPreferences } from "./git-service.js";
 import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
@@ -562,7 +561,7 @@ async function mergeOrphanedSliceBranches(
     );
     try {
       let mergeResult;
-      if (isInAutoWorktree(base)) {
+      if (isInAutoWorktree(base) && getMergeToMainMode() !== "slice") {
         mergeResult = mergeSliceToMilestone(
           base, milestoneId, sliceId, sliceEntry.title || sliceId,
         );
@@ -625,7 +624,7 @@ export async function startAuto(
     if (currentMilestoneId) setActiveMilestoneId(base, currentMilestoneId);
 
     // ── Auto-worktree: re-enter worktree on resume if not already inside ──
-    if (currentMilestoneId && originalBasePath && !isInAutoWorktree(basePath)) {
+    if (currentMilestoneId && originalBasePath && !isInAutoWorktree(basePath) && shouldUseWorktreeIsolation(originalBasePath)) {
       try {
         const existingWtPath = getAutoWorktreePath(originalBasePath, currentMilestoneId);
         if (existingWtPath) {
@@ -789,7 +788,7 @@ export async function startAuto(
   // ── Auto-worktree: create or enter worktree for the active milestone ──
   // Store the original project root before any chdir so we can restore on stop.
   originalBasePath = base;
-  if (currentMilestoneId) {
+  if (currentMilestoneId && shouldUseWorktreeIsolation(base)) {
     try {
       const existingWtPath = getAutoWorktreePath(base, currentMilestoneId);
       if (existingWtPath) {
@@ -1631,7 +1630,7 @@ async function dispatchNextUnit(
           try {
             const sliceTitleForMerge = sliceEntry.title || branchSid;
             let mergeResult;
-            if (isInAutoWorktree(basePath)) {
+            if (isInAutoWorktree(basePath) && getMergeToMainMode() !== "slice") {
               mergeResult = mergeSliceToMilestone(
                 basePath, branchMid, branchSid, sliceTitleForMerge,
               );
@@ -1763,7 +1762,7 @@ async function dispatchNextUnit(
     } catch { /* non-fatal */ }
 
     // ── Milestone merge: squash-merge milestone branch to main before stopping ──
-    if (currentMilestoneId && isInAutoWorktree(basePath) && originalBasePath) {
+    if (currentMilestoneId && isInAutoWorktree(basePath) && originalBasePath && getMergeToMainMode() === "milestone") {
       try {
         const roadmapPath = resolveMilestoneFile(originalBasePath, currentMilestoneId, "ROADMAP");
         const roadmapContent = readFileSync(roadmapPath, "utf-8");
