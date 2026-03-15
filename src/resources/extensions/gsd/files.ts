@@ -261,14 +261,30 @@ function _parseRoadmapImpl(content: string): Roadmap {
       let produces = '';
       let consumes = '';
 
-      const prodMatch = sectionContent.match(/^Produces:\s*\n([\s\S]*?)(?=^Consumes|$)/m);
-      if (prodMatch) produces = prodMatch[1].trim();
+      // Use indexOf-based parsing instead of [\s\S]*? regex to avoid
+      // catastrophic backtracking on content with code fences (#468).
+      const prodIdx = sectionContent.search(/^Produces:\s*$/m);
+      if (prodIdx !== -1) {
+        const afterProd = sectionContent.indexOf('\n', prodIdx);
+        if (afterProd !== -1) {
+          const consIdx = sectionContent.search(/^Consumes/m);
+          const endIdx = consIdx !== -1 && consIdx > afterProd ? consIdx : sectionContent.length;
+          produces = sectionContent.slice(afterProd + 1, endIdx).trim();
+        }
+      }
 
-      const consMatch = sectionContent.match(/^Consumes[^:]*:\s*\n?([\s\S]*?)$/m);
-      if (consMatch) consumes = consMatch[1].trim();
+      const consLineMatch = sectionContent.match(/^Consumes[^:]*:\s*(.+)$/m);
+      if (consLineMatch) {
+        consumes = consLineMatch[1].trim();
+      }
       if (!consumes) {
-        const singleCons = sectionContent.match(/^Consumes[^:]*:\s*(.+)$/m);
-        if (singleCons) consumes = singleCons[1].trim();
+        const consIdx = sectionContent.search(/^Consumes[^:]*:\s*$/m);
+        if (consIdx !== -1) {
+          const afterCons = sectionContent.indexOf('\n', consIdx);
+          if (afterCons !== -1) {
+            consumes = sectionContent.slice(afterCons + 1).trim();
+          }
+        }
       }
 
       boundaryMap.push({ fromSlice, toSlice, produces, consumes });

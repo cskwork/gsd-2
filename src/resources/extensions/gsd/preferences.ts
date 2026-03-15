@@ -369,9 +369,11 @@ function loadPreferencesFile(path: string, scope: "global" | "project"): LoadedG
 }
 
 function parsePreferencesMarkdown(content: string): GSDPreferences | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return null;
-  return parseFrontmatterBlock(match[1]);
+  // Use indexOf instead of [\s\S]*? regex to avoid backtracking (#468)
+  if (!content.startsWith('---\n')) return null;
+  const endIdx = content.indexOf('\n---', 4);
+  if (endIdx === -1) return null;
+  return parseFrontmatterBlock(content.slice(4, endIdx));
 }
 
 function parseFrontmatterBlock(frontmatter: string): GSDPreferences {

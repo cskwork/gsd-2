@@ -98,6 +98,12 @@ const DEFAULT_SETTINGS: Required<TtsrSettings> = {
 /** Cap per-stream buffer at 512KB to prevent unbounded memory growth. */
 const MAX_BUFFER_BYTES = 512 * 1024;
 
+/**
+ * Minimum interval (ms) between JS-fallback regex checks on the same buffer.
+ * Prevents CPU spinning when deltas arrive faster than regex evaluation (#468).
+ */
+const JS_FALLBACK_CHECK_INTERVAL_MS = 50;
+
 const DEFAULT_SCOPE: TtsrScope = {
 	allowText: true,
 	allowThinking: false,
@@ -110,6 +116,8 @@ export class TtsrManager {
 	readonly #rules = new Map<string, TtsrEntry>();
 	readonly #injectionRecords = new Map<string, InjectionRecord>();
 	readonly #buffers = new Map<string, string>();
+	/** Tracks last JS-fallback check time per buffer key to throttle CPU (#468). */
+	readonly #lastJsCheckAt = new Map<string, number>();
 	#messageCount = 0;
 	#nativeHandle: number | null = null;
 	#nativeDirty = false;
@@ -361,6 +369,15 @@ export class TtsrManager {
 		}
 
 		// ── JS fallback: per-rule regex iteration ─────────────────────────
+		// Throttle JS regex checks to prevent CPU spinning on fast token
+		// streams — regex on a growing buffer is O(rules × buffer_size) (#468).
+		const now = Date.now();
+		const lastCheck = this.#lastJsCheckAt.get(bufferKey) ?? 0;
+		if (now - lastCheck < JS_FALLBACK_CHECK_INTERVAL_MS) {
+			return [];
+		}
+		this.#lastJsCheckAt.set(bufferKey, now);
+
 		const matches: Rule[] = [];
 		for (const [name, entry] of this.#rules) {
 			if (!this.#canTrigger(name)) continue;
@@ -406,6 +423,7 @@ export class TtsrManager {
 	/** Reset stream buffers (called on new turn). */
 	resetBuffer(): void {
 		this.#buffers.clear();
+		this.#lastJsCheckAt.clear();
 	}
 
 	/** Check if any TTSR rules are registered. */
