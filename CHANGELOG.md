@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.14.2] - 2026-03-15
+
+### Fixed
+- **Dispatch reentrancy deadlock** — `_dispatching` flag was never reset after first dispatch, permanently blocking all subsequent unit dispatches. Wrapped in try/finally.
+- **`.gitignore` self-heal** — existing projects with blanket `.gsd/` ignore now auto-remove it on next auto-mode start, replacing with explicit runtime-only patterns so planning artifacts are tracked in git.
+- **Discuss depth verification** — render summary as chat text (markdown renders), use ask_user_questions for short confirmation only.
+
 ## [2.14.1] - 2026-03-15
 
 ### Fixed
@@ -641,7 +648,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.14.1...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.14.2...HEAD
+[2.14.2]: https://github.com/gsd-build/gsd-2/compare/v2.14.1...v2.14.2
 [2.14.1]: https://github.com/gsd-build/gsd-2/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/gsd-build/gsd-2/compare/v2.13.1...v2.14.0
 [2.13.1]: https://github.com/gsd-build/gsd-2/compare/v2.13.0...v2.13.1
