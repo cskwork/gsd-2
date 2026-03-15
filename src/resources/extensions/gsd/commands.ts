@@ -215,20 +215,16 @@ export async function fireStatusViaCommand(
 async function handlePrefs(args: string, ctx: ExtensionCommandContext): Promise<void> {
   const trimmed = args.trim();
 
-  if (trimmed === "" || trimmed === "global") {
+  if (trimmed === "" || trimmed === "global" || trimmed === "wizard" || trimmed === "setup"
+    || trimmed === "wizard global" || trimmed === "setup global") {
     await ensurePreferencesFile(getGlobalGSDPreferencesPath(), ctx, "global");
+    await handlePrefsWizard(ctx, "global");
     return;
   }
 
-  if (trimmed === "project") {
+  if (trimmed === "project" || trimmed === "wizard project" || trimmed === "setup project") {
     await ensurePreferencesFile(getProjectGSDPreferencesPath(), ctx, "project");
-    return;
-  }
-
-  if (trimmed === "wizard" || trimmed === "setup" || trimmed === "wizard global" || trimmed === "setup global"
-    || trimmed === "wizard project" || trimmed === "setup project") {
-    const scope = trimmed.includes("project") ? "project" : "global";
-    await handlePrefsWizard(ctx, scope);
+    await handlePrefsWizard(ctx, "project");
     return;
   }
 
@@ -538,7 +534,4 @@ async function ensurePreferencesFile(
     ctx.ui.notify(`Using existing ${scope} GSD skill preferences at ${path}`, "info");
   }
 
-  await ctx.waitForIdle();
-  await ctx.reload();
-  ctx.ui.notify(`Edit ${path} to update ${scope} GSD skill preferences.\nRun /gsd prefs wizard for interactive setup.`, "info");
 }
