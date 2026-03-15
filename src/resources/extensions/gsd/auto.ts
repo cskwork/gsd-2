@@ -103,6 +103,7 @@ import type { GitPreferences } from "./git-service.js";
 import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 import { makeUI, GLYPH, INDENT } from "../shared/ui.js";
 import { showNextAction } from "../shared/next-action-ui.js";
+import { debugLog, debugTime, debugCount, debugPeak, enableDebug, isDebugEnabled, writeDebugSummary, getDebugLogPath } from "./debug-logger.js";
 
 // ─── Disk-backed completed-unit helpers ───────────────────────────────────────
 
@@ -398,6 +399,14 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI): Promi
   // Sync disk state so next resume starts from accurate state
   if (basePath) {
     try { await rebuildState(basePath); } catch { /* non-fatal */ }
+  }
+
+  // Write debug summary before resetting state
+  if (isDebugEnabled()) {
+    const logPath = writeDebugSummary();
+    if (logPath) {
+      ctx?.ui.notify(`Debug log written → ${logPath}`, "info");
+    }
   }
 
   resetMetrics();
@@ -730,6 +739,24 @@ export async function startAuto(
       );
     }
     clearLock(base);
+  }
+
+  // ── Debug mode: env-var activation ──────────────────────────────────────
+  if (!isDebugEnabled() && process.env.GSD_DEBUG === "1") {
+    enableDebug(base);
+  }
+  if (isDebugEnabled()) {
+    const { isNativeParserAvailable } = await import("./native-parser-bridge.js");
+    debugLog("debug-start", {
+      platform: process.platform,
+      arch: process.arch,
+      node: process.version,
+      model: ctx.model?.id ?? "unknown",
+      provider: ctx.model?.provider ?? "unknown",
+      nativeParser: isNativeParserAvailable(),
+      cwd: base,
+    });
+    ctx.ui.notify(`Debug logging enabled → ${getDebugLogPath()}`, "info");
   }
 
   const state = await deriveState(base);
@@ -1560,7 +1587,14 @@ async function dispatchNextUnit(
   // stale data between handleAgentEnd and this dispatch call (Path B fix).
   clearParseCache();
 
+  const stopDeriveTimer = debugTime("derive-state");
   let state = await deriveState(basePath);
+  stopDeriveTimer({
+    phase: state.phase,
+    milestone: state.activeMilestone?.id,
+    slice: state.activeSlice?.id,
+    task: state.activeTask?.id,
+  });
   let mid = state.activeMilestone?.id;
   let midTitle = state.activeMilestone?.title;
 
@@ -2094,6 +2128,14 @@ async function dispatchNextUnit(
   // Pattern A→B→A→B would reset retryCount every time; this map catches it.
   const dispatchKey = `${unitType}/${unitId}`;
   const prevCount = unitDispatchCount.get(dispatchKey) ?? 0;
+
+  debugLog("dispatch-unit", {
+    type: unitType,
+    id: unitId,
+    cycle: prevCount + 1,
+    lifetime: (unitLifetimeDispatches.get(dispatchKey) ?? 0) + 1,
+  });
+  debugCount("dispatches");
 
   // Hard lifetime cap — survives counter resets from loop-recovery/self-repair.
   // Catches the case where reconciliation "succeeds" (artifacts exist) but

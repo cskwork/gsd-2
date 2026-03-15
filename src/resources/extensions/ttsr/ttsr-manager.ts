@@ -10,6 +10,7 @@
  * per-rule JS RegExp iteration when the native module is not loaded.
  */
 import picomatch from "picomatch";
+import { debugTime, debugCount, debugPeak } from "../gsd/debug-logger.js";
 
 // ── Native TTSR engine (optional) ─────────────────────────────────────
 let nativeTtsr: {
@@ -341,6 +342,7 @@ export class TtsrManager {
 	 * remain in JS as they are lightweight and context-dependent.
 	 */
 	checkDelta(delta: string, context: TtsrMatchContext): Rule[] {
+		const stopTimer = debugTime("ttsr-check");
 		const bufferKey = this.#bufferKey(context);
 		let nextBuffer = `${this.#buffers.get(bufferKey) ?? ""}${delta}`;
 		// Cap buffer size — keep the tail so patterns still match recent output
@@ -348,6 +350,7 @@ export class TtsrManager {
 			nextBuffer = nextBuffer.slice(-MAX_BUFFER_BYTES);
 		}
 		this.#buffers.set(bufferKey, nextBuffer);
+		debugPeak("ttsrPeakBuffer", nextBuffer.length);
 
 		// Lazily compile native engine if rules changed.
 		if (this.#nativeDirty) this.#compileNative();
@@ -365,6 +368,8 @@ export class TtsrManager {
 				if (!this.#matchesGlobalPaths(entry, context)) continue;
 				matches.push(entry.rule);
 			}
+			debugCount("ttsrChecks");
+			stopTimer({ bufferSize: nextBuffer.length, native: true, rulesChecked: this.#rules.size, matched: matches.map(m => m.name) });
 			return matches;
 		}
 
@@ -374,6 +379,7 @@ export class TtsrManager {
 		const now = Date.now();
 		const lastCheck = this.#lastJsCheckAt.get(bufferKey) ?? 0;
 		if (now - lastCheck < JS_FALLBACK_CHECK_INTERVAL_MS) {
+			stopTimer({ bufferSize: nextBuffer.length, throttled: true });
 			return [];
 		}
 		this.#lastJsCheckAt.set(bufferKey, now);
@@ -386,6 +392,8 @@ export class TtsrManager {
 			if (!this.#matchesCondition(entry, nextBuffer)) continue;
 			matches.push(entry.rule);
 		}
+		debugCount("ttsrChecks");
+		stopTimer({ bufferSize: nextBuffer.length, native: false, rulesChecked: this.#rules.size, matched: matches.map(m => m.name) });
 		return matches;
 	}
 

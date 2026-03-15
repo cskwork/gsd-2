@@ -1,6 +1,7 @@
 // GSD Extension — State Derivation
 // Reads roadmap + plan files to determine current position.
 // Pure TypeScript, zero Pi dependencies.
+// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import type {
   GSDState,
@@ -34,6 +35,7 @@ import { milestoneIdSort, findMilestoneIds } from './guided-flow.js';
 import { nativeBatchParseGsdFiles, type BatchParsedFile } from './native-parser-bridge.js';
 
 import { join, resolve } from 'path';
+import { debugCount, debugTime } from './debug-logger.js';
 
 // ─── Query Functions ───────────────────────────────────────────────────────
 
@@ -116,7 +118,10 @@ export async function deriveState(basePath: string): Promise<GSDState> {
     return _stateCache.result;
   }
 
+  const stopTimer = debugTime("derive-state-impl");
   const result = await _deriveStateImpl(basePath);
+  stopTimer({ phase: result.phase, milestone: result.activeMilestone?.id });
+  debugCount("deriveStateCalls");
   _stateCache = { basePath, result, timestamp: Date.now() };
   return result;
 }

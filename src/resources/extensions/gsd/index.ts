@@ -25,6 +25,7 @@ import type {
 } from "@gsd/pi-coding-agent";
 import { createBashTool, createWriteTool, createReadTool, createEditTool, isToolCallEventType } from "@gsd/pi-coding-agent";
 
+import { debugLog, debugTime } from "./debug-logger.js";
 import { registerGSDCommand } from "./commands.js";
 import { registerExitCommand } from "./exit-command.js";
 import { registerWorktreeCommand, getWorktreeOriginalCwd, getActiveWorktreeName } from "./worktree-command.js";
@@ -251,6 +252,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
     if (!existsSync(join(process.cwd(), ".gsd"))) return;
 
+    const stopContextTimer = debugTime("context-inject");
     const systemContent = loadPrompt("system");
     const loadedPreferences = loadEffectiveGSDPreferences();
     let preferenceBlock = "";
@@ -302,8 +304,16 @@ export default function (pi: ExtensionAPI) {
       ].join("\n");
     }
 
+    const fullSystem = `${event.systemPrompt}\n\n[SYSTEM CONTEXT — GSD]\n\n${systemContent}${preferenceBlock}${newSkillsBlock}${worktreeBlock}`;
+    stopContextTimer({
+      systemPromptSize: fullSystem.length,
+      injectionSize: injection?.length ?? 0,
+      hasPreferences: preferenceBlock.length > 0,
+      hasNewSkills: newSkillsBlock.length > 0,
+    });
+
     return {
-      systemPrompt: `${event.systemPrompt}\n\n[SYSTEM CONTEXT — GSD]\n\n${systemContent}${preferenceBlock}${newSkillsBlock}${worktreeBlock}`,
+      systemPrompt: fullSystem,
       ...(injection
         ? {
           message: {

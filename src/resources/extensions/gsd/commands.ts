@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent
 import { AuthStorage } from "@gsd/pi-coding-agent";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { enableDebug, isDebugEnabled } from "./debug-logger.js";
 import { fileURLToPath } from "node:url";
 import { deriveState } from "./state.js";
 import { GSDDashboardOverlay } from "./dashboard-overlay.js";
@@ -68,7 +69,7 @@ export function registerGSDCommand(pi: ExtensionAPI): void {
 
       if (parts[0] === "auto" && parts.length <= 2) {
         const flagPrefix = parts[1] ?? "";
-        return ["--verbose"]
+        return ["--verbose", "--debug"]
           .filter((f) => f.startsWith(flagPrefix))
           .map((f) => ({ value: `auto ${f}`, label: f }));
       }
@@ -123,12 +124,16 @@ export function registerGSDCommand(pi: ExtensionAPI): void {
 
       if (trimmed === "next" || trimmed.startsWith("next ")) {
         const verboseMode = trimmed.includes("--verbose");
+        const debugMode = trimmed.includes("--debug");
+        if (debugMode) enableDebug(process.cwd());
         await startAuto(ctx, pi, process.cwd(), verboseMode, { step: true });
         return;
       }
 
       if (trimmed === "auto" || trimmed.startsWith("auto ")) {
         const verboseMode = trimmed.includes("--verbose");
+        const debugMode = trimmed.includes("--debug");
+        if (debugMode) enableDebug(process.cwd());
         await startAuto(ctx, pi, process.cwd(), verboseMode);
         return;
       }

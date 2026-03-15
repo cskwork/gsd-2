@@ -21,6 +21,7 @@ import type {
 import { checkExistingEnvKeys } from '../get-secrets-from-user.js';
 import { parseRoadmapSlices } from './roadmap-slices.js';
 import { nativeParseRoadmap, nativeExtractSection, NATIVE_UNAVAILABLE } from './native-parser-bridge.js';
+import { debugTime, debugCount } from './debug-logger.js';
 
 // ─── Parse Cache ──────────────────────────────────────────────────────────
 
@@ -220,9 +221,14 @@ export function parseRoadmap(content: string): Roadmap {
 }
 
 function _parseRoadmapImpl(content: string): Roadmap {
+  const stopTimer = debugTime("parse-roadmap");
   // Try native parser first for better performance
   const nativeResult = nativeParseRoadmap(content);
-  if (nativeResult) return nativeResult;
+  if (nativeResult) {
+    stopTimer({ native: true, slices: nativeResult.slices.length, boundaryEntries: nativeResult.boundaryMap.length });
+    debugCount("parseRoadmapCalls");
+    return nativeResult;
+  }
 
   const lines = content.split('\n');
 
@@ -291,7 +297,10 @@ function _parseRoadmapImpl(content: string): Roadmap {
     }
   }
 
-  return { title, vision, successCriteria, slices, boundaryMap };
+  const result = { title, vision, successCriteria, slices, boundaryMap };
+  stopTimer({ native: false, slices: slices.length, boundaryEntries: boundaryMap.length });
+  debugCount("parseRoadmapCalls");
+  return result;
 }
 
 // ─── Secrets Manifest Parser ───────────────────────────────────────────────
@@ -370,6 +379,7 @@ export function parsePlan(content: string): SlicePlan {
 }
 
 function _parsePlanImpl(content: string): SlicePlan {
+  const stopTimer = debugTime("parse-plan");
   const lines = content.split('\n');
 
   const h1 = lines.find(l => l.startsWith('# '));
@@ -442,7 +452,10 @@ function _parsePlanImpl(content: string): SlicePlan {
   const filesSection = extractSection(content, 'Files Likely Touched');
   const filesLikelyTouched = filesSection ? parseBullets(filesSection) : [];
 
-  return { id, title, goal, demo, mustHaves, tasks, filesLikelyTouched };
+  const result = { id, title, goal, demo, mustHaves, tasks, filesLikelyTouched };
+  stopTimer({ tasks: tasks.length });
+  debugCount("parsePlanCalls");
+  return result;
 }
 
 // ─── Summary Parser ────────────────────────────────────────────────────────
