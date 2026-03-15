@@ -448,8 +448,7 @@ function serializePreferencesToFrontmatter(prefs: Record<string, unknown>): stri
 
     if (Array.isArray(value)) {
       if (value.length === 0) {
-        lines.push(`${prefix}${key}: []`);
-        return;
+        return; // Omit empty arrays — avoids parse/serialize cycle bug with "[]" strings
       }
       lines.push(`${prefix}${key}:`);
       for (const item of value) {
@@ -480,8 +479,7 @@ function serializePreferencesToFrontmatter(prefs: Record<string, unknown>): stri
     if (typeof value === "object") {
       const entries = Object.entries(value as Record<string, unknown>);
       if (entries.length === 0) {
-        lines.push(`${prefix}${key}: {}`);
-        return;
+        return; // Omit empty objects — avoids parse/serialize cycle bug with "{}" strings
       }
       lines.push(`${prefix}${key}:`);
       for (const [k, v] of entries) {
