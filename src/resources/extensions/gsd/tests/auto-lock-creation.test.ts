@@ -139,9 +139,11 @@ test("lock file enables cross-process auto-mode detection", () => {
   const dir = mkdtempSync(join(tmpdir(), "gsd-lock-test-"));
   mkdirSync(join(dir, ".gsd"), { recursive: true });
 
-  // Simulate another process writing a lock with PID 1 (init — always alive on Unix)
+  // Use the parent process PID — guaranteed alive on all platforms (Unix and Windows).
+  // PID 1 (init) only works on Unix; on Windows it doesn't exist.
+  const alivePid = process.ppid;
   const lockData = {
-    pid: 1,
+    pid: alivePid,
     startedAt: new Date().toISOString(),
     unitType: "execute-task",
     unitId: "M001/S01/T02",
@@ -152,12 +154,11 @@ test("lock file enables cross-process auto-mode detection", () => {
 
   const lock = readCrashLock(dir);
   assert.ok(lock, "should read the lock");
-  assert.equal(lock!.pid, 1);
+  assert.equal(lock!.pid, alivePid);
 
-  // PID 1 is always alive but we don't have permission — isLockProcessAlive
-  // returns true for EPERM (process exists but we can't signal it)
+  // Parent PID is always alive — isLockProcessAlive should detect it
   const alive = isLockProcessAlive(lock!);
-  assert.equal(alive, true, "PID 1 should be detected as alive (EPERM)");
+  assert.equal(alive, true, "parent PID should be detected as alive");
 
   rmSync(dir, { recursive: true, force: true });
 });
