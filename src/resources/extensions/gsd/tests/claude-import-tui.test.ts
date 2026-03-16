@@ -14,6 +14,7 @@ import assert from 'node:assert';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ExtensionCommandContext } from '@gsd/pi-coding-agent';
 import { runClaudeImportFlow, getClaudeSearchRoots, discoverClaudeSkills, discoverClaudePlugins } from '../claude-import.js';
 import { getMarketplaceFixtures } from './marketplace-test-fixtures.js';
 
@@ -40,14 +41,7 @@ interface MockUISelectCall {
 }
 
 function createMockContext(selections: string[]): {
-	ctx: {
-		ui: {
-			select: ReturnType<typeof mock.fn>;
-			notify: ReturnType<typeof mock.fn>;
-		};
-		waitForIdle: ReturnType<typeof mock.fn>;
-		reload: ReturnType<typeof mock.fn>;
-	};
+	ctx: ExtensionCommandContext;
 	selectCalls: MockUISelectCall[];
 } {
 	const selectCalls: MockUISelectCall[] = [];
@@ -64,16 +58,55 @@ function createMockContext(selections: string[]): {
 
 	const notifyMock = mock.fn();
 
+	// Create a mock that satisfies ExtensionCommandContext
+	// Using type assertion since we only use select, notify, waitForIdle, reload in the tests
 	const ctx = {
 		ui: {
 			select: selectMock,
 			notify: notifyMock,
+			confirm: async () => false,
+			input: async () => undefined,
+			onTerminalInput: () => () => {},
+			setStatus: () => {},
+			setWorkingMessage: () => {},
+			setWidget: () => {},
+			setFooter: () => {},
+			setHeader: () => {},
+			setTitle: () => {},
+			custom: async () => { throw new Error('Not implemented'); },
+			pasteToEditor: () => {},
+			setEditorText: () => {},
+			getEditorText: () => '',
+			editor: async () => undefined,
+			setEditorComponent: () => {},
+			theme: {},
+			getAllThemes: () => [],
+			getTheme: () => undefined,
+			setTheme: () => ({ success: false }),
+			getToolsExpanded: () => true,
+			setToolsExpanded: () => {},
 		},
+		hasUI: true,
+		cwd: process.cwd(),
+		sessionManager: {} as unknown,
+		modelRegistry: {} as unknown,
+		model: undefined,
+		isIdle: () => true,
+		abort: () => {},
+		hasPendingMessages: () => false,
+		shutdown: () => {},
+		getContextUsage: () => undefined,
+		compact: () => {},
+		getSystemPrompt: () => '',
 		waitForIdle: mock.fn(async () => {}),
+		newSession: async () => ({ cancelled: false }),
+		fork: async () => ({ cancelled: false }),
+		navigateTree: async () => ({ cancelled: false }),
+		switchSession: async () => ({ cancelled: false }),
 		reload: mock.fn(async () => {}),
-	};
+	} as unknown as ExtensionCommandContext;
 
-	return { ctx: ctx as unknown as Parameters<typeof runClaudeImportFlow>[0], selectCalls };
+	return { ctx, selectCalls };
 }
 
 // ============================================================================
@@ -262,7 +295,7 @@ describe(
 				});
 
 				// Verify notification was called
-				const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock.fn>).mock.calls;
+				const notifyCalls = (ctx.ui.notify as unknown as ReturnType<typeof mock.fn>).mock.calls;
 				assert.ok(notifyCalls.length > 0, 'Should have shown notification');
 
 				console.log('\nNotifications shown:');

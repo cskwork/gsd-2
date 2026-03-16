@@ -15,7 +15,7 @@ import {
   inspectPlugin,
   discoverMarketplace,
   resolvePluginRoot
-} from '../marketplace-discovery';
+} from '../marketplace-discovery.js';
 import { getMarketplaceFixtures } from './marketplace-test-fixtures.js';
 
 const fixtureSetup = getMarketplaceFixtures(import.meta.dirname);
@@ -110,6 +110,7 @@ describe('inspectPlugin', { skip: skipReason }, () => {
   it('should return error for non-existent plugin directory', () => {
     const result = inspectPlugin('/tmp/nonexistent-plugin');
     assert.strictEqual(result.status, 'error');
+    assert.ok(result.error !== undefined, 'error should be defined');
     assert.ok(result.error.includes('not found'));
   });
 });
@@ -121,7 +122,7 @@ describe('discoverMarketplace', { skip: skipReason }, () => {
     assert.strictEqual(result.status, 'ok');
     assert.strictEqual(result.pluginFormat, 'jamie-style');
     assert.ok(result.plugins.length > 0);
-    assert.ok(result.plugins.every(p => p.status === 'ok'));
+    assert.ok(result.plugins.every((p: { status: string }) => p.status === 'ok'));
     
     assert.strictEqual(result.summary.total, result.plugins.length);
     assert.strictEqual(result.summary.ok, result.plugins.length);
@@ -148,7 +149,7 @@ describe('discoverMarketplace', { skip: skipReason }, () => {
 
   it('should inventory skills, agents, commands correctly', () => {
     const result = discoverMarketplace(CLAUDE_SKILLS_PATH!);
-    const pythonPlugin = result.plugins.find(p => p.name === 'python3-development');
+    const pythonPlugin = result.plugins.find((p: { name: string }) => p.name === 'python3-development');
     
     assert.ok(pythonPlugin !== undefined);
     if (pythonPlugin) {
