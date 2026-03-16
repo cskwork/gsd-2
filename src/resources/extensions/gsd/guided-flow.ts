@@ -50,9 +50,11 @@ export function checkAutoStartAfterDiscuss(): boolean {
 
   const { ctx, pi, basePath, milestoneId, step } = pendingAutoStart;
 
-  // Gate 1: Primary milestone must have CONTEXT.md
+  // Gate 1: Primary milestone must have CONTEXT.md or ROADMAP.md
+  // The "discuss" path creates CONTEXT.md; the "plan" path creates ROADMAP.md.
   const contextFile = resolveMilestoneFile(basePath, milestoneId, "CONTEXT");
-  if (!contextFile) return false; // no context yet — keep waiting
+  const roadmapFile = resolveMilestoneFile(basePath, milestoneId, "ROADMAP");
+  if (!contextFile && !roadmapFile) return false; // neither artifact yet — keep waiting
 
   // Gate 2: STATE.md must exist — written as the last step in the discuss
   // output phase. This prevents auto-start from firing during Phase 3
@@ -943,6 +945,7 @@ export async function showSmartEntry(
       });
 
       if (choice === "plan") {
+        pendingAutoStart = { ctx, pi, basePath, milestoneId, step: stepMode };
         const planMilestoneTemplates = [
           inlineTemplate("roadmap", "Roadmap"),
           inlineTemplate("plan", "Slice Plan"),
