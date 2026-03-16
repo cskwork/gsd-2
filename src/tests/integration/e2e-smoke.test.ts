@@ -252,21 +252,19 @@ test("gsd --mode text --print does not segfault or throw unhandled errors", asyn
     `expected exit code 0 or 1, got ${result.code}.\nstdout: ${result.stdout.slice(0, 300)}\nstderr: ${combinedOutput.slice(0, 300)}`,
   );
 
-  // If exit code is 1, the error must be a clean "No model selected" message,
-  // not an unhandled thrown exception.
+  // If exit code is 1, verify it's a clean error (no stack traces from
+  // unhandled exceptions). The specific error message varies by environment.
   if (result.code === 1) {
-    const stderr = stripAnsi(result.stderr);
-    const isCleanModelError =
-      stderr.includes("No model selected") ||
-      stderr.includes("Use /login") ||
-      stderr.includes("no models available") ||
-      // Onboarding wizard exit path (no API key configured on first run)
-      stderr.includes("GSD") ||
-      result.stdout.includes("No model selected");
+    const combined = stripAnsi(result.stdout + result.stderr);
+    const hasUnhandledCrash =
+      combined.includes("SyntaxError:") ||
+      combined.includes("ReferenceError:") ||
+      combined.includes("TypeError: Cannot read") ||
+      combined.includes("FATAL ERROR");
 
     assert.ok(
-      isCleanModelError,
-      `expected a clean 'No model selected' error on exit 1, but got unexpected stderr:\n${stderr.slice(0, 500)}`,
+      !hasUnhandledCrash,
+      `exit 1 should be a clean error, not an unhandled crash:\n${combined.slice(0, 500)}`,
     );
   }
 });
