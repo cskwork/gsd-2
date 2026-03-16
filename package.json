@@ -48,6 +48,7 @@
     "copy-themes": "node -e \"const{mkdirSync,cpSync}=require('fs');const{resolve}=require('path');const src=resolve(__dirname,'packages/pi-coding-agent/dist/modes/interactive/theme');mkdirSync('pkg/dist/modes/interactive/theme',{recursive:true});cpSync(src,'pkg/dist/modes/interactive/theme',{recursive:true})\"",
     "copy-export-html": "node -e \"const{mkdirSync,cpSync}=require('fs');const{resolve}=require('path');const src=resolve(__dirname,'packages/pi-coding-agent/dist/core/export-html');mkdirSync('pkg/dist/core/export-html',{recursive:true});cpSync(src,'pkg/dist/core/export-html',{recursive:true})\"",
     "test:unit": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*.test.ts src/resources/extensions/gsd/tests/*.test.mjs src/tests/*.test.ts",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --exclude='src/resources/extensions/gsd/tests/**' --exclude='src/tests/**' --exclude='scripts/**' --exclude='native/**' --exclude='node_modules/**' --check-coverage --statements=40 --lines=40 --branches=0 --functions=0 node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*.test.ts src/resources/extensions/gsd/tests/*.test.mjs src/tests/*.test.ts",
     "test:integration": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*integration*.test.ts src/tests/integration/*.test.ts",
     "test": "npm run test:unit && npm run test:integration",
     "test:browser-tools": "node --test src/resources/extensions/browser-tools/tests/browser-tools-unit.test.cjs src/resources/extensions/browser-tools/tests/browser-tools-integration.test.mjs",
@@ -103,14 +104,15 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/picomatch": "^4.0.2",
+    "c8": "^11.0.0",
     "jiti": "^2.6.1",
     "typescript": "^5.4.0"
   },
   "optionalDependencies": {
     "@gsd-build/engine-darwin-arm64": ">=2.10.2",
     "@gsd-build/engine-darwin-x64": ">=2.10.2",
-    "@gsd-build/engine-linux-x64-gnu": ">=2.10.2",
     "@gsd-build/engine-linux-arm64-gnu": ">=2.10.2",
+    "@gsd-build/engine-linux-x64-gnu": ">=2.10.2",
     "@gsd-build/engine-win32-x64-msvc": ">=2.10.2",
     "fsevents": "~2.3.3",
     "koffi": "^2.9.0"
