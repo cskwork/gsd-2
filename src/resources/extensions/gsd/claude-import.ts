@@ -221,7 +221,9 @@ async function chooseMany<T extends { name: string; path: string; root: string; 
     ];
     const picked = await ctx.ui.select(`${title}: choose an item`, options);
     if (!picked || picked === "Done selecting") break;
-    const idx = options.indexOf(picked);
+    const pickedStr = Array.isArray(picked) ? picked[0] : picked;
+    if (!pickedStr) break;
+    const idx = options.indexOf(pickedStr);
     if (idx < 0 || idx >= remaining.length) break;
     selected.push(remaining[idx]!);
     remaining.splice(idx, 1);
@@ -344,7 +346,9 @@ async function selectMarketplaceComponents(
       const picked = await ctx.ui.select("Select a plugin to import all its components", options);
 
       if (!picked || picked === "Done selecting") break;
-      selectedPluginNames.push(picked);
+      const pickedStr = Array.isArray(picked) ? picked[0] : picked;
+      if (!pickedStr) break;
+      selectedPluginNames.push(pickedStr);
     }
 
     return allComponents
@@ -364,8 +368,10 @@ async function selectMarketplaceComponents(
 
     const picked = await ctx.ui.select("Select a component to import", options);
     if (!picked || picked === "Done selecting") break;
+    const pickedStr = Array.isArray(picked) ? picked[0] : picked;
+    if (!pickedStr) break;
 
-    const idx = options.indexOf(picked);
+    const idx = options.indexOf(pickedStr);
     if (idx < 0 || idx >= remaining.length) break;
 
     selected.push(remaining[idx]!.component);

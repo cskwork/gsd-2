@@ -385,7 +385,7 @@ export function inspectPlugin(
           const itemPath = path.join(rootHooksDir, item);
           return fs.statSync(itemPath).isDirectory() || item.endsWith('.md') || item.endsWith('.json');
         });
-      const mergedHooks = [...result.inventory.hooks, ...rootHooks];
+      const mergedHooks = [...(result.inventory.hooks || []), ...rootHooks];
       result.inventory.hooks = Array.from(new Set(mergedHooks));
     } catch {
       // Ignore read errors
@@ -401,7 +401,7 @@ export function inspectPlugin(
           const itemPath = path.join(hooksDir, item);
           return fs.statSync(itemPath).isDirectory() || item.endsWith('.md');
         });
-      const mergedHooks = [...result.inventory.hooks, ...pluginHooks];
+      const mergedHooks = [...(result.inventory.hooks || []), ...pluginHooks];
       result.inventory.hooks = Array.from(new Set(mergedHooks));
     } catch {
       // Ignore read errors
