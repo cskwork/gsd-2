@@ -79,34 +79,65 @@ async function searchWithOAuth(
 	signal?: AbortSignal,
 ): Promise<SearchResult> {
 	const model = process.env.GEMINI_SEARCH_MODEL || "gemini-2.5-flash";
-	const url = `https://cloudcode-pa.googleapis.com/v1internal:generateContent`;
+	const url = `https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent`;
 
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${accessToken}`,
-			"Content-Type": "application/json",
-			"User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-			"X-Goog-Api-Client": "gl-node/22.17.0",
-		},
-		body: JSON.stringify({
-			project: projectId,
-			model,
-			request: {
-				contents: [{ parts: [{ text: query }] }],
-				tools: [{ googleSearch: {} }],
-			},
-		}),
-		signal,
-	});
+	const GEMINI_CLI_HEADERS = {
+	        ideType: "IDE_UNSPECIFIED",
+	        platform: "PLATFORM_UNSPECIFIED",
+	        pluginType: "GEMINI",
+	};
+
+	const executeFetch = async (retries = 3): Promise<Response> => {
+	        const response = await fetch(url, {
+	                method: "POST",
+	                headers: {
+	                        Authorization: `Bearer ${accessToken}`,
+	                        "Content-Type": "application/json",
+	                        "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
+	                        "X-Goog-Api-Client": "gl-node/22.17.0",
+	                        "Client-Metadata": JSON.stringify(GEMINI_CLI_HEADERS),
+	                },
+	                body: JSON.stringify({
+	                        project: projectId,
+	                        model,
+	                        request: {
+	                                contents: [{ parts: [{ text: query }] }],
+	                                tools: [{ googleSearch: {} }],
+	                        },
+	                }),
+	                signal,
+	        });
+
+	        if (!response.ok && retries > 0 && (response.status === 429 || response.status >= 500)) {
+	                await new Promise((resolve) => setTimeout(resolve, 1000 * (4 - retries)));
+	                return executeFetch(retries - 1);
+	        }
+
+	        return response;
+	};
+
+	const response = await executeFetch();
 
 	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`Cloud Code Assist API error (${response.status}): ${errorText}`);
+	        const errorText = await response.text();
+	        throw new Error(`Cloud Code Assist API error (${response.status}): ${errorText}`);
 	}
 
-	const data = await response.json();
-	const candidate = data.response?.candidates?.[0];
+	// Note: streamGenerateContent returns SSE; for now, we consume all chunks.
+	// For simplicity and to match the previous structure, we'll read to end.
+	const text = await response.text();
+	const jsonLines = text.split("\n")
+	        .filter(l => l.startsWith("data:"))
+	        .map(l => l.slice(5).trim())
+	        .filter(l => l.length > 0);
+
+	let data;
+	if (jsonLines.length > 0) {
+	    // Aggregate chunks if needed, but for now we take the last chunk or assume it's one
+	    data = JSON.parse(jsonLines[jsonLines.length - 1]);
+	} else {
+	    data = JSON.parse(text);
+	}	const candidate = data.response?.candidates?.[0];
 	const answer = candidate?.content?.parts?.find((p: any) => p.text)?.text ?? "";
 	const grounding = candidate?.groundingMetadata;
 
