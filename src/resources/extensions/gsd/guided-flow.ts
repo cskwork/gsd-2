@@ -870,7 +870,7 @@ export async function showDiscuss(
     const draftFile = resolveMilestoneFile(basePath, mid, "CONTEXT-DRAFT");
     const draftContent = draftFile ? await loadFile(draftFile) : null;
 
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${mid}: ${milestoneTitle}`,
       summary: ["This milestone has a draft context from a prior discussion.", "It needs a dedicated discussion before auto-planning can begin."],
       actions: [
@@ -947,7 +947,7 @@ export async function showDiscuss(
       recommended: i === 0,
     }));
 
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: "GSD — Discuss a slice",
       summary: [
         `${mid}: ${milestoneTitle}`,
@@ -1056,7 +1056,7 @@ export async function showSmartEntry(
   const crashLock = readCrashLock(basePath);
   if (crashLock) {
     clearLock(basePath);
-    const resume = await showNextAction(ctx as any, {
+    const resume = await showNextAction(ctx, {
       title: "GSD — Interrupted Session Detected",
       summary: [formatCrashInfo(crashLock)],
       actions: [
@@ -1116,7 +1116,7 @@ export async function showSmartEntry(
         basePath
       ));
     } else {
-      const choice = await showNextAction(ctx as any, {
+      const choice = await showNextAction(ctx, {
         title: "GSD — Get Shit Done",
         summary: ["No active milestone."],
         actions: [
@@ -1146,7 +1146,7 @@ export async function showSmartEntry(
 
   // ── All milestones complete → New milestone ──────────────────────────
   if (state.phase === "complete") {
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${milestoneId}: ${milestoneTitle}`,
       summary: ["All milestones complete."],
       actions: [
@@ -1187,7 +1187,7 @@ export async function showSmartEntry(
     const draftFile = resolveMilestoneFile(basePath, milestoneId, "CONTEXT-DRAFT");
     const draftContent = draftFile ? await loadFile(draftFile) : null;
 
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${milestoneId}: ${milestoneTitle}`,
       summary: ["This milestone has a draft context from a prior discussion.", "It needs a dedicated discussion before auto-planning can begin."],
       actions: [
@@ -1278,7 +1278,7 @@ export async function showSmartEntry(
         },
       ];
 
-      const choice = await showNextAction(ctx as any, {
+      const choice = await showNextAction(ctx, {
         title: `GSD — ${milestoneId}: ${milestoneTitle}`,
         summary: [hasContext ? "Context captured. Ready to create roadmap." : "New milestone — no roadmap yet."],
         actions,
@@ -1315,7 +1315,7 @@ export async function showSmartEntry(
       } else if (choice === "discard_milestone") {
         const mDir = resolveMilestonePath(basePath, milestoneId);
         if (!mDir) return;
-        const confirmed = await showConfirm(ctx as any, {
+        const confirmed = await showConfirm(ctx, {
           title: "Discard milestone?",
           message: `This will permanently delete ${milestoneId} and all its contents.`,
           confirmLabel: "Discard",
@@ -1342,7 +1342,7 @@ export async function showSmartEntry(
         },
       ];
 
-      const choice = await showNextAction(ctx as any, {
+      const choice = await showNextAction(ctx, {
         title: `GSD — ${milestoneId}: ${milestoneTitle}`,
         summary: ["Roadmap exists. Ready to execute."],
         actions,
@@ -1400,7 +1400,7 @@ export async function showSmartEntry(
       ? `${sliceId}: ${sliceTitle} (${summaryParts.join(", ")})`
       : `${sliceId}: ${sliceTitle} — ready for planning.`;
 
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${milestoneId} / ${sliceId}: ${sliceTitle}`,
       summary: [summaryLine],
       actions,
@@ -1431,7 +1431,7 @@ export async function showSmartEntry(
 
   // ── All tasks done → Complete slice ──────────────────────────────────
   if (state.phase === "summarizing") {
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${milestoneId} / ${sliceId}: ${sliceTitle}`,
       summary: ["All tasks complete. Ready for slice summary."],
       actions: [
@@ -1475,7 +1475,7 @@ export async function showSmartEntry(
     const hasInterrupted = !!(continueFile && await loadFile(continueFile)) ||
       !!(sDir && await loadFile(join(sDir, "continue.md")));
 
-    const choice = await showNextAction(ctx as any, {
+    const choice = await showNextAction(ctx, {
       title: `GSD — ${milestoneId} / ${sliceId}: ${sliceTitle}`,
       summary: [
         hasInterrupted
