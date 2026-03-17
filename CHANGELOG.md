@@ -30,6 +30,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Prevent runaway execute-task when task plan missing after failed research
 - Fix read-only file permissions after cpSync from Nix store
 - Fix parallel sendMessage calls missing required fields
+- Strip clack UI from postinstall, keep silent Playwright download
 
 ### Changed
 - Lazy-load LLM provider SDKs to reduce startup time
