@@ -1,6 +1,6 @@
-# GSD — VS Code Extension
+# GSD-2 — VS Code Extension
 
-Control the [GSD coding agent](https://github.com/gsd-build/gsd-2) directly from VS Code. Run autonomous coding sessions, chat with `@gsd` in VS Code Chat, and monitor your agent from a sidebar dashboard — all without leaving the editor.
+Control the [GSD-2 coding agent](https://github.com/gsd-build/gsd-2) directly from VS Code. Run autonomous coding sessions, chat with `@gsd` in VS Code Chat, and monitor your agent from a sidebar dashboard — all without leaving the editor.
 
 ## Requirements
 
