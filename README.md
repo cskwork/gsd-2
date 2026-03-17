@@ -7,6 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
 [![npm downloads](https://img.shields.io/npm/dm/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
 [![GitHub stars](https://img.shields.io/github/stars/gsd-build/GSD-2?style=for-the-badge&logo=github&color=181717)](https://github.com/gsd-build/GSD-2)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/gsd)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 The original GSD went viral as a prompt framework for Claude Code. It worked, but it was fighting the tool — injecting prompts through slash commands, hoping the LLM would follow instructions, with no actual control over context windows, sessions, or execution.
@@ -18,6 +19,25 @@ One command. Walk away. Come back to a built project with clean git history.
 <pre><code>npm install -g gsd-pi</code></pre>
 
 </div>
+
+---
+
+## Documentation
+
+Full documentation is available in the [`docs/`](./docs/) directory:
+
+- **[Getting Started](./docs/getting-started.md)** — install, first run, basic usage
+- **[Auto Mode](./docs/auto-mode.md)** — autonomous execution deep-dive
+- **[Configuration](./docs/configuration.md)** — all preferences, models, git, and hooks
+- **[Token Optimization](./docs/token-optimization.md)** — profiles, context compression, complexity routing (v2.17)
+- **[Cost Management](./docs/cost-management.md)** — budgets, tracking, projections
+- **[Git Strategy](./docs/git-strategy.md)** — worktree isolation, branching, merge behavior
+- **[Working in Teams](./docs/working-in-teams.md)** — unique IDs, shared artifacts
+- **[Skills](./docs/skills.md)** — bundled skills, discovery, custom authoring
+- **[Commands Reference](./docs/commands.md)** — all commands and keyboard shortcuts
+- **[Architecture](./docs/architecture.md)** — system design and dispatch pipeline
+- **[Troubleshooting](./docs/troubleshooting.md)** — common issues, doctor, recovery
+- **[Migration from v1](./docs/migration.md)** — `.planning` → `.gsd` migration
 
 ---
 
@@ -201,6 +221,26 @@ gsd
 
 Both terminals read and write the same `.gsd/` files on disk. Your decisions in terminal 2 are picked up automatically at the next phase boundary — no need to stop auto mode.
 
+### Headless mode — CI and scripts
+
+`gsd headless` runs any `/gsd` command without a TUI. Designed for CI pipelines, cron jobs, and scripted automation.
+
+```bash
+# Run auto mode in CI
+gsd headless --timeout 600000
+
+# One unit at a time (cron-friendly)
+gsd headless next
+
+# Machine-readable status
+gsd headless --json status
+
+# Force a specific pipeline phase
+gsd headless dispatch plan
+```
+
+Headless auto-responds to interactive prompts, detects completion, and exits with structured codes: `0` complete, `1` error/timeout, `2` blocked. Pair with [remote questions](./docs/remote-questions.md) to route decisions to Slack or Discord when human input is needed.
+
 ### First launch
 
 On first run, GSD launches a branded setup wizard that walks you through LLM provider selection (OAuth or API key), then optional tool API keys (Brave Search, Context7, Jina, Slack, Discord). Every step is skippable — press Enter to skip any. If you have an existing Pi installation, your provider credentials (LLM and tool keys) are imported automatically. Run `gsd config` anytime to re-run the wizard.
@@ -212,6 +252,7 @@ On first run, GSD launches a branded setup wizard that walks you through LLM pro
 | `/gsd`                  | Step mode — executes one unit at a time, pauses between each    |
 | `/gsd next`             | Explicit step mode (same as bare `/gsd`)                        |
 | `/gsd auto`             | Autonomous mode — researches, plans, executes, commits, repeats |
+| `/gsd quick`            | Execute a quick task with GSD guarantees, skip planning overhead |
 | `/gsd stop`             | Stop auto mode gracefully                                       |
 | `/gsd steer`            | Hard-steer plan documents during execution                      |
 | `/gsd discuss`          | Discuss architecture and decisions (works alongside auto mode)  |
@@ -219,7 +260,11 @@ On first run, GSD launches a branded setup wizard that walks you through LLM pro
 | `/gsd queue`            | Queue future milestones (safe during auto mode)                 |
 | `/gsd prefs`            | Model selection, timeouts, budget ceiling                       |
 | `/gsd migrate`          | Migrate a v1 `.planning` directory to `.gsd` format             |
-| `/gsd doctor`           | Validate `.gsd/` integrity, find and fix issues                 |
+| `/gsd help`             | Categorized command reference for all GSD subcommands           |
+| `/gsd mode`             | Switch workflow mode (solo/team) with coordinated defaults      |
+| `/gsd forensics`        | Post-mortem investigation of auto-mode failures                 |
+| `/gsd cleanup`          | Archive phase directories from completed milestones             |
+| `/gsd doctor`           | Runtime health checks with auto-fix for common issues           |
 | `/worktree` (`/wt`)     | Git worktree lifecycle — create, switch, merge, remove          |
 | `/voice`                | Toggle real-time speech-to-text (macOS, Linux)                  |
 | `/exit`                 | Graceful shutdown — saves session state before exiting          |
@@ -229,7 +274,10 @@ On first run, GSD launches a branded setup wizard that walks you through LLM pro
 | `Ctrl+Alt+V`            | Toggle voice transcription                                      |
 | `Ctrl+Alt+B`            | Show background shell processes                                 |
 | `gsd config`            | Re-run the setup wizard (LLM provider + tool keys)              |
+| `gsd update`            | Update GSD to the latest version                                |
+| `gsd headless [cmd]`    | Run `/gsd` commands without TUI (CI, cron, scripts)             |
 | `gsd --continue` (`-c`) | Resume the most recent session for the current directory        |
+| `gsd sessions`          | Interactive session picker — browse and resume any saved session |
 
 ---
 
@@ -332,7 +380,37 @@ unique_milestone_ids: true
 | `uat_dispatch`         | Enable automatic UAT runs after slice completion                                                      |
 | `always_use_skills`    | Skills to always load when relevant                                                                   |
 | `skill_rules`          | Situational rules for skill routing                                                                   |
+| `skill_staleness_days` | Skills unused for N days get deprioritized (default: 60, 0 = disabled)                                |
 | `unique_milestone_ids` | Uses unique milestone names to avoid clashes when working in teams of people                          |
+| `git.isolation`        | `worktree` (default) or `none` — disable worktree isolation for projects that don't need it           |
+
+### Agent Instructions
+
+Create an `agent-instructions.md` file in your project root to inject persistent per-project behavioral guidance into every agent session. This file is loaded automatically and provides project-specific context the LLM should always have — coding standards, architectural decisions, domain terminology, or workflow preferences.
+
+### Debug Mode
+
+Start GSD with `gsd --debug` to enable structured JSONL diagnostic logging. Debug logs capture dispatch decisions, state transitions, and timing data for troubleshooting auto-mode issues.
+
+### Token Optimization (v2.17)
+
+GSD 2.17 introduced a coordinated token optimization system that reduces usage by 40-60% on cost-sensitive workloads. Set a single preference to coordinate model selection, phase skipping, and context compression:
+
+```yaml
+token_profile: budget      # or balanced (default), quality
+```
+
+| Profile | Savings | What It Does |
+|---------|---------|-------------|
+| `budget` | 40-60% | Cheap models, skip research/reassess, minimal context inlining |
+| `balanced` | 10-20% | Default models, skip slice research, standard context |
+| `quality` | 0% | All phases, all context, full model power |
+
+**Complexity-based routing** automatically classifies tasks as simple/standard/complex and routes to appropriate models. Simple docs tasks get Haiku; complex architectural work gets Opus. The classification is heuristic (sub-millisecond, no LLM calls) and learns from outcomes via a persistent routing history.
+
+**Budget pressure** graduates model downgrading as you approach your budget ceiling — 50%, 75%, and 90% thresholds progressively shift work to cheaper tiers.
+
+See the full [Token Optimization Guide](./docs/token-optimization.md) for details.
 
 ### Bundled Tools
 
@@ -341,7 +419,7 @@ GSD ships with 14 extensions, all loaded automatically:
 | Extension              | What it provides                                                                                                       |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **GSD**                | Core workflow engine, auto mode, commands, dashboard                                                                   |
-| **Browser Tools**      | Playwright-based browser with form intelligence, intent-ranked element finding, and semantic actions                   |
+| **Browser Tools**      | Playwright-based browser with form intelligence, intent-ranked element finding, semantic actions, PDF export, session state persistence, network mocking, device emulation, structured extraction, visual diffing, region zoom, test code generation, and prompt injection detection |
 | **Search the Web**     | Brave Search, Tavily, or Jina page extraction                                                                          |
 | **Google Search**      | Gemini-powered web search with AI-synthesized answers                                                                  |
 | **Context7**           | Up-to-date library/framework documentation                                                                             |
@@ -427,6 +505,7 @@ GSD is a TypeScript application that embeds the Pi coding agent SDK.
 gsd (CLI binary)
   └─ loader.ts          Sets PI_PACKAGE_DIR, GSD env vars, dynamic-imports cli.ts
       └─ cli.ts         Wires SDK managers, loads extensions, starts InteractiveMode
+          ├─ headless.ts     Headless orchestrator (spawns RPC child, auto-responds, detects completion)
           ├─ onboarding.ts   First-run setup wizard (LLM provider + tool keys)
           ├─ wizard.ts       Env hydration from stored auth.json credentials
           ├─ app-paths.ts    ~/.gsd/agent/, ~/.gsd/sessions/, auth.json

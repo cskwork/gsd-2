@@ -10,7 +10,7 @@ import type { ExtensionContext, ExtensionCommandContext } from "@gsd/pi-coding-a
 import type { GSDState } from "./types.js";
 import { getCurrentBranch } from "./worktree.js";
 import { getActiveHook } from "./post-unit-hooks.js";
-import { getLedger, getProjectTotals, formatCost, formatTokenCount } from "./metrics.js";
+import { getLedger, getProjectTotals, formatCost, formatTokenCount, formatTierSavings } from "./metrics.js";
 import {
   resolveMilestoneFile,
   resolveSliceFile,
@@ -35,6 +35,14 @@ export interface AutoDashboardData {
   /** Running cost and token totals from metrics ledger */
   totalCost: number;
   totalTokens: number;
+  /** Projected remaining cost based on unit-type averages (undefined if insufficient data) */
+  projectedRemainingCost?: number;
+  /** Whether token profile has been auto-downgraded due to budget prediction */
+  profileDowngraded?: boolean;
+  /** Number of pending captures awaiting triage (0 if none or file missing) */
+  pendingCaptureCount: number;
+  /** Cross-process: another auto-mode session detected via auto.lock (PID, startedAt) */
+  remoteSession?: { pid: number; startedAt: string; unitType: string; unitId: string };
 }
 
 // ─── Unit Description Helpers ─────────────────────────────────────────────────
@@ -235,6 +243,7 @@ export function updateProgressWidget(
   unitId: string,
   state: GSDState,
   accessors: WidgetStateAccessors,
+  tierBadge?: string,
 ): void {
   if (!ctx.hasUI) return;
 
@@ -315,7 +324,8 @@ export function updateProgressWidget(
 
         const target = task ? `${task.id}: ${task.title}` : unitId;
         const actionLeft = `${pad}${theme.fg("accent", "▸")} ${theme.fg("accent", verb)}  ${theme.fg("text", target)}`;
-        const phaseBadge = theme.fg("dim", phaseLabel);
+        const tierTag = tierBadge ? theme.fg("dim", `[${tierBadge}] `) : "";
+        const phaseBadge = `${tierTag}${theme.fg("dim", phaseLabel)}`;
         lines.push(rightAlign(actionLeft, phaseBadge, width));
         lines.push("");
 
@@ -332,7 +342,8 @@ export function updateProgressWidget(
             let meta = theme.fg("dim", `${done}/${total} slices`);
 
             if (activeSliceTasks && activeSliceTasks.total > 0) {
-              meta += theme.fg("dim", `  ·  task ${activeSliceTasks.done + 1}/${activeSliceTasks.total}`);
+              const taskNum = Math.min(activeSliceTasks.done + 1, activeSliceTasks.total);
+              meta += theme.fg("dim", `  ·  task ${taskNum}/${activeSliceTasks.total}`);
             }
 
             lines.push(truncateToWidth(`${pad}${bar}  ${meta}`, width));
@@ -410,6 +421,14 @@ export function updateProgressWidget(
             ? `${modelPhase}${theme.fg("dim", modelDisplay)}`
             : "";
           lines.push(rightAlign(`${pad}${sLeft}`, sRight, width));
+
+          // Dynamic routing savings summary
+          if (mLedger && mLedger.units.some(u => u.tier)) {
+            const savings = formatTierSavings(mLedger.units);
+            if (savings) {
+              lines.push(truncateToWidth(theme.fg("dim", `${pad}${savings}`), width));
+            }
+          }
         }
 
         const hintParts: string[] = [];

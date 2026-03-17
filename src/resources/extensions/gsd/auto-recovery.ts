@@ -83,6 +83,10 @@ export function resolveExpectedArtifactPath(unitType: string, unitId: string, ba
       const dir = resolveSlicePath(base, mid, sid!);
       return dir ? join(dir, buildSliceFileName(sid!, "SUMMARY")) : null;
     }
+    case "validate-milestone": {
+      const dir = resolveMilestonePath(base, mid);
+      return dir ? join(dir, buildMilestoneFileName(mid, "VALIDATION")) : null;
+    }
     case "complete-milestone": {
       const dir = resolveMilestonePath(base, mid);
       return dir ? join(dir, buildMilestoneFileName(mid, "SUMMARY")) : null;
@@ -129,6 +133,16 @@ export function verifyExpectedArtifact(unitType: string, unitId: string, base: s
   // — treat as stale completion state so the key gets evicted (#313).
   if (!absPath) return unitType === "replan-slice";
   if (!existsSync(absPath)) return false;
+
+  // plan-slice must produce a plan with actual task entries, not just a scaffold.
+  // The plan file may exist from a prior discussion/context step with only headings
+  // but no tasks. Without this check the artifact is considered "complete" and the
+  // unit gets skipped — but deriveState still returns phase:"planning" because the
+  // plan has no tasks, creating an infinite skip loop (#699).
+  if (unitType === "plan-slice") {
+    const planContent = readFileSync(absPath, "utf-8");
+    if (!/^- \[[xX ]\] \*\*T\d+:/m.test(planContent)) return false;
+  }
 
   // execute-task must also have its checkbox marked [x] in the slice plan
   if (unitType === "execute-task") {
@@ -234,6 +248,8 @@ export function diagnoseExpectedArtifact(unitType: string, unitId: string, base:
       return `${relSliceFile(base, mid!, sid!, "ASSESSMENT")} (roadmap reassessment)`;
     case "run-uat":
       return `${relSliceFile(base, mid!, sid!, "UAT-RESULT")} (UAT result)`;
+    case "validate-milestone":
+      return `${relMilestoneFile(base, mid!, "VALIDATION")} (milestone validation report)`;
     case "complete-milestone":
       return `${relMilestoneFile(base, mid!, "SUMMARY")} (milestone summary)`;
     default:
@@ -525,6 +541,15 @@ export function buildLoopRemediationSteps(unitType: string, unitId: string, base
         `   2. Mark ${sid} [x] in ${relMilestoneFile(base, mid, "ROADMAP")}`,
         `   3. Run \`gsd doctor\` to reconcile .gsd/ state`,
         `   4. Resume auto-mode`,
+      ].join("\n");
+    }
+    case "validate-milestone": {
+      if (!mid) break;
+      const artifactRel = relMilestoneFile(base, mid, "VALIDATION");
+      return [
+        `   1. Write ${artifactRel} with verdict: pass`,
+        `   2. Run \`gsd doctor\``,
+        `   3. Resume auto-mode`,
       ].join("\n");
     }
     default:

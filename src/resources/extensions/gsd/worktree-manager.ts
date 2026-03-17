@@ -15,7 +15,7 @@
  *   4. remove()  — git worktree remove + branch cleanup
  */
 
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import {
   nativeBranchDelete,
@@ -74,6 +74,34 @@ export function getMainBranch(basePath: string): string {
   return nativeDetectMainBranch(basePath);
 }
 
+// ─── resolveGitDir ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve the actual git directory for a given repository path.
+ *
+ * In a normal repo, .git is a directory → returns `<basePath>/.git`.
+ * In a worktree, .git is a file containing `gitdir: <path>` → resolves
+ * and returns that path.
+ *
+ * This is critical for operations that reference git metadata files like
+ * MERGE_HEAD, SQUASH_MSG, etc. — these live in the git directory, not
+ * in the working tree root. Without this, worktree merges fail because
+ * they look for MERGE_HEAD in the wrong location.
+ */
+export function resolveGitDir(basePath: string): string {
+  const gitPath = join(basePath, ".git");
+  if (!existsSync(gitPath)) return join(basePath, ".git");
+  try {
+    const content = readFileSync(gitPath, "utf-8").trim();
+    if (content.startsWith("gitdir: ")) {
+      return resolve(basePath, content.slice(8));
+    }
+  } catch {
+    // Not a file or unreadable — fall through to default
+  }
+  return join(basePath, ".git");
+}
+
 export function worktreesDir(basePath: string): string {
   return join(basePath, ".gsd", "worktrees");
 }
@@ -94,7 +122,7 @@ export function worktreeBranchName(name: string): string {
  *
  * @param opts.branch — override the default `worktree/<name>` branch name
  */
-export function createWorktree(basePath: string, name: string, opts: { branch?: string } = {}): WorktreeInfo {
+export function createWorktree(basePath: string, name: string, opts: { branch?: string; startPoint?: string; reuseExistingBranch?: boolean } = {}): WorktreeInfo {
   // Validate name: alphanumeric, hyphens, underscores only
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
     throw new Error(`Invalid worktree name "${name}". Use only letters, numbers, hyphens, and underscores.`);
@@ -114,9 +142,12 @@ export function createWorktree(basePath: string, name: string, opts: { branch?: 
   // Prune any stale worktree entries from a previous removal
   nativeWorktreePrune(basePath);
 
+  // Use the explicit start point (e.g. integration branch) if provided,
+  // otherwise fall back to the repo's detected main branch.
+  const startPoint = opts.startPoint ?? nativeDetectMainBranch(basePath);
+
   // Check if the branch already exists (leftover from a previous worktree)
   const branchAlreadyExists = nativeBranchExists(basePath, branch);
-  const mainBranch = nativeDetectMainBranch(basePath);
 
   if (branchAlreadyExists) {
     // Check if the branch is actively used by an existing worktree.
@@ -130,11 +161,18 @@ export function createWorktree(basePath: string, name: string, opts: { branch?: 
       );
     }
 
-    // Reset the stale branch to current main, then attach worktree to it
-    nativeBranchForceReset(basePath, branch, mainBranch);
-    nativeWorktreeAdd(basePath, wtPath, branch);
+    if (opts.reuseExistingBranch) {
+      // Attach worktree to the existing branch as-is (preserving commits).
+      // Used when resuming auto-mode: the milestone branch has valid work
+      // from prior sessions that must not be reset.
+      nativeWorktreeAdd(basePath, wtPath, branch);
+    } else {
+      // Reset the stale branch to the start point, then attach worktree to it
+      nativeBranchForceReset(basePath, branch, startPoint);
+      nativeWorktreeAdd(basePath, wtPath, branch);
+    }
   } else {
-    nativeWorktreeAdd(basePath, wtPath, branch, true, mainBranch);
+    nativeWorktreeAdd(basePath, wtPath, branch, true, startPoint);
   }
 
   return {

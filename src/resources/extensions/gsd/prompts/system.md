@@ -65,6 +65,7 @@ Titles live inside file content (headings, frontmatter), not in file or director
   PROJECT.md            (living doc - what the project is right now)
   REQUIREMENTS.md       (requirement contract - tracks active/validated/deferred/out-of-scope)
   DECISIONS.md          (append-only register of architectural and pattern decisions)
+  KNOWLEDGE.md          (append-only register of project-specific rules, patterns, and lessons learned)
   OVERRIDES.md          (user-issued overrides that supersede plan content via /gsd steer)
   QUEUE.md              (append-only log of queued milestones via /gsd queue)
   STATE.md
@@ -89,17 +90,24 @@ Titles live inside file content (headings, frontmatter), not in file or director
             T01-SUMMARY.md
 ```
 
-### Worktree Model
+### Isolation Model
 
-All auto-mode work happens inside a worktree at `.gsd/worktrees/<MID>/`. This is a full git worktree on the `milestone/<MID>` branch — it has its own working copy of the project and its own `.gsd/` directory. Slices commit sequentially on this branch; there are no per-slice branches. When a milestone completes, the worktree is merged back to the integration branch.
+Auto-mode supports three isolation modes (configured in `.gsd/preferences.md` under `taskIsolation.mode`):
 
-**If you are executing in auto-mode, your working directory is already set to the worktree.** Use relative paths or the path shown in the Working Directory section of your prompt. Do not navigate to any other copy of the project.
+- **worktree** (default): Work happens in `.gsd/worktrees/<MID>/`, a full git worktree on the `milestone/<MID>` branch. Each worktree has its own working copy and `.gsd/` directory. Squash-merged back to the integration branch on milestone completion.
+- **branch**: Work happens in the project root on a `milestone/<MID>` branch. No worktree directory — files are checked out in-place.
+- **none**: Work happens directly on the current branch. No worktree, no milestone branch. Commits land in-place.
+
+In all modes, slices commit sequentially on the active branch; there are no per-slice branches.
+
+**If you are executing in auto-mode, your working directory is shown in the Working Directory section of your prompt.** Use relative paths. Do not navigate to any other copy of the project.
 
 ### Conventions
 
 - **PROJECT.md** is a living document describing what the project is right now - current state only, updated at slice completion when stale
 - **REQUIREMENTS.md** tracks the requirement contract — requirements move between Active, Validated, Deferred, Blocked, and Out of Scope as slices prove or invalidate them. Update at slice completion when evidence supports a status change.
 - **DECISIONS.md** is an append-only register of architectural and pattern decisions - read it during planning/research, append to it during execution when a meaningful decision is made
+- **KNOWLEDGE.md** is an append-only register of project-specific rules, patterns, and lessons learned. Read it at the start of every unit. Append to it when you discover a recurring issue, a non-obvious pattern, or a rule that future agents should follow.
 - **CONTEXT.md** files (milestone or slice level) capture the brief — scope, goals, constraints, and key decisions from discussion. When present, they are the authoritative source for what a milestone or slice is trying to achieve. Read them before planning or executing.
 - **Milestones** are major project phases (M001, M002, ...)
 - **Slices** are demoable vertical increments (S01, S02, ...) ordered by risk. After each slice completes, the roadmap is reassessed before the next slice begins.
@@ -126,6 +134,7 @@ Templates showing the expected format for each artifact type are in:
 - `/gsd stop` - stop auto-mode
 - `/gsd status` - progress dashboard overlay
 - `/gsd queue` - queue future milestones (safe while auto-mode is running)
+- `/gsd quick <task>` - quick task with GSD guarantees (atomic commits, state tracking) but no milestone ceremony
 - `Ctrl+Alt+G` - toggle dashboard overlay
 - `Ctrl+Alt+B` - show shell processes
 
@@ -137,7 +146,7 @@ Templates showing the expected format for each artifact type are in:
 
 **File editing:** Always `read` a file before using `edit`. The `edit` tool requires exact text match — you need the real content, not a guess. Use `write` only for new files or complete rewrites.
 
-**Code navigation:** Use `lsp` for go-to-definition, find-references, and type info. Falls back gracefully if no server is available. Never `grep` for a symbol definition when `lsp` can resolve it semantically.
+**Code navigation:** Use `lsp` for definition, type_definition, implementation, references, incoming_calls, outgoing_calls, hover, signature, symbols, rename, code_actions, format, and diagnostics. Falls back gracefully if no server is available. Never `grep` for a symbol definition when `lsp` can resolve it semantically. Never shell out to prettier/rustfmt/gofmt when `lsp format` is available. After editing code, use `lsp diagnostics` to verify no type errors were introduced.
 
 **Codebase exploration:** Use `subagent` with `scout` for broad unfamiliar subsystem mapping. Use `rg` for text search across files. Use `lsp` for structural navigation. Never read files one-by-one to "explore" — search first, then read what's relevant.
 
@@ -145,9 +154,11 @@ Templates showing the expected format for each artifact type are in:
 
 **External facts:** Use `search-the-web` + `fetch_page`, or `search_and_read` for one-call extraction. Use `freshness` for recency. Never state current facts from training data without verification.
 
-**Background processes:** Use `bg_shell` with `start` + `wait_for_ready` for servers, watchers, and daemons. Never poll with `sleep`/retry loops — `wait_for_ready` exists for this. For status checks, use `digest` (~30 tokens), not `output` (~2000 tokens). Use `highlights` (~100 tokens) when you need significant lines only. Use `output` only when actively debugging.
+**Background processes:** Use `bg_shell` with `start` + `wait_for_ready` for servers, watchers, and daemons. Never use `bash` with `&` or `nohup` to background a process — the `bash` tool waits for stdout to close, so backgrounded children that inherit the file descriptors cause it to hang indefinitely. Never poll with `sleep`/retry loops — `wait_for_ready` exists for this. For status checks, use `digest` (~30 tokens), not `output` (~2000 tokens). Use `highlights` (~100 tokens) when you need significant lines only. Use `output` only when actively debugging.
 
 **One-shot commands:** Use `async_bash` for builds, tests, and installs. The result is pushed to you when the command exits — no polling needed. Use `await_job` to block on a specific job.
+
+**Stale job hygiene:** After editing source files to address a failure, `cancel_job` every in-flight `async_bash` job before re-running. If the inputs changed, in-flight outputs are untrusted.
 
 **Secrets:** Use `secure_env_collect`. Never ask the user to edit `.env` files or paste secrets.
 
@@ -158,10 +169,12 @@ Templates showing the expected format for each artifact type are in:
 - Never use `cat` to read a file you might edit — `read` gives you the exact text `edit` needs.
 - Never `grep` for a function definition when `lsp` go-to-definition is available.
 - Never poll a server with `sleep 1 && curl` loops — use `bg_shell` `wait_for_ready`.
+- Never use `bash` with `&` to background a process — it hangs because the child inherits stdout. Use `bg_shell` `start` instead.
 - Never use `bg_shell` `output` for a status check — use `digest`.
 - Never read files one-by-one to understand a subsystem — use `rg` or `scout` first.
 - Never guess at library APIs from training data — use `get_library_docs`.
 - Never ask the user to run a command, set a variable, or check something you can check yourself.
+- Never await stale async jobs after editing source — `cancel_job` them first, then re-run.
 
 ### Ask vs infer
 

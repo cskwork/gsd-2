@@ -22,11 +22,12 @@ import {
 } from "./paths.js";
 import { randomInt } from "node:crypto";
 import { join } from "node:path";
-import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, unlinkSync } from "node:fs";
 import { nativeIsRepo, nativeInit, nativeAddPaths, nativeCommit } from "./native-git-bridge.js";
 import { ensureGitignore, ensurePreferences, untrackRuntimeFiles } from "./gitignore.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 import { showConfirm } from "../shared/confirm-ui.js";
+import { loadQueueOrder, sortByQueueOrder, saveQueueOrder } from "./queue-order.js";
 
 // ─── Auto-start after discuss ─────────────────────────────────────────────────
 
@@ -203,14 +204,21 @@ function buildDiscussPrompt(nextId: string, preamble: string, _basePath: string)
 export function findMilestoneIds(basePath: string): string[] {
   const dir = milestonesDir(basePath);
   try {
-    return readdirSync(dir, { withFileTypes: true })
+    const ids = readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => {
         const match = d.name.match(/^(M\d+(?:-[a-z0-9]{6})?)/);
         return match ? match[1] : d.name;
-      })
-      .sort(milestoneIdSort);
-  } catch {
+      });
+
+    // Apply custom queue order if available, else fall back to numeric sort
+    const customOrder = loadQueueOrder(basePath);
+    return sortByQueueOrder(ids, customOrder);
+  } catch (err) {
+    // Log why milestone scanning failed — silent [] here causes infinite loops (#456)
+    if (existsSync(dir)) {
+      console.error(`[gsd] findMilestoneIds: .gsd/milestones/ exists but readdirSync failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
     return [];
   }
 }
@@ -304,6 +312,235 @@ export async function showQueue(
     ctx.ui.notify("No milestones exist yet. Run /gsd to create the first one.", "warning");
     return;
   }
+
+  // ── Count pending milestones ────────────────────────────────────────
+  const pendingMilestones = state.registry.filter(
+    m => m.status === "pending" || m.status === "active",
+  );
+  const completeCount = state.registry.filter(m => m.status === "complete").length;
+
+  // ── If multiple pending milestones, show queue management hub ──────
+  if (pendingMilestones.length > 1) {
+    const choice = await showNextAction(ctx, {
+      title: "GSD — Queue Management",
+      summary: [
+        `${completeCount} complete, ${pendingMilestones.length} pending.`,
+      ],
+      actions: [
+        {
+          id: "reorder",
+          label: "Reorder queue",
+          description: `Change execution order of ${pendingMilestones.length} pending milestones.`,
+          recommended: true,
+        },
+        {
+          id: "add",
+          label: "Add new work",
+          description: "Queue new milestones via discussion.",
+        },
+      ],
+      notYetMessage: "Run /gsd queue when ready.",
+    });
+
+    if (choice === "reorder") {
+      await handleQueueReorder(ctx, basePath, state);
+      return;
+    }
+    if (choice === "not_yet") return;
+    // "add" falls through to existing queue-add logic below
+  }
+
+  // ── Existing queue-add flow ─────────────────────────────────────────
+  await showQueueAdd(ctx, pi, basePath, state);
+}
+
+async function handleQueueReorder(
+  ctx: ExtensionCommandContext,
+  basePath: string,
+  state: Awaited<ReturnType<typeof deriveState>>,
+): Promise<void> {
+  const { showQueueReorder: showReorderUI } = await import("./queue-reorder-ui.js");
+  const { invalidateStateCache } = await import("./state.js");
+
+  const completed = state.registry
+    .filter(m => m.status === "complete")
+    .map(m => ({ id: m.id, title: m.title, dependsOn: m.dependsOn }));
+
+  const pending = state.registry
+    .filter(m => m.status !== "complete")
+    .map(m => ({ id: m.id, title: m.title, dependsOn: m.dependsOn }));
+
+  const result = await showReorderUI(ctx, completed, pending);
+  if (!result) {
+    ctx.ui.notify("Queue reorder cancelled.", "info");
+    return;
+  }
+
+  // Save the new order
+  saveQueueOrder(basePath, result.order);
+  invalidateStateCache();
+
+  // Remove conflicting depends_on entries from CONTEXT.md files
+  if (result.depsToRemove.length > 0) {
+    removeDependsOnFromContextFiles(basePath, result.depsToRemove);
+  }
+
+  // Sync PROJECT.md milestone sequence table
+  syncProjectMdSequence(basePath, state.registry, result.order);
+
+  // Commit the change
+  const filesToAdd = [".gsd/QUEUE-ORDER.json", ".gsd/PROJECT.md"];
+  for (const r of result.depsToRemove) {
+    filesToAdd.push(`.gsd/milestones/${r.milestone}/${r.milestone}-CONTEXT.md`);
+  }
+  try {
+    nativeAddPaths(basePath, filesToAdd);
+    nativeCommit(basePath, "docs: reorder queue");
+  } catch {
+    // Commit may fail if nothing changed or git hooks block — non-fatal
+  }
+
+  const depInfo = result.depsToRemove.length > 0
+    ? ` (removed ${result.depsToRemove.length} depends_on)`
+    : "";
+  ctx.ui.notify(`Queue reordered: ${result.order.join(" → ")}${depInfo}`, "info");
+}
+
+/**
+ * Remove specific depends_on entries from milestone CONTEXT.md frontmatter.
+ */
+function removeDependsOnFromContextFiles(
+  basePath: string,
+  depsToRemove: Array<{ milestone: string; dep: string }>,
+): void {
+  // Group removals by milestone
+  const byMilestone = new Map<string, string[]>();
+  for (const { milestone, dep } of depsToRemove) {
+    const existing = byMilestone.get(milestone) ?? [];
+    existing.push(dep);
+    byMilestone.set(milestone, existing);
+  }
+
+  for (const [mid, depsToRemoveForMid] of byMilestone) {
+    const contextFile = resolveMilestoneFile(basePath, mid, "CONTEXT");
+    if (!contextFile || !existsSync(contextFile)) continue;
+
+    const content = readFileSync(contextFile, "utf-8");
+
+    // Parse frontmatter
+    const trimmed = content.trimStart();
+    if (!trimmed.startsWith("---")) continue;
+    const afterFirst = trimmed.indexOf("\n");
+    if (afterFirst === -1) continue;
+    const rest = trimmed.slice(afterFirst + 1);
+    const endIdx = rest.indexOf("\n---");
+    if (endIdx === -1) continue;
+
+    const fmText = rest.slice(0, endIdx);
+    const body = rest.slice(endIdx + 4);
+
+    // Parse depends_on line(s)
+    const fmLines = fmText.split("\n");
+    const removeSet = new Set(depsToRemoveForMid.map(d => d.toUpperCase()));
+
+    // Handle inline format: depends_on: [M009, M010]
+    const inlineMatch = fmLines.findIndex(l => /^depends_on:\s*\[/.test(l));
+    if (inlineMatch >= 0) {
+      const line = fmLines[inlineMatch];
+      const inner = line.match(/\[([^\]]*)\]/);
+      if (inner) {
+        const remaining = inner[1]
+          .split(",")
+          .map(s => s.trim())
+          .filter(s => s && !removeSet.has(s.toUpperCase()));
+        if (remaining.length === 0) {
+          fmLines.splice(inlineMatch, 1);
+        } else {
+          fmLines[inlineMatch] = `depends_on: [${remaining.join(", ")}]`;
+        }
+      }
+    } else {
+      // Handle multi-line format
+      const keyIdx = fmLines.findIndex(l => /^depends_on:\s*$/.test(l));
+      if (keyIdx >= 0) {
+        let end = keyIdx + 1;
+        while (end < fmLines.length && /^\s+-\s/.test(fmLines[end])) {
+          const val = fmLines[end].replace(/^\s+-\s*/, "").trim().toUpperCase();
+          if (removeSet.has(val)) {
+            fmLines.splice(end, 1);
+          } else {
+            end++;
+          }
+        }
+        if (end === keyIdx + 1 || (end <= fmLines.length && !/^\s+-\s/.test(fmLines[keyIdx + 1] ?? ""))) {
+          fmLines.splice(keyIdx, 1);
+        }
+      }
+    }
+
+    // Rebuild file
+    const newFm = fmLines.filter(l => l !== undefined).join("\n");
+    const newContent = newFm.trim()
+      ? `---\n${newFm}\n---${body}`
+      : body.replace(/^\n+/, "");
+    writeFileSync(contextFile, newContent, "utf-8");
+  }
+}
+
+function syncProjectMdSequence(
+  basePath: string,
+  registry: Array<{ id: string; title: string; status: string }>,
+  newOrder: string[],
+): void {
+  const projectPath = resolveGsdRootFile(basePath, "PROJECT");
+  if (!projectPath || !existsSync(projectPath)) return;
+
+  const content = readFileSync(projectPath, "utf-8");
+  const lines = content.split("\n");
+
+  const headerIdx = lines.findIndex(l => /^##\s+Milestone Sequence/.test(l));
+  if (headerIdx < 0) return;
+
+  let tableStart = headerIdx + 1;
+  while (tableStart < lines.length && !lines[tableStart].startsWith("|")) tableStart++;
+  if (tableStart >= lines.length) return;
+
+  let tableEnd = tableStart + 1;
+  while (tableEnd < lines.length && lines[tableEnd].startsWith("|")) tableEnd++;
+
+  const registryMap = new Map(registry.map(m => [m.id, m]));
+  const completedSet = new Set(registry.filter(m => m.status === "complete").map(m => m.id));
+
+  const newRows: string[] = [];
+  for (const m of registry) {
+    if (m.status === "complete") {
+      newRows.push(`| ${m.id} | ${m.title} | ✅ Complete |`);
+    }
+  }
+  let isFirst = true;
+  for (const id of newOrder) {
+    if (completedSet.has(id)) continue;
+    const m = registryMap.get(id);
+    if (!m) continue;
+    const status = isFirst ? "📋 Next" : "📋 Queued";
+    newRows.push(`| ${m.id} | ${m.title} | ${status} |`);
+    isFirst = false;
+  }
+
+  const headerLine = lines[tableStart];
+  const separatorLine = lines[tableStart + 1];
+  const newTable = [headerLine, separatorLine, ...newRows];
+  lines.splice(tableStart, tableEnd - tableStart, ...newTable);
+  writeFileSync(projectPath, lines.join("\n"), "utf-8");
+}
+
+async function showQueueAdd(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  basePath: string,
+  state: Awaited<ReturnType<typeof deriveState>>,
+): Promise<void> {
+  const milestoneIds = findMilestoneIds(basePath);
 
   // ── Build existing milestones context for the prompt ────────────────
   const existingContext = await buildExistingMilestonesContext(basePath, milestoneIds, state);
@@ -584,8 +821,9 @@ export async function showDiscuss(
 
     if (choice === "discuss_draft") {
       const discussMilestoneTemplates = inlineTemplate("context", "Context");
+      const structuredQuestionsAvailable = pi.getActiveTools().includes("ask_user_questions") ? "true" : "false";
       const basePrompt = loadPrompt("guided-discuss-milestone", {
-        milestoneId: mid, milestoneTitle, inlinedTemplates: discussMilestoneTemplates,
+        milestoneId: mid, milestoneTitle, inlinedTemplates: discussMilestoneTemplates, structuredQuestionsAvailable,
       });
       const seed = draftContent
         ? `${basePrompt}\n\n## Prior Discussion (Draft Seed)\n\n${draftContent}`
@@ -594,9 +832,10 @@ export async function showDiscuss(
       dispatchWorkflow(pi, seed, "gsd-discuss");
     } else if (choice === "discuss_fresh") {
       const discussMilestoneTemplates = inlineTemplate("context", "Context");
+      const structuredQuestionsAvailable = pi.getActiveTools().includes("ask_user_questions") ? "true" : "false";
       pendingAutoStart = { ctx, pi, basePath, milestoneId: mid, step: false };
       dispatchWorkflow(pi, loadPrompt("guided-discuss-milestone", {
-        milestoneId: mid, milestoneTitle, inlinedTemplates: discussMilestoneTemplates,
+        milestoneId: mid, milestoneTitle, inlinedTemplates: discussMilestoneTemplates, structuredQuestionsAvailable,
       }), "gsd-discuss");
     } else if (choice === "skip_milestone") {
       const milestoneIds = findMilestoneIds(basePath);
@@ -769,6 +1008,27 @@ export async function showSmartEntry(
     }
 
     const milestoneIds = findMilestoneIds(basePath);
+
+    // Sanity check (#456): if findMilestoneIds returns [] but the milestones
+    // directory has contents, something went wrong (permissions, stale worktree
+    // cwd, etc). Warn instead of silently starting a new-project flow.
+    if (milestoneIds.length === 0) {
+      const mDir = milestonesDir(basePath);
+      if (existsSync(mDir)) {
+        try {
+          const entries = readdirSync(mDir);
+          if (entries.length > 0) {
+            ctx.ui.notify(
+              `Milestone directory has ${entries.length} entries but none were recognized as milestones. ` +
+              `This may indicate a corrupted state or wrong working directory. Run \`/gsd doctor\` to diagnose.`,
+              "warning",
+            );
+            return;
+          }
+        } catch { /* directory exists but unreadable — fall through to normal flow */ }
+      }
+    }
+
     const uniqueMilestoneIds = !!loadEffectiveGSDPreferences()?.preferences?.unique_milestone_ids;
     const nextId = nextMilestoneId(milestoneIds, uniqueMilestoneIds);
     const isFirst = milestoneIds.length === 0;
@@ -878,8 +1138,9 @@ export async function showSmartEntry(
 
     if (choice === "discuss_draft") {
       const discussMilestoneTemplates = inlineTemplate("context", "Context");
+      const structuredQuestionsAvailable = pi.getActiveTools().includes("ask_user_questions") ? "true" : "false";
       const basePrompt = loadPrompt("guided-discuss-milestone", {
-        milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates,
+        milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates, structuredQuestionsAvailable,
       });
       const seed = draftContent
         ? `${basePrompt}\n\n## Prior Discussion (Draft Seed)\n\n${draftContent}`
@@ -888,9 +1149,10 @@ export async function showSmartEntry(
       dispatchWorkflow(pi, seed, "gsd-discuss");
     } else if (choice === "discuss_fresh") {
       const discussMilestoneTemplates = inlineTemplate("context", "Context");
+      const structuredQuestionsAvailable = pi.getActiveTools().includes("ask_user_questions") ? "true" : "false";
       pendingAutoStart = { ctx, pi, basePath, milestoneId, step: stepMode };
       dispatchWorkflow(pi, loadPrompt("guided-discuss-milestone", {
-        milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates,
+        milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates, structuredQuestionsAvailable,
       }), "gsd-discuss");
     } else if (choice === "skip_milestone") {
       const milestoneIds = findMilestoneIds(basePath);
@@ -962,8 +1224,9 @@ export async function showSmartEntry(
         }));
       } else if (choice === "discuss") {
         const discussMilestoneTemplates = inlineTemplate("context", "Context");
+        const structuredQuestionsAvailable = pi.getActiveTools().includes("ask_user_questions") ? "true" : "false";
         dispatchWorkflow(pi, loadPrompt("guided-discuss-milestone", {
-          milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates,
+          milestoneId, milestoneTitle, inlinedTemplates: discussMilestoneTemplates, structuredQuestionsAvailable,
         }));
       } else if (choice === "skip_milestone") {
         const milestoneIds = findMilestoneIds(basePath);

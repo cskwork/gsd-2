@@ -14,9 +14,11 @@ import type { GSDPreferences } from "./preferences.js";
 import type { UatType } from "./files.js";
 import { loadFile, extractUatType, loadActiveOverrides } from "./files.js";
 import {
-  resolveMilestoneFile, resolveSliceFile,
-  relSliceFile,
+  resolveMilestoneFile, resolveMilestonePath, resolveSliceFile,
+  relSliceFile, buildMilestoneFileName,
 } from "./paths.js";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   buildResearchMilestonePrompt,
   buildPlanMilestonePrompt,
@@ -25,6 +27,7 @@ import {
   buildExecuteTaskPrompt,
   buildCompleteSlicePrompt,
   buildCompleteMilestonePrompt,
+  buildValidateMilestonePrompt,
   buildReplanSlicePrompt,
   buildRunUatPrompt,
   buildReassessRoadmapPrompt,
@@ -122,7 +125,9 @@ const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "reassess-roadmap (post-completion)",
-    match: async ({ state, mid, midTitle, basePath }) => {
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
+      // Phase skip: skip reassess when preference or profile says so
+      if (prefs?.phases?.skip_reassess) return null;
       const needsReassess = await checkNeedsReassessment(basePath, mid, state);
       if (!needsReassess) return null;
       return {
@@ -160,8 +165,10 @@ const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "pre-planning (no research) → research-milestone",
-    match: async ({ state, mid, midTitle, basePath }) => {
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
       if (state.phase !== "pre-planning") return null;
+      // Phase skip: skip research when preference or profile says so
+      if (prefs?.phases?.skip_research) return null;
       const researchFile = resolveMilestoneFile(basePath, mid, "RESEARCH");
       if (researchFile) return null; // has research, fall through
       return {
@@ -186,8 +193,10 @@ const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "planning (no research, not S01) → research-slice",
-    match: async ({ state, mid, midTitle, basePath }) => {
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
       if (state.phase !== "planning") return null;
+      // Phase skip: skip research when preference or profile says so
+      if (prefs?.phases?.skip_research || prefs?.phases?.skip_slice_research) return null;
       const sid = state.activeSlice!.id;
       const sTitle = state.activeSlice!.title;
       const researchFile = resolveSliceFile(basePath, mid, sid, "RESEARCH");
@@ -245,6 +254,38 @@ const DISPATCH_RULES: DispatchRule[] = [
         unitType: "execute-task",
         unitId: `${mid}/${sid}/${tid}`,
         prompt: await buildExecuteTaskPrompt(mid, sid, sTitle, tid, tTitle, basePath),
+      };
+    },
+  },
+  {
+    name: "validating-milestone → validate-milestone",
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
+      if (state.phase !== "validating-milestone") return null;
+      // Skip preference: write a minimal pass-through VALIDATION file
+      if (prefs?.phases?.skip_milestone_validation) {
+        const mDir = resolveMilestonePath(basePath, mid);
+        if (mDir) {
+          if (!existsSync(mDir)) mkdirSync(mDir, { recursive: true });
+          const validationPath = join(mDir, buildMilestoneFileName(mid, "VALIDATION"));
+          const content = [
+            "---",
+            "verdict: pass",
+            "remediation_round: 0",
+            "---",
+            "",
+            "# Milestone Validation (skipped by preference)",
+            "",
+            "Milestone validation was skipped via `skip_milestone_validation` preference.",
+          ].join("\n");
+          writeFileSync(validationPath, content, "utf-8");
+        }
+        return { action: "skip" };
+      }
+      return {
+        action: "dispatch",
+        unitType: "validate-milestone",
+        unitId: mid,
+        prompt: await buildValidateMilestonePrompt(mid, midTitle, basePath),
       };
     },
   },

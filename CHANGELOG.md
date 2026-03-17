@@ -6,6 +6,174 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.23.0] - 2026-03-16
+
+### Added
+- **VS Code extension** — full extension with chat participant, RPC integration, marketplace publishing under FluxLabs publisher
+- **`gsd headless`** — redesigned headless mode for full workflow orchestration: auto-responds to prompts, detects completion, supports `--json` output and `--timeout` flags
+- **`gsd sessions`** — interactive session picker for browsing and resuming saved sessions (#721)
+- **10 new browser tools** — `browser_save_pdf`, `browser_save_state`, `browser_restore_state`, `browser_mock_route`, `browser_block_urls`, `browser_clear_routes`, `browser_emulate_device`, `browser_extract`, `browser_visual_diff`, `browser_zoom_region`, `browser_generate_test`, `browser_check_injection`, `browser_action_cache` (#698)
+- **Structured discussion rounds** — `ask_user_questions` in guided-discuss-milestone for better requirement gathering (#688)
+- **`validate-milestone` prompt** — milestone validation prompt and template
+- **`models.json` resolution** — custom model definitions with fallback to `~/.pi/agent/models.json`
+
+### Changed
+- **Background shell performance** — optimized hot path with parallel git queries and lazy workspace validation
+
+### Fixed
+- Forensics uses `GSD_VERSION` env var instead of fragile package.json path traversal; now worktree-aware to prevent stale root misdiagnosis
+- Background commands rewritten to prevent pipe-open hang; stalled-tool detection added with prompt guidance
+- Auto mode breaks infinite skip loop on repeatedly-skipped completed units
+- Roadmap parser expands range syntax in depends (e.g. `S01-S04` → `S01,S02,S03,S04`)
+- Empty scaffold plan files rejected during plan-slice artifact verification (#699)
+- Anti-pattern rule prevents `bash &` usage that causes agent hangs (#733)
+- Shift-Tab navigates to previous tab in workflow visualizer (#717)
+- Capture resolutions executed after triage instead of only classified (#714)
+- Screenshot constraining uses independent width/height caps (#725)
+- `auto.lock` written at startup; remote sessions detected in dashboard (#723)
+- Cross-platform test compatibility with `process.ppid`
+- CSP nonce, dead branch cleanup, restart cooldown fixes
+- CI fix: `pi.getActiveTools()` replaces `ctx.getActiveTools()`
+
+## [2.22.0] - 2026-03-16
+
+### Added
+- **`/gsd forensics`** — post-mortem investigation of auto-mode failures with structured root-cause analysis
+- **Claude marketplace import** — import Claude marketplace plugins as namespaced GSD components
+- **MCP server mode** — run GSD as an MCP server with `--mode mcp`
+- **`/review` skill** — code review with diff-aware context
+- **`/test` skill** — test generation and execution
+- **`/lint` skill** — linting integration
+- **GitHub API client** — diff-aware context injection and tiktoken-based token counting
+- **File watcher** — chokidar-based file watching for live updates
+- **`git.isolation: "none"`** — disable worktree isolation for projects that don't need it
+- **E2E smoke tests** — end-to-end test suite for extension integration
+- **Subcommand help** — inline help text for all GSD subcommands
+
+### Fixed
+- `verificationBudget` passed correctly to execute-task prompt template
+- Background shell worktree cwd detection normalized to prevent stale paths
+- Skill loading made an active directive in auto-mode units
+- Auto-worktree validated as real git worktree before use
+- MCP server discovery from project-root `.mcp.json`
+- Command injection surface eliminated in diff-context; file-watcher path resolution hardened
+- Thinking level clamped to `low` for gpt-5.x models
+- `completedAt` coerced to String in visualizer changelog sort
+- Warp terminal added to unsupported Ctrl+Alt shortcut list
+- Fractional slice IDs (e.g. S03.5) supported in roadmap parser
+- `executorContextConstraints` provided to plan-slice template
+- Worktree state synced to project root after each unit
+- Initial state derived from worktree when one exists
+- Hardware cursor auto-enabled in Warp terminal
+- CSI 3J scrollback clear removed from TUI full redraws
+- Worktree edge cases — `resolveGitDir`, `captureIntegrationBranch` guard, doctor path
+
+## [2.21.0] - 2026-03-16
+
+### Added
+- **Browser tools TypeScript conversion** — `browser-tools/core.js` converted to TypeScript with c8 test coverage
+- **SSRF protection on `fetch_page`** — blocks private IPs, metadata endpoints, and non-HTTP protocols
+- **Stale async job cancellation** — heuristic prevents outdated results in auto-mode
+
+### Changed
+- **Pause/resume recovery** — reuses crash recovery infrastructure for more reliable context restoration
+- **Build scripts extracted** — inline package.json scripts moved to standalone files for cross-platform support
+- **Help text deduplicated** — consolidated across CLI entry points
+- **Dependency alignment** — `@types/mime-types` moved to devDependencies, chalk versions consolidated
+
+### Fixed
+- Task counter display no longer shows "task 5/4" after loop recovery
+- Browser-tools TypeScript type errors in CI
+- 4 small issues (#663): Windows GitHub Copilot login, Tavily display, MCPorter auto-install, notification preferences
+- Cross-platform `validate-pack` script compatibility
+
+## [2.20.0] - 2026-03-16
+
+### Added
+- **Telegram remote questions** — receive and respond to GSD questions via Telegram bot alongside existing Slack and Discord channels (#645)
+- **`/gsd quick`** — execute a quick task with GSD guarantees (atomic commits, state tracking) without the full planning overhead (#437)
+- **`/gsd mode`** — workflow mode system with solo and team presets that configure defaults for milestone IDs, git commit behavior, and documentation settings (#651)
+- **`/gsd help`** — categorized command reference with descriptions for all GSD subcommands (#630)
+- **`/gsd doctor`** — 7 runtime health checks with auto-fix for common state corruption issues (#646)
+- **Agent instructions injection** — `agent-instructions.md` loaded into every agent session for persistent per-project behavioral guidance (#437)
+- **Skill lifecycle management** — telemetry tracking, health dashboard, and heal-skill command for managing custom skills (#599)
+- **SQLite context store** — surgical prompt injection from structured knowledge base for precise context engineering (#619)
+- **Context-window budget engine** — proportional prompt sizing that allocates context budget across system prompt sections based on relevance (#660)
+- **LSP activated by default** — Language Server Protocol now auto-activates with call hierarchy, formatting, signature help, and synchronized edits (#639)
+- **Extension smoke tests** — CI catches import failures, circular deps, and module resolution issues across all bundled extensions
+- **`gsd --debug` mode** — structured JSONL diagnostic logging for troubleshooting dispatch and state issues (#468)
+- **Worktree post-create hook** — run custom setup scripts when GSD creates a new worktree (#597)
+
+### Fixed
+- **CPU spinning from regex backtracking** — replaced `[\s\S]*?` regex in preferences parser with indexOf-based scanning (#468)
+- **Model config bleed between concurrent GSD instances** — isolated model configuration per session (#650)
+- **Onboarding wizard repeats** — skip onboarding for extension-based providers that don't require auth.json credentials (#589)
+- **Session tool rebuild on cwd change** — tools now rebuild correctly when working directory changes mid-session (#633)
+- **Auto mode state derivation after discussion fallthrough** — re-derives state to prevent stale dispatches (#609)
+- **Milestone branch preservation on auto stop** — prevents work loss when stopping auto mode (#601)
+- **Infinite loop when milestone detection silently fails** — `findMilestoneIds` now logs errors and warns instead of looping (#456)
+- **Google Search OAuth fallback** — uses Google Cloud Code Assist API when `GEMINI_API_KEY` is not set (#466)
+
+### Changed
+- **Preferences wizard** — replaced serial flow with categorized menu for faster configuration (#623)
+- **Slack remote questions** — brought to feature parity with Discord integration (#628)
+- **YAML support in hooks** — hooks now support YAML configuration alongside JSON (#637)
+
+## [2.19.0] - 2026-03-16
+
+### Added
+- **Workflow visualizer** — `/gsd visualize` opens a full-screen TUI overlay with four tabs: Progress (milestone/slice/task tree), Dependencies (ASCII dep graph), Metrics (cost/token bar charts), and Timeline (chronological execution history). Supports Tab/1-4 switching, per-tab scrolling, auto-refresh every 2s, and optional auto-trigger after milestone completion via `auto_visualize` preference (#626)
+- **Mid-execution capture & triage** — `/gsd capture` lets you fire-and-forget thoughts during auto-mode. The system triages accumulated captures at natural seams between tasks, classifies impact into five types (quick-task, inject, defer, replan, note), and proposes action with user confirmation. Dashboard shows pending capture count badge. Capture context injected into replan and reassess prompts (#512)
+- **Dynamic model routing** — complexity-based model routing classifies units into light/standard/heavy tiers and routes to cheaper models when appropriate, reducing token consumption 20-50% on capped plans. Includes budget-pressure-aware routing, cross-provider cost comparison, escalation on failure, adaptive learning from routing history (rolling 50-entry window with user feedback support), and task plan introspection (code block counting, complexity keyword detection) (#579)
+- **Feature-branch lifecycle integration test** — proves milestone worktrees branch from and merge back to feature branches, never touching main (#624)
+- **Discord integration parity with Slack** — plus new remote-questions documentation (#620)
+
+### Fixed
+- **Absolute paths in auto-mode prompts** — write-target variables now passed as absolute paths, eliminating LLM path confusion in worktree contexts that caused artifacts written to wrong location and loop detection (#627)
+- **Worktree lifecycle on mid-session milestone transitions** (#616, #618)
+- **Eager template cache warming** — prevents version-skew crash in long auto-mode sessions (#621)
+
+## [2.18.0] - 2026-03-16
+
+### Added
+- **Milestone queue reorder** — `/gsd queue` supports reordering milestone execution priority with dependency-aware validation, persistent ordering via `.gsd/QUEUE-ORDER.json` (#460)
+- **`.gsd/KNOWLEDGE.md`** — persistent project-specific context file loaded into agent prompts. New `/gsd knowledge` command with `rule`, `pattern`, and `lesson` subcommands for adding entries (#585)
+- **Dynamic model discovery** — runtime model enumeration from provider APIs (Ollama, OpenAI, Google, OpenRouter) with per-provider TTL caching and discovery adapters. New `ProviderManagerComponent` TUI for managing providers with auth status and model counts (#581)
+- **Expanded preferences wizard** — all configurable fields now exposed in the setup wizard, model ID validation, and `updatePreferencesModels()` for safe read-modify-write of model config (#580)
+- **Comprehensive documentation** — 12 new docs covering getting started, auto-mode, commands, configuration, token optimization, cost management, git strategy, team workflows, skills, migration, troubleshooting, and architecture (#605)
+- **`resolveProjectRoot()`** — all GSD commands resolve the effective project root from worktree paths instead of using raw `process.cwd()`, preventing path confusion across worktree boundaries (#602)
+- **1,813 lines of new tests** — 13 new test files covering discovery cache, model discovery, model registry, models-json-writer, auto-worktree, derive-state-deps, in-flight tool tracking, knowledge, memory leak guards, preferences wizard fields, queue order, queue reorder E2E, and stale worktree cwd
+
+### Fixed
+- **Heap OOM during long-running auto-mode sessions** — four sources of unbounded memory growth: activity log serialized all entries for SHA1 dedup (now streaming writes with lightweight fingerprint), uncleaned `activityLogState` Map between sessions, unbounded `completedUnits` array (now capped at 200), and `dirEntryCache`/`dirListCache` growing without bounds (now evicted at 200 entries) (#611)
+- **Stale worktree cwd after milestone completion** — three-layer fix: `escapeStaleWorktree()` at auto-mode entry, unconditional cwd restore in `stopAuto()`, and cwd restore on partial merge failure (#608)
+- **Worktree created from integration branch instead of main** — `createAutoWorktree` reads integration branch from META.json, merge targets integration branch not hardcoded main (#606)
+- **Milestone merge skipped in branch isolation mode** — branch-mode fallback detects `milestone/*` branch and performs squash-merge (#603)
+- **`parseContextDependsOn()` destroys unique milestone ID case** — was lowercasing IDs, breaking dependency resolution (#604)
+- **Tool-aware idle detection** — prevents false interruption of long-running tasks in auto-mode (#596)
+- **Remote questions onboarding crash** — extracted `saveRemoteQuestionsConfig` into compiled src/ helper to avoid cross-boundary .ts import (#592)
+- **`showNextAction` crash** — falls back to `select()` when `custom()` returns undefined (#447, #615)
+
+### Changed
+- Comprehensive update to preferences reference and configuration guide (#614)
+- Auto-mode artifact writes scoped to active milestone worktree, preventing cross-milestone pollution (#590)
+
+## [2.17.0] - 2026-03-15
+
+### Added
+- **Token optimization profiles** — `budget`, `balanced`, and `quality` presets that coordinate model selection, phase skipping, and context compression to reduce token usage by 40-60% on budget mode
+- **Complexity-based task routing** — automatically classifies tasks as simple/standard/heavy and routes to appropriate models, with persistent learning from routing history
+- **`git.commit_docs` preference** — set to `false` to keep `.gsd/` planning artifacts local-only, useful for teams where only some members use GSD
+
+### Changed
+- Updated Ollama cloud provider model catalog
+
+### Fixed
+- Native binary hangs in GSD auto-mode paths (#453)
+- Auto-mode can be stopped from a different terminal (#586)
+- Parse cache collision causing false loop detection on `complete-slice` (#583)
+- Exhaustive switch handling and cleanup in Google provider (#587)
+
 ## [2.16.0] - 2026-03-15
 
 ### Added
@@ -722,7 +890,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.16.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.23.0...HEAD
+[2.23.0]: https://github.com/gsd-build/gsd-2/compare/v2.22.0...v2.23.0
+[2.21.0]: https://github.com/gsd-build/gsd-2/compare/v2.20.0...v2.21.0
+[2.19.0]: https://github.com/gsd-build/gsd-2/compare/v2.18.0...v2.19.0
+[2.18.0]: https://github.com/gsd-build/gsd-2/compare/v2.17.0...v2.18.0
+[2.17.0]: https://github.com/gsd-build/gsd-2/compare/v2.16.0...v2.17.0
 [2.16.0]: https://github.com/gsd-build/gsd-2/compare/v2.15.1...v2.16.0
 [2.15.1]: https://github.com/gsd-build/gsd-2/releases/tag/v2.15.1
 [2.15.0]: https://github.com/gsd-build/gsd-2/compare/v2.14.4...v2.15.0
@@ -756,6 +929,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 [2.7.1]: https://github.com/gsd-build/gsd-2/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/gsd-build/gsd-2/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/gsd-build/gsd-2/compare/v2.5.1...v2.6.0
+[2.20.0]: https://github.com/gsd-build/gsd-2/releases/tag/v2.20.0
+[2.22.0]: https://github.com/gsd-build/gsd-2/releases/tag/v2.22.0
 [2.5.1]: https://github.com/gsd-build/gsd-2/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/gsd-build/gsd-2/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/gsd-build/gsd-2/compare/v2.3.11...v2.4.0

@@ -32,8 +32,10 @@ import {
 
 import { milestoneIdSort, findMilestoneIds } from './guided-flow.js';
 import { nativeBatchParseGsdFiles, type BatchParsedFile } from './native-parser-bridge.js';
+import { isDbAvailable, _getAdapter } from './gsd-db.js';
 
 import { join, resolve } from 'path';
+import { debugCount, debugTime } from './debug-logger.js';
 
 // ─── Query Functions ───────────────────────────────────────────────────────
 
@@ -49,6 +51,19 @@ export function isSliceComplete(plan: SlicePlan): boolean {
  */
 export function isMilestoneComplete(roadmap: Roadmap): boolean {
   return roadmap.slices.length > 0 && roadmap.slices.every(s => s.done);
+}
+
+/**
+ * Check whether a VALIDATION file's verdict is terminal (pass or needs-attention).
+ * A non-terminal verdict (needs-remediation) means validation must re-run
+ * after remediation slices are executed.
+ */
+export function isValidationTerminal(validationContent: string): boolean {
+  const match = validationContent.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return false;
+  const verdict = match[1].match(/verdict:\s*(\S+)/);
+  if (!verdict) return false;
+  return verdict[1] === 'pass' || verdict[1] === 'needs-attention';
 }
 
 // ─── State Derivation ──────────────────────────────────────────────────────
@@ -116,7 +131,10 @@ export async function deriveState(basePath: string): Promise<GSDState> {
     return _stateCache.result;
   }
 
+  const stopTimer = debugTime("derive-state-impl");
   const result = await _deriveStateImpl(basePath);
+  stopTimer({ phase: result.phase, milestone: result.activeMilestone?.id });
+  debugCount("deriveStateCalls");
   _stateCache = { basePath, result, timestamp: Date.now() };
   return result;
 }
@@ -131,12 +149,37 @@ async function _deriveStateImpl(basePath: string): Promise<GSDState> {
   const fileContentCache = new Map<string, string>();
   const gsdDir = gsdRoot(basePath);
 
+  // ── DB-first content loading ──
+  // When the DB is available, load artifact content from the artifacts table
+  // (indexed SELECT instead of O(N) file I/O). Falls back to native Rust batch
+  // parser, which in turn falls back to sequential JS reads via cachedLoadFile.
+  let dbContentLoaded = false;
+  if (isDbAvailable()) {
+    const adapter = _getAdapter();
+    if (adapter) {
+      try {
+        const rows = adapter.prepare('SELECT path, full_content FROM artifacts').all();
+        for (const row of rows) {
+          const relPath = (row as Record<string, unknown>)['path'] as string;
+          const content = (row as Record<string, unknown>)['full_content'] as string;
+          const absPath = resolve(gsdDir, relPath);
+          fileContentCache.set(absPath, content);
+        }
+        dbContentLoaded = rows.length > 0;
+      } catch {
+        // DB query failed — fall through to native batch parse
+      }
+    }
+  }
+
+  if (!dbContentLoaded) {
   const batchFiles = nativeBatchParseGsdFiles(gsdDir);
   if (batchFiles) {
     for (const f of batchFiles) {
       const absPath = resolve(gsdDir, f.path);
       fileContentCache.set(absPath, f.rawContent);
     }
+  }
   }
 
   /**
@@ -224,9 +267,21 @@ async function _deriveStateImpl(basePath: string): Promise<GSDState> {
           const draftFile = resolveMilestoneFile(basePath, mid, "CONTEXT-DRAFT");
           if (draftFile) activeMilestoneHasDraft = true;
         }
-        activeMilestone = { id: mid, title: mid };
-        activeMilestoneFound = true;
-        registry.push({ id: mid, title: mid, status: 'active' });
+
+        // Check milestone-level dependencies before promoting to active.
+        // Without this, a queued milestone with depends_on in its CONTEXT
+        // frontmatter would be promoted to active even when its deps are unmet
+        // (the dep check only existed in the has-roadmap path previously).
+        const contextContent = contextFile ? await cachedLoadFile(contextFile) : null;
+        const deps = parseContextDependsOn(contextContent);
+        const depsUnmet = deps.some(dep => !completeMilestoneIds.has(dep));
+        if (depsUnmet) {
+          registry.push({ id: mid, title: mid, status: 'pending', dependsOn: deps });
+        } else {
+          activeMilestone = { id: mid, title: mid };
+          activeMilestoneFound = true;
+          registry.push({ id: mid, title: mid, status: 'active', ...(deps.length > 0 ? { dependsOn: deps } : {}) });
+        }
       } else {
         registry.push({ id: mid, title: mid, status: 'pending' });
       }
@@ -237,10 +292,20 @@ async function _deriveStateImpl(basePath: string): Promise<GSDState> {
     const complete = isMilestoneComplete(roadmap);
 
     if (complete) {
-      // All slices done — check if milestone summary exists
+      // All slices done — check validation and summary state
+      const validationFile = resolveMilestoneFile(basePath, mid, "VALIDATION");
+      const validationContent = validationFile ? await cachedLoadFile(validationFile) : null;
+      const validationTerminal = validationContent ? isValidationTerminal(validationContent) : false;
       const summaryFile = resolveMilestoneFile(basePath, mid, "SUMMARY");
-      if (!summaryFile && !activeMilestoneFound) {
-        // All slices complete but no summary written yet → completing-milestone
+
+      if (!validationTerminal && !activeMilestoneFound) {
+        // No terminal validation yet → validating-milestone
+        activeMilestone = { id: mid, title };
+        activeRoadmap = roadmap;
+        activeMilestoneFound = true;
+        registry.push({ id: mid, title, status: 'active' });
+      } else if (!summaryFile && !activeMilestoneFound) {
+        // Validated but no summary written yet → completing-milestone
         activeMilestone = { id: mid, title };
         activeRoadmap = roadmap;
         activeMilestoneFound = true;
@@ -343,12 +408,34 @@ async function _deriveStateImpl(basePath: string): Promise<GSDState> {
     };
   }
 
-  // Check if active milestone needs completion (all slices done, no summary)
+  // Check if active milestone needs validation or completion (all slices done)
   if (isMilestoneComplete(activeRoadmap)) {
+    const validationFile = resolveMilestoneFile(basePath, activeMilestone.id, "VALIDATION");
+    const validationContent = validationFile ? await cachedLoadFile(validationFile) : null;
+    const validationTerminal = validationContent ? isValidationTerminal(validationContent) : false;
     const sliceProgress = {
       done: activeRoadmap.slices.length,
       total: activeRoadmap.slices.length,
     };
+
+    if (!validationTerminal) {
+      return {
+        activeMilestone,
+        activeSlice: null,
+        activeTask: null,
+        phase: 'validating-milestone',
+        recentDecisions: [],
+        blockers: [],
+        nextAction: `Validate milestone ${activeMilestone.id} before completion.`,
+        registry,
+        requirements,
+        progress: {
+          milestones: milestoneProgress,
+          slices: sliceProgress,
+        },
+      };
+    }
+
     return {
       activeMilestone,
       activeSlice: null,

@@ -45,13 +45,20 @@ export interface GitPreferences {
   /** Controls auto-mode git isolation strategy.
    *  - "worktree": (default) creates a milestone worktree for isolated work
    *  - "branch": works directly in the project root (for submodule-heavy repos)
+   *  - "none": no git isolation — commits land on the user's current branch directly
    */
-  isolation?: "worktree" | "branch";
+  isolation?: "worktree" | "branch" | "none";
   /** When false, prevents GSD from committing .gsd/ planning artifacts to git.
    *  The .gsd/ folder is added to .gitignore and kept local-only.
    *  Default: true (planning docs are tracked in git).
    */
   commit_docs?: boolean;
+  /** Script to run after a worktree is created (#597).
+   *  Receives SOURCE_DIR and WORKTREE_DIR as environment variables.
+   *  Can be an absolute path or relative to the project root.
+   *  Failure is non-fatal — logged as a warning.
+   */
+  worktree_post_create?: string;
 }
 
 export const VALID_BRANCH_NAME = /^[a-zA-Z0-9_\-\/.]+$/;

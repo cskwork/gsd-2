@@ -19,12 +19,13 @@ import { getPiDefaultModelAndProvider, migratePiCredentials } from './pi-migrati
 import { shouldRunOnboarding, runOnboarding } from './onboarding.js'
 import chalk from 'chalk'
 import { checkForUpdates } from './update-check.js'
+import { printHelp, printSubcommandHelp } from './help-text.js'
 
 // ---------------------------------------------------------------------------
 // Minimal CLI arg parser — detects print/subagent mode flags
 // ---------------------------------------------------------------------------
 interface CliFlags {
-  mode?: 'text' | 'json' | 'rpc'
+  mode?: 'text' | 'json' | 'rpc' | 'mcp'
   print?: boolean
   continue?: boolean
   noSession?: boolean
@@ -34,6 +35,8 @@ interface CliFlags {
   appendSystemPrompt?: string
   tools?: string[]
   messages: string[]
+  /** Set by `gsd sessions` when the user picks a specific session to resume */
+  _selectedSessionPath?: string
 }
 
 function exitIfManagedResourcesAreNewer(currentAgentDir: string): void {
@@ -58,7 +61,7 @@ function parseCliArgs(argv: string[]): CliFlags {
     const arg = args[i]
     if (arg === '--mode' && i + 1 < args.length) {
       const m = args[++i]
-      if (m === 'text' || m === 'json' || m === 'rpc') flags.mode = m
+      if (m === 'text' || m === 'json' || m === 'rpc' || m === 'mcp') flags.mode = m
     } else if (arg === '--print' || arg === '-p') {
       flags.print = true
     } else if (arg === '--continue' || arg === '-c') {
@@ -79,22 +82,7 @@ function parseCliArgs(argv: string[]): CliFlags {
       process.stdout.write((process.env.GSD_VERSION || '0.0.0') + '\n')
       process.exit(0)
     } else if (arg === '--help' || arg === '-h') {
-      process.stdout.write(`GSD v${process.env.GSD_VERSION || '0.0.0'} — Get Shit Done\n\n`)
-      process.stdout.write('Usage: gsd [options] [message...]\n\n')
-      process.stdout.write('Options:\n')
-      process.stdout.write('  --mode <text|json|rpc>   Output mode (default: interactive)\n')
-      process.stdout.write('  --print, -p              Single-shot print mode\n')
-      process.stdout.write('  --continue, -c           Resume the most recent session\n')
-      process.stdout.write('  --model <id>             Override model (e.g. claude-opus-4-6)\n')
-      process.stdout.write('  --no-session             Disable session persistence\n')
-      process.stdout.write('  --extension <path>       Load additional extension\n')
-      process.stdout.write('  --tools <a,b,c>          Restrict available tools\n')
-      process.stdout.write('  --list-models [search]   List available models and exit\n')
-      process.stdout.write('  --version, -v            Print version and exit\n')
-      process.stdout.write('  --help, -h               Print this help and exit\n')
-      process.stdout.write('\nSubcommands:\n')
-      process.stdout.write('  config                   Re-run the setup wizard\n')
-      process.stdout.write('  update                   Update GSD to the latest version\n')
+      printHelp(process.env.GSD_VERSION || '0.0.0')
       process.exit(0)
     } else if (!arg.startsWith('--') && !arg.startsWith('-')) {
       flags.messages.push(arg)
@@ -105,6 +93,14 @@ function parseCliArgs(argv: string[]): CliFlags {
 
 const cliFlags = parseCliArgs(process.argv)
 const isPrintMode = cliFlags.print || cliFlags.mode !== undefined
+
+// `gsd <subcommand> --help` — show subcommand-specific help
+const subcommand = cliFlags.messages[0]
+if (subcommand && process.argv.includes('--help')) {
+  if (printSubcommandHelp(subcommand, process.env.GSD_VERSION || '0.0.0')) {
+    process.exit(0)
+  }
+}
 
 // `gsd config` — replay the setup wizard and exit
 if (cliFlags.messages[0] === 'config') {
@@ -121,6 +117,70 @@ if (cliFlags.messages[0] === 'update') {
   process.exit(0)
 }
 
+// `gsd sessions` — list past sessions and pick one to resume
+if (cliFlags.messages[0] === 'sessions') {
+  const cwd = process.cwd()
+  const safePath = `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`
+  const projectSessionsDir = join(sessionsDir, safePath)
+
+  process.stderr.write(chalk.dim(`Loading sessions for ${cwd}...\n`))
+  const sessions = await SessionManager.list(cwd, projectSessionsDir)
+
+  if (sessions.length === 0) {
+    process.stderr.write(chalk.yellow('No sessions found for this directory.\n'))
+    process.exit(0)
+  }
+
+  process.stderr.write(chalk.bold(`\n  Sessions (${sessions.length}):\n\n`))
+
+  const maxShow = 20
+  const toShow = sessions.slice(0, maxShow)
+  for (let i = 0; i < toShow.length; i++) {
+    const s = toShow[i]
+    const date = s.modified.toLocaleString()
+    const msgs = s.messageCount
+    const name = s.name ? ` ${chalk.cyan(s.name)}` : ''
+    const preview = s.firstMessage
+      ? s.firstMessage.replace(/\n/g, ' ').substring(0, 80)
+      : chalk.dim('(empty)')
+    const num = String(i + 1).padStart(3)
+    process.stderr.write(`  ${chalk.bold(num)}. ${chalk.green(date)} ${chalk.dim(`(${msgs} msgs)`)}${name}\n`)
+    process.stderr.write(`       ${chalk.dim(preview)}\n\n`)
+  }
+
+  if (sessions.length > maxShow) {
+    process.stderr.write(chalk.dim(`  ... and ${sessions.length - maxShow} more\n\n`))
+  }
+
+  // Interactive selection
+  const readline = await import('node:readline')
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(chalk.bold('  Enter session number to resume (or q to quit): '), resolve)
+  })
+  rl.close()
+
+  const choice = parseInt(answer, 10)
+  if (isNaN(choice) || choice < 1 || choice > toShow.length) {
+    process.stderr.write(chalk.dim('Cancelled.\n'))
+    process.exit(0)
+  }
+
+  const selected = toShow[choice - 1]
+  process.stderr.write(chalk.green(`\nResuming session from ${selected.modified.toLocaleString()}...\n\n`))
+
+  // Mark for the interactive session below to open this specific session
+  cliFlags.continue = true
+  cliFlags._selectedSessionPath = selected.path
+}
+
+// `gsd headless` — run auto-mode without TUI
+if (cliFlags.messages[0] === 'headless') {
+  const { runHeadless, parseHeadlessArgs } = await import('./headless.js')
+  await runHeadless(parseHeadlessArgs(process.argv))
+  process.exit(0)
+}
+
 // Pi's tool bootstrap can mis-detect already-installed fd/rg on some systems
 // because spawnSync(..., ["--version"]) returns EPERM despite a zero exit code.
 // Provision local managed binaries first so Pi sees them without probing PATH.
@@ -130,8 +190,15 @@ const authStorage = AuthStorage.create(authFilePath)
 loadStoredEnvKeys(authStorage)
 migratePiCredentials(authStorage)
 
+// Resolve models.json path with fallback to ~/.pi/agent/models.json
+const { resolveModelsJsonPath } = await import('./models-resolver.js')
+const modelsJsonPath = resolveModelsJsonPath()
+
+const modelRegistry = new ModelRegistry(authStorage, modelsJsonPath)
+const settingsManager = SettingsManager.create(agentDir)
+
 // Run onboarding wizard on first launch (no LLM provider configured)
-if (!isPrintMode && shouldRunOnboarding(authStorage)) {
+if (!isPrintMode && shouldRunOnboarding(authStorage, settingsManager.getDefaultProvider())) {
   await runOnboarding(authStorage)
 
   // Clean up stdin state left by @clack/prompts.
@@ -155,9 +222,6 @@ if (!isPrintMode && process.stdout.columns && process.stdout.columns < 40) {
     chalk.yellow(`[gsd] Terminal width is ${process.stdout.columns} columns (minimum recommended: 40). Output may be unreadable.\n`),
   )
 }
-
-const modelRegistry = new ModelRegistry(authStorage)
-const settingsManager = SettingsManager.create(agentDir)
 
 // --list-models: print available models and exit (no TTY needed)
 if (cliFlags.listModels !== undefined) {
@@ -306,8 +370,18 @@ if (isPrintMode) {
     process.exit(0)
   }
 
+  if (mode === 'mcp') {
+    const { startMcpServer } = await import('./mcp-server.js')
+    await startMcpServer({
+      tools: session.agent.state.tools ?? [],
+      version: process.env.GSD_VERSION || '0.0.0',
+    })
+    // MCP server runs until the transport closes; keep alive
+    await new Promise(() => {})
+  }
+
   await runPrintMode(session, {
-    mode,
+    mode: mode as 'text' | 'json',
     messages: cliFlags.messages,
   })
   process.exit(0)
@@ -346,9 +420,11 @@ if (existsSync(sessionsDir)) {
   }
 }
 
-const sessionManager = cliFlags.continue
-  ? SessionManager.continueRecent(cwd, projectSessionsDir)
-  : SessionManager.create(cwd, projectSessionsDir)
+const sessionManager = cliFlags._selectedSessionPath
+  ? SessionManager.open(cliFlags._selectedSessionPath, projectSessionsDir)
+  : cliFlags.continue
+    ? SessionManager.continueRecent(cwd, projectSessionsDir)
+    : SessionManager.create(cwd, projectSessionsDir)
 
 exitIfManagedResourcesAreNewer(agentDir)
 initResources(agentDir)
@@ -417,6 +493,7 @@ if (!process.stdin.isTTY) {
   process.stderr.write('[gsd] Non-interactive alternatives:\n')
   process.stderr.write('[gsd]   gsd --print "your message"     Single-shot prompt\n')
   process.stderr.write('[gsd]   gsd --mode rpc                 JSON-RPC over stdin/stdout\n')
+  process.stderr.write('[gsd]   gsd --mode mcp                 MCP server over stdin/stdout\n')
   process.stderr.write('[gsd]   gsd --mode text "message"      Text output mode\n')
   process.exit(1)
 }

@@ -7,15 +7,18 @@
  */
 
 import { existsSync, cpSync, readFileSync, realpathSync, utimesSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { execSync } from "node:child_process";
+import { isAbsolute, join, resolve } from "node:path";
+import { copyWorktreeDb, reconcileWorktreeDb, isDbAvailable } from "./gsd-db.js";
+import { execSync, execFileSync } from "node:child_process";
 import {
   createWorktree,
   removeWorktree,
   worktreePath,
 } from "./worktree-manager.js";
+import { detectWorktreeName } from "./worktree.js";
 import {
   MergeConflictError,
+  readIntegrationBranch,
 } from "./git-service.js";
 import { parseRoadmap } from "./files.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
@@ -31,6 +34,7 @@ import {
   nativeAddPaths,
   nativeRmForce,
   nativeBranchDelete,
+  nativeBranchExists,
 } from "./native-git-bridge.js";
 
 // ─── Module State ──────────────────────────────────────────────────────────
@@ -73,6 +77,48 @@ function nudgeGitBranchCache(previousCwd: string): void {
   }
 }
 
+// ─── Worktree Post-Create Hook (#597) ────────────────────────────────────────
+
+/**
+ * Run the user-configured post-create hook script after worktree creation.
+ * The script receives SOURCE_DIR and WORKTREE_DIR as environment variables.
+ * Failure is non-fatal — returns the error message or null on success.
+ *
+ * Reads the hook path from git.worktree_post_create in preferences.
+ * Pass hookPath directly to bypass preference loading (useful for testing).
+ */
+export function runWorktreePostCreateHook(sourceDir: string, worktreeDir: string, hookPath?: string): string | null {
+  if (hookPath === undefined) {
+    const prefs = loadEffectiveGSDPreferences()?.preferences?.git;
+    hookPath = prefs?.worktree_post_create;
+  }
+  if (!hookPath) return null;
+
+  // Resolve relative paths against the source project root
+  const resolved = isAbsolute(hookPath) ? hookPath : join(sourceDir, hookPath);
+  if (!existsSync(resolved)) {
+    return `Worktree post-create hook not found: ${resolved}`;
+  }
+
+  try {
+    execSync(resolved, {
+      cwd: worktreeDir,
+      env: {
+        ...process.env,
+        SOURCE_DIR: sourceDir,
+        WORKTREE_DIR: worktreeDir,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+      timeout: 30_000, // 30 second timeout
+    });
+    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `Worktree post-create hook failed: ${msg}`;
+  }
+}
+
 // ─── Auto-Worktree Branch Naming ───────────────────────────────────────────
 
 export function autoWorktreeBranch(milestoneId: string): string {
@@ -90,7 +136,22 @@ export function autoWorktreeBranch(milestoneId: string): string {
  */
 export function createAutoWorktree(basePath: string, milestoneId: string): string {
   const branch = autoWorktreeBranch(milestoneId);
-  const info = createWorktree(basePath, milestoneId, { branch });
+
+  // Check if the milestone branch already exists — it survives auto-mode
+  // stop/pause and contains committed work from prior sessions. If it exists,
+  // re-attach the worktree to it WITHOUT resetting. Only create a fresh branch
+  // from the integration branch when no prior work exists.
+  const branchExists = nativeBranchExists(basePath, branch);
+
+  let info: { name: string; path: string; branch: string; exists: boolean };
+  if (branchExists) {
+    // Re-attach worktree to the existing milestone branch (preserving commits)
+    info = createWorktree(basePath, milestoneId, { branch, reuseExistingBranch: true });
+  } else {
+    // Fresh start — create branch from integration branch
+    const integrationBranch = readIntegrationBranch(basePath, milestoneId) ?? undefined;
+    info = createWorktree(basePath, milestoneId, { branch, startPoint: integrationBranch });
+  }
 
   // Copy .gsd/ planning artifacts from the source repo into the new worktree.
   // Worktrees are fresh git checkouts — untracked files don't carry over.
@@ -98,6 +159,13 @@ export function createAutoWorktree(basePath: string, milestoneId: string): strin
   // blanket .gsd/ rule (pre-v2.14.0). Without this copy, auto-mode loops
   // on plan-slice because the plan file doesn't exist in the worktree.
   copyPlanningArtifacts(basePath, info.path);
+
+  // Run user-configured post-create hook (#597) — e.g. copy .env, symlink assets
+  const hookError = runWorktreePostCreateHook(basePath, info.path);
+  if (hookError) {
+    // Non-fatal — log but don't prevent worktree usage
+    console.error(`[GSD] ${hookError}`);
+  }
 
   const previousCwd = process.cwd();
 
@@ -144,14 +212,28 @@ function copyPlanningArtifacts(srcBase: string, wtPath: string): void {
       } catch { /* non-fatal */ }
     }
   }
+
+  // Copy gsd.db if present in source
+  const srcDb = join(srcGsd, "gsd.db");
+  const destDb = join(dstGsd, "gsd.db");
+  if (existsSync(srcDb)) {
+    try {
+      copyWorktreeDb(srcDb, destDb);
+    } catch { /* non-fatal */ }
+  }
 }
 
 /**
  * Teardown an auto-worktree: chdir back to original base, then remove
  * the worktree and its branch.
  */
-export function teardownAutoWorktree(originalBasePath: string, milestoneId: string): void {
+export function teardownAutoWorktree(
+  originalBasePath: string,
+  milestoneId: string,
+  opts: { preserveBranch?: boolean } = {},
+): void {
   const branch = autoWorktreeBranch(milestoneId);
+  const { preserveBranch = false } = opts;
   const previousCwd = process.cwd();
 
   try {
@@ -164,7 +246,7 @@ export function teardownAutoWorktree(originalBasePath: string, milestoneId: stri
   }
 
   nudgeGitBranchCache(previousCwd);
-  removeWorktree(originalBasePath, milestoneId, { branch });
+  removeWorktree(originalBasePath, milestoneId, { branch, deleteBranch: !preserveBranch });
 }
 
 /**
@@ -182,11 +264,29 @@ export function isInAutoWorktree(basePath: string): boolean {
 }
 
 /**
- * Get the filesystem path for an auto-worktree, or null if it doesn't exist.
+ * Get the filesystem path for an auto-worktree, or null if it doesn't exist
+ * or is not a valid git worktree.
+ *
+ * Validates that the path is a real git worktree (has a .git file with a
+ * gitdir: pointer) rather than just a stray directory. This prevents
+ * mis-detection of leftover directories as active worktrees (#695).
  */
 export function getAutoWorktreePath(basePath: string, milestoneId: string): string | null {
   const p = worktreePath(basePath, milestoneId);
-  return existsSync(p) ? p : null;
+  if (!existsSync(p)) return null;
+
+  // Validate this is a real git worktree, not a stray directory.
+  // A git worktree has a .git *file* (not directory) containing "gitdir: <path>".
+  const gitPath = join(p, ".git");
+  if (!existsSync(gitPath)) return null;
+  try {
+    const content = readFileSync(gitPath, "utf8").trim();
+    if (!content.startsWith("gitdir: ")) return null;
+  } catch {
+    return null;
+  }
+
+  return p;
 }
 
 /**
@@ -199,6 +299,21 @@ export function enterAutoWorktree(basePath: string, milestoneId: string): string
   const p = worktreePath(basePath, milestoneId);
   if (!existsSync(p)) {
     throw new Error(`Auto-worktree for ${milestoneId} does not exist at ${p}`);
+  }
+
+  // Validate this is a real git worktree, not a stray directory (#695)
+  const gitPath = join(p, ".git");
+  if (!existsSync(gitPath)) {
+    throw new Error(`Auto-worktree path ${p} exists but is not a git worktree (no .git)`);
+  }
+  try {
+    const content = readFileSync(gitPath, "utf8").trim();
+    if (!content.startsWith("gitdir: ")) {
+      throw new Error(`Auto-worktree path ${p} has a .git but it is not a worktree gitdir pointer`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("worktree")) throw err;
+    throw new Error(`Auto-worktree path ${p} exists but .git is unreadable`);
   }
 
   const previousCwd = process.cwd();
@@ -222,6 +337,27 @@ export function enterAutoWorktree(basePath: string, milestoneId: string): string
  */
 export function getAutoWorktreeOriginalBase(): string | null {
   return originalBase;
+}
+
+export function getActiveAutoWorktreeContext(): {
+  originalBase: string;
+  worktreeName: string;
+  branch: string;
+} | null {
+  if (!originalBase) return null;
+  const cwd = process.cwd();
+  const resolvedBase = existsSync(originalBase) ? realpathSync(originalBase) : originalBase;
+  const wtDir = join(resolvedBase, ".gsd", "worktrees");
+  if (!cwd.startsWith(wtDir)) return null;
+  const worktreeName = detectWorktreeName(cwd);
+  if (!worktreeName) return null;
+  const branch = nativeGetCurrentBranch(cwd);
+  if (!branch.startsWith("milestone/")) return null;
+  return {
+    originalBase,
+    worktreeName,
+    branch,
+  };
 }
 
 // ─── Merge Milestone -> Main ───────────────────────────────────────────────
@@ -271,6 +407,15 @@ export function mergeMilestoneToMain(
   // 1. Auto-commit dirty state in worktree before leaving
   autoCommitDirtyState(worktreeCwd);
 
+  // Reconcile worktree DB into main DB before leaving worktree context
+  if (isDbAvailable()) {
+    try {
+      const worktreeDbPath = join(worktreeCwd, ".gsd", "gsd.db");
+      const mainDbPath = join(originalBasePath_, ".gsd", "gsd.db");
+      reconcileWorktreeDb(mainDbPath, worktreeDbPath);
+    } catch { /* non-fatal */ }
+  }
+
   // 2. Parse roadmap for slice listing
   const roadmap = parseRoadmap(roadmapContent);
   const completedSlices = roadmap.slices.filter(s => s.done);
@@ -279,11 +424,12 @@ export function mergeMilestoneToMain(
   const previousCwd = process.cwd();
   process.chdir(originalBasePath_);
 
-  // 4. Resolve main branch from preferences
+  // 4. Resolve integration branch — prefer milestone metadata, fall back to preferences / "main"
   const prefs = loadEffectiveGSDPreferences()?.preferences?.git ?? {};
-  const mainBranch = prefs.main_branch || "main";
+  const integrationBranch = readIntegrationBranch(originalBasePath_, milestoneId);
+  const mainBranch = integrationBranch ?? prefs.main_branch ?? "main";
 
-  // 5. Checkout main
+  // 5. Checkout integration branch
   nativeCheckoutBranch(originalBasePath_, mainBranch);
 
   // 6. Build rich commit message
