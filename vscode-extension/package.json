@@ -1,10 +1,34 @@
 {
-  "name": "gsd-vscode",
-  "displayName": "GSD - Get Shit Done",
-  "description": "VS Code integration for the GSD coding agent",
-  "publisher": "gsd-build",
+  "name": "gsd-2",
+  "displayName": "GSD-2",
+  "description": "VS Code integration for the GSD-2 coding agent — sidebar dashboard, @gsd chat participant, and 15 commands",
+  "publisher": "FluxLabs",
   "version": "0.1.0",
+  "icon": "logo.jpg",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gsd-build/gsd-2"
+  },
+  "homepage": "https://github.com/gsd-build/gsd-2/blob/main/vscode-extension/README.md",
+  "bugs": {
+    "url": "https://github.com/gsd-build/gsd-2/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "coding",
+    "gsd",
+    "chat",
+    "automation",
+    "claude",
+    "openai",
+    "llm"
+  ],
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -119,7 +143,7 @@
         "id": "gsd.agent",
         "name": "gsd",
         "fullName": "GSD Agent",
-        "description": "Get Shit Done coding agent",
+        "description": "GSD-2 coding agent",
         "isSticky": true
       }
     ],
@@ -147,10 +171,12 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "package": "vsce package"
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.7.1",
     "typescript": "^5.7.0"
   }
 }

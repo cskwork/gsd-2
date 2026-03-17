@@ -28,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(client);
 
 	// Log stderr to an output channel
-	const outputChannel = vscode.window.createOutputChannel("GSD Agent");
+	const outputChannel = vscode.window.createOutputChannel("GSD-2 Agent");
 	context.subscriptions.push(outputChannel);
 
 	client.onError((msg) => {
