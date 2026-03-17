@@ -37,6 +37,7 @@ Full documentation is available in the [`docs/`](./docs/) directory:
 - **[Commands Reference](./docs/commands.md)** — all commands and keyboard shortcuts
 - **[Architecture](./docs/architecture.md)** — system design and dispatch pipeline
 - **[Troubleshooting](./docs/troubleshooting.md)** — common issues, doctor, forensics, recovery
+- **[VS Code Extension](./vscode-extension/README.md)** — chat participant, sidebar dashboard, RPC integration
 - **[Migration from v1](./docs/migration.md)** — `.planning` → `.gsd` migration
 
 ---
