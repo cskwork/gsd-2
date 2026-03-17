@@ -1,6 +1,6 @@
 import { DefaultResourceLoader } from '@gsd/pi-coding-agent'
 import { homedir } from 'node:os'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compareSemver } from './update-check.js'
@@ -134,6 +134,42 @@ export function getNewerManagedResourceVersion(agentDir: string, currentVersion:
 }
 
 /**
+ * Recursively makes all files and directories under dirPath owner-writable.
+ *
+ * Files copied from the Nix store inherit read-only modes (0444/0555).
+ * Calling this before cpSync prevents overwrite failures on subsequent upgrades,
+ * and calling it after ensures the next run can overwrite the copies too.
+ *
+ * Preserves existing permission bits (including executability) and only adds
+ * owner-write (and for directories, owner-exec) without widening group/other
+ * permissions.
+ */
+function makeTreeWritable(dirPath: string): void {
+  if (!existsSync(dirPath)) return
+
+  const stats = statSync(dirPath)
+  const isDir = stats.isDirectory()
+  const currentMode = stats.mode & 0o777
+
+  // Ensure owner-write; for directories also ensure owner-exec so they remain traversable.
+  let newMode = currentMode | 0o200
+  if (isDir) {
+    newMode |= 0o100
+  }
+
+  if (newMode !== currentMode) {
+    chmodSync(dirPath, newMode)
+  }
+
+  if (isDir) {
+    for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+      const entryPath = join(dirPath, entry.name)
+      makeTreeWritable(entryPath)
+    }
+  }
+}
+
+/**
  * Syncs all bundled resources to agentDir (~/.gsd/agent/) on every launch.
  *
  * - extensions/ → ~/.gsd/agent/extensions/   (overwrite when version changes)
@@ -155,6 +191,7 @@ export function initResources(agentDir: string): void {
   // then overwrite so updates land on next launch. Only bundled subdirs are removed;
   // user-created extension directories are preserved.
   const destExtensions = join(agentDir, 'extensions')
+  makeTreeWritable(destExtensions)
   for (const entry of readdirSync(bundledExtensionsDir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       const target = join(destExtensions, entry.name)
@@ -162,11 +199,13 @@ export function initResources(agentDir: string): void {
     }
   }
   cpSync(bundledExtensionsDir, destExtensions, { recursive: true, force: true })
+  makeTreeWritable(destExtensions)
 
   // Sync agents
   const destAgents = join(agentDir, 'agents')
   const srcAgents = join(resourcesDir, 'agents')
   if (existsSync(srcAgents)) {
+    makeTreeWritable(destAgents)
     for (const entry of readdirSync(srcAgents, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         const target = join(destAgents, entry.name)
@@ -174,12 +213,14 @@ export function initResources(agentDir: string): void {
       }
     }
     cpSync(srcAgents, destAgents, { recursive: true, force: true })
+    makeTreeWritable(destAgents)
   }
 
   // Sync skills
   const destSkills = join(agentDir, 'skills')
   const srcSkills = join(resourcesDir, 'skills')
   if (existsSync(srcSkills)) {
+    makeTreeWritable(destSkills)
     for (const entry of readdirSync(srcSkills, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         const target = join(destSkills, entry.name)
@@ -187,6 +228,7 @@ export function initResources(agentDir: string): void {
       }
     }
     cpSync(srcSkills, destSkills, { recursive: true, force: true })
+    makeTreeWritable(destSkills)
   }
 
   writeManagedResourceManifest(agentDir)
