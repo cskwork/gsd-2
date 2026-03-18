@@ -26,6 +26,13 @@ import {
 import { invalidateAllCaches } from "./cache.js";
 import { synthesizeCrashRecovery } from "./session-forensics.js";
 import { writeLock, clearLock, readCrashLock, formatCrashInfo, isLockProcessAlive } from "./crash-recovery.js";
+import {
+  acquireSessionLock,
+  updateSessionLock,
+  releaseSessionLock,
+  readSessionLockData,
+  isSessionLockProcessAlive,
+} from "./session-lock.js";
 import { selfHealRuntimeRecords } from "./auto-recovery.js";
 import { ensureGitignore, untrackRuntimeFiles } from "./gitignore.js";
 import { nativeIsRepo, nativeInit, nativeAddAll, nativeCommit } from "./native-git-bridge.js";
@@ -81,6 +88,18 @@ export async function bootstrapAutoSession(
 ): Promise<boolean> {
   const { shouldUseWorktreeIsolation, registerSigtermHandler, lockBase } = deps;
 
+  // ── Session lock: acquire FIRST, before any state mutation ──────────────
+  // This is the primary guard against concurrent sessions on the same project.
+  // Uses OS-level file locking (proper-lockfile) to prevent TOCTOU races.
+  const lockResult = acquireSessionLock(base);
+  if (!lockResult.acquired) {
+    ctx.ui.notify(
+      `${lockResult.reason}\nStop it with \`kill ${lockResult.existingPid ?? "the other process"}\` before starting a new session.`,
+      "error",
+    );
+    return false;
+  }
+
   // Ensure git repo exists
   if (!nativeIsRepo(base)) {
     const mainBranch = loadEffectiveGSDPreferences()?.preferences?.git?.main_branch || "main";
@@ -109,16 +128,11 @@ export async function bootstrapAutoSession(
   // Initialize GitServiceImpl
   s.gitService = new GitServiceImpl(s.basePath, loadEffectiveGSDPreferences()?.preferences?.git ?? {});
 
-  // Check for crash from previous session
+  // Check for crash from previous session (use both old and new lock data)
   const crashLock = readCrashLock(base);
   if (crashLock) {
-    if (isLockProcessAlive(crashLock)) {
-      ctx.ui.notify(
-        `Another auto-mode session (PID ${crashLock.pid}) appears to be running.\nStop it with \`kill ${crashLock.pid}\` before starting a new session.`,
-        "error",
-      );
-      return false;
-    }
+    // We already hold the session lock, so no concurrent session is running.
+    // The crash lock is from a dead process — recover context from it.
     const recoveredMid = crashLock.unitId.split("/")[0];
     const milestoneAlreadyComplete = recoveredMid
       ? !!resolveMilestoneFile(base, recoveredMid, "SUMMARY")
@@ -407,7 +421,8 @@ export async function bootstrapAutoSession(
     : "Will loop until milestone complete.";
   ctx.ui.notify(`${modeLabel} started. ${scopeMsg}`, "info");
 
-  // Write initial lock file
+  // Update lock file with milestone info (OS lock already acquired at bootstrap start)
+  updateSessionLock(lockBase(), "starting", s.currentMilestoneId ?? "unknown", 0);
   writeLock(lockBase(), "starting", s.currentMilestoneId ?? "unknown", 0);
 
   // Secrets collection gate — pause instead of blocking (#1146)
