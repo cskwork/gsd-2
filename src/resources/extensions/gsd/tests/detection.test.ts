@@ -528,6 +528,18 @@ test("detectProjectSignals: Next.js project via next.config.ts", () => {
   }
 });
 
+test("detectProjectSignals: nested Next.js config via packages/web/next.config.ts", () => {
+  const dir = makeTempDir("signals-nextjs-nested");
+  try {
+    mkdirSync(join(dir, "packages", "web"), { recursive: true });
+    writeFileSync(join(dir, "packages", "web", "next.config.ts"), "export default {}", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("next.config.ts"), "should detect nested Next.js config");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: Flutter project via pubspec.yaml", () => {
   const dir = makeTempDir("signals-flutter");
   try {
@@ -546,6 +558,19 @@ test("detectProjectSignals: Django project via manage.py", () => {
     writeFileSync(join(dir, "manage.py"), "#!/usr/bin/env python", "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("manage.py"));
+    assert.equal(signals.primaryLanguage, "python");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: nested Django manage.py", () => {
+  const dir = makeTempDir("signals-django-nested");
+  try {
+    mkdirSync(join(dir, "services", "api"), { recursive: true });
+    writeFileSync(join(dir, "services", "api", "manage.py"), "#!/usr/bin/env python", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("manage.py"), "should detect nested manage.py");
     assert.equal(signals.primaryLanguage, "python");
   } finally {
     cleanup(dir);
@@ -634,6 +659,21 @@ test("detectProjectSignals: Android project via app/build.gradle", () => {
     writeFileSync(join(dir, "app", "build.gradle"), "apply plugin: 'com.android.application'", "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("app/build.gradle"));
+    assert.equal(signals.primaryLanguage, "java/kotlin");
+    assert.ok(!signals.detectedFiles.includes("build.gradle"), "should not collapse Android app/build.gradle into generic build.gradle");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: nested app/build.gradle normalizes to Android marker", () => {
+  const dir = makeTempDir("signals-android-nested");
+  try {
+    mkdirSync(join(dir, "apps", "mobile", "app"), { recursive: true });
+    writeFileSync(join(dir, "apps", "mobile", "app", "build.gradle"), "apply plugin: 'com.android.application'", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("app/build.gradle"), "should detect nested Android app/build.gradle");
+    assert.ok(!signals.detectedFiles.includes("build.gradle"), "should not emit generic build.gradle marker for nested Android modules");
     assert.equal(signals.primaryLanguage, "java/kotlin");
   } finally {
     cleanup(dir);
@@ -772,6 +812,20 @@ test("detectProjectSignals: FastAPI detected via nested service requirements.txt
     writeFileSync(join(dir, "services", "api", "requirements.txt"), "fastapi==0.115.0\n", "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("dep:fastapi"), "should detect FastAPI in nested service requirements.txt");
+    assert.ok(signals.detectedFiles.includes("requirements.txt"), "should normalize nested requirements.txt marker");
+    assert.equal(signals.primaryLanguage, "python");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: nested Prisma schema normalizes to prisma/schema.prisma", () => {
+  const dir = makeTempDir("signals-prisma-nested");
+  try {
+    mkdirSync(join(dir, "services", "api", "prisma"), { recursive: true });
+    writeFileSync(join(dir, "services", "api", "prisma", "schema.prisma"), "datasource db { provider = \"sqlite\" }", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("prisma/schema.prisma"), "should detect nested Prisma schema");
   } finally {
     cleanup(dir);
   }

@@ -226,6 +226,8 @@ const TEST_MARKERS = [
 const RECURSIVE_SCAN_IGNORED_DIRS = new Set([
   ".git",
   "node_modules",
+  ".venv",
+  "venv",
   "dist",
   "build",
   "coverage",
@@ -234,7 +236,26 @@ const RECURSIVE_SCAN_IGNORED_DIRS = new Set([
   "target",
   "vendor",
   ".turbo",
+  "Pods",
+  "bin",
+  "obj",
+  ".gradle",
+  "DerivedData",
+  "out",
 ]) as ReadonlySet<string>;
+
+/** Project file markers safe to detect recursively via suffix matching. */
+const ROOT_ONLY_PROJECT_FILES = new Set<string>([
+  ".github/workflows",
+  "package.json",
+  "Gemfile",
+  "Makefile",
+  "CMakeLists.txt",
+  "build.gradle",
+  "build.gradle.kts",
+  "deno.json",
+  "deno.jsonc",
+]);
 
 const MAX_RECURSIVE_SCAN_FILES = 2000;
 const MAX_RECURSIVE_SCAN_DEPTH = 6;
@@ -366,6 +387,16 @@ export function detectProjectSignals(basePath: string): ProjectSignals {
   // without walking the entire repo or diving into heavyweight folders.
   const scannedFiles = scanProjectFiles(basePath);
 
+  for (const file of PROJECT_FILES) {
+    if (detectedFiles.includes(file) || ROOT_ONLY_PROJECT_FILES.has(file)) continue;
+    if (scannedFiles.some((scannedFile) => matchesProjectFileMarker(scannedFile, file))) {
+      pushUnique(detectedFiles, file);
+      if (!primaryLanguage && LANGUAGE_MAP[file]) {
+        primaryLanguage = LANGUAGE_MAP[file];
+      }
+    }
+  }
+
   if (scannedFiles.some((file) => SQLITE_EXTENSIONS.some((ext) => file.endsWith(ext)))) {
     pushUnique(detectedFiles, "*.sqlite");
   }
@@ -402,7 +433,7 @@ export function detectProjectSignals(basePath: string): ProjectSignals {
   if (dependencyFiles.length > 0) {
     try {
       const depContent: string[] = [];
-      for (const relativePath of dependencyFiles.slice(0, 10)) {
+      for (const relativePath of dependencyFiles) {
         depContent.push(readBounded(join(basePath, relativePath), 64 * 1024));
       }
       const combined = depContent.join("\n").toLowerCase();
@@ -728,6 +759,14 @@ function readMakefileTargets(basePath: string): string[] {
 
 function pushUnique(arr: string[], value: string): void {
   if (!arr.includes(value)) arr.push(value);
+}
+
+function matchesProjectFileMarker(scannedFile: string, marker: string): boolean {
+  return (
+    scannedFile === marker ||
+    scannedFile.endsWith(`/${marker}`) ||
+    scannedFile.endsWith(`\\${marker}`)
+  );
 }
 
 function scanProjectFiles(basePath: string): string[] {
