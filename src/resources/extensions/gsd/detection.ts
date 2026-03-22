@@ -430,7 +430,7 @@ export function detectProjectSignals(basePath: string): ProjectSignals {
   const dependencyFiles = scannedFiles.filter((file) =>
     file.endsWith("requirements.txt") || file.endsWith("pyproject.toml"),
   );
-  if (containsDependencyMarker(basePath, dependencyFiles, "fastapi")) {
+  if (containsFastapiDependency(basePath, dependencyFiles)) {
     pushUnique(detectedFiles, "dep:fastapi");
   }
 
@@ -769,13 +769,20 @@ function matchesProjectFileMarker(scannedFile: string, marker: string): boolean 
   );
 }
 
-function containsDependencyMarker(basePath: string, relativePaths: string[], marker: "fastapi"): boolean {
+function containsFastapiDependency(basePath: string, relativePaths: string[]): boolean {
   for (const relativePath of relativePaths) {
     try {
       const raw = readBounded(join(basePath, relativePath), 64 * 1024);
-      const content = extractDependencyContent(relativePath, raw).toLowerCase();
-      if (marker === "fastapi" && /\bfastapi(?=$|[\s<=>!~@\[\],;"'])/.test(content)) {
-        return true;
+      const content = extractDependencyContent(relativePath, raw);
+      if (relativePath.endsWith("requirements.txt")) {
+        for (const line of content.split("\n")) {
+          if (extractRequirementName(line) === "fastapi") return true;
+        }
+        continue;
+      }
+
+      if (relativePath.endsWith("pyproject.toml")) {
+        if (containsFastapiInPyproject(content)) return true;
       }
     } catch {
       // unreadable file — continue scanning other candidate files
@@ -796,19 +803,20 @@ function containsSpringBootMarker(
   for (const relativePath of buildFiles) {
     try {
       const raw = readBounded(join(basePath, relativePath), 64 * 1024);
-      const content = stripDependencyComments(relativePath, raw).toLowerCase();
-      if (/(org\.springframework\.boot|spring-boot(?:-starter)?)/.test(content)) {
+      const content = stripDependencyComments(relativePath, raw);
+      if (containsDirectSpringBootReference(relativePath, content)) {
         return true;
       }
 
+      const normalized = content.toLowerCase();
       const aliasRe = /alias\(\s*libs\.plugins\.([a-z0-9_.-]+)\s*\)/gi;
       let match: RegExpExecArray | null;
-      while ((match = aliasRe.exec(content)) !== null) {
+      while ((match = aliasRe.exec(normalized)) !== null) {
         usedPluginAliases.add(normalizePluginAlias(match[1]));
       }
 
       const libraryAliasRe = /\blibs\.((?!plugins\b)[a-z0-9_.-]+)/gi;
-      while ((match = libraryAliasRe.exec(content)) !== null) {
+      while ((match = libraryAliasRe.exec(normalized)) !== null) {
         usedLibraryAliases.add(normalizePluginAlias(match[1]));
       }
     } catch {
@@ -896,6 +904,46 @@ function extractDependencyContent(relativePath: string, content: string): string
   return stripped;
 }
 
+function extractRequirementName(spec: string): string | null {
+  const trimmed = spec.trim().replace(/^["']|["']$/g, "");
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?(?=\s*(?:@|[<>=!~;]|$))/);
+  if (!match) return null;
+  return normalizePackageName(match[1]);
+}
+
+function containsFastapiInPyproject(content: string): boolean {
+  for (const line of content.split("\n")) {
+    const keyMatch = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=/);
+    if (keyMatch && normalizePackageName(keyMatch[1]) === "fastapi") {
+      return true;
+    }
+  }
+
+  const quotedSpecRe = /["']([^"']+)["']/g;
+  let match: RegExpExecArray | null;
+  while ((match = quotedSpecRe.exec(content)) !== null) {
+    if (extractRequirementName(match[1]) === "fastapi") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function containsDirectSpringBootReference(relativePath: string, content: string): boolean {
+  if (relativePath.endsWith("pom.xml")) {
+    return /<groupId>\s*org\.springframework\.boot\s*<\/groupId>|<artifactId>\s*spring-boot[^<]*<\/artifactId>/i.test(content);
+  }
+
+  if (relativePath.endsWith("build.gradle") || relativePath.endsWith("build.gradle.kts")) {
+    return /(id\s*\(?\s*["']org\.springframework\.boot["']|(?:implementation|api|compileOnly|runtimeOnly|testImplementation|annotationProcessor|kapt)\s*\(?\s*["'][^"']*org\.springframework\.boot:[^"']*spring-boot[^"']*["'])/i.test(content);
+  }
+
+  return false;
+}
+
 function extractPyprojectDependencySections(content: string): string {
   const lines = content.split("\n");
   const collected: string[] = [];
@@ -962,6 +1010,10 @@ function extractPyprojectDependencySections(content: string): string {
 
 function countChar(text: string, char: string): number {
   return [...text].filter((c) => c === char).length;
+}
+
+function normalizePackageName(name: string): string {
+  return name.toLowerCase().replace(/[_.]/g, "-");
 }
 
 function normalizePluginAlias(alias: string): string {
