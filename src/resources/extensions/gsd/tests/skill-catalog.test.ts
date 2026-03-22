@@ -7,7 +7,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchPacksForProject } from "../skill-catalog.ts";
+import { PROJECT_FILES } from "../detection.ts";
+import { GREENFIELD_STACKS, SKILL_CATALOG, matchPacksForProject } from "../skill-catalog.ts";
 import type { ProjectSignals } from "../detection.ts";
 
 function makeSignals(overrides: Partial<ProjectSignals> = {}): ProjectSignals {
@@ -142,4 +143,42 @@ test("matchPacksForProject: Godot does not include Unity", () => {
   const labels = packLabels(makeSignals({ detectedFiles: ["project.godot"] }));
   assert.ok(labels.includes("Godot"), "should include Godot");
   assert.ok(!labels.includes("Unity"), "should NOT include Unity");
+});
+
+test("matchPacksForProject: .NET backend patterns match F# and solution markers", () => {
+  const fsprojLabels = packLabels(makeSignals({ detectedFiles: ["*.fsproj"], primaryLanguage: "fsharp" }));
+  assert.ok(fsprojLabels.includes(".NET Backend Patterns"), "should include generic .NET backend patterns for F# projects");
+  assert.ok(!fsprojLabels.includes(".NET & C#"), "should not include C#-specific pack for F# projects");
+
+  const slnLabels = packLabels(makeSignals({ detectedFiles: ["*.sln"], primaryLanguage: "dotnet" }));
+  assert.ok(slnLabels.includes(".NET Backend Patterns"), "should include generic .NET backend patterns for solution files");
+});
+
+test("SKILL_CATALOG: every matchFiles entry is backed by detection", () => {
+  const knownMarkers = new Set<string>([
+    ...PROJECT_FILES,
+    "*.sqlite",
+    "*.sql",
+    "*.csproj",
+    "*.fsproj",
+    "*.sln",
+    "*.vue",
+    "dep:fastapi",
+  ]);
+
+  for (const pack of SKILL_CATALOG) {
+    for (const marker of pack.matchFiles ?? []) {
+      assert.ok(knownMarkers.has(marker), `Unknown detection marker: ${marker} (pack: ${pack.label})`);
+    }
+  }
+});
+
+test("GREENFIELD_STACKS: every pack label resolves to SKILL_CATALOG", () => {
+  const labels = new Set(SKILL_CATALOG.map((pack) => pack.label));
+
+  for (const stack of GREENFIELD_STACKS) {
+    for (const packLabel of stack.packs) {
+      assert.ok(labels.has(packLabel), `Unknown pack label: ${packLabel} (stack: ${stack.id})`);
+    }
+  }
 });

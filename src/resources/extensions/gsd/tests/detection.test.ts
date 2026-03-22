@@ -419,6 +419,18 @@ test("detectProjectSignals: SQL file detection", () => {
   }
 });
 
+test("detectProjectSignals: nested SQL file detection", () => {
+  const dir = makeTempDir("signals-sql-nested");
+  try {
+    mkdirSync(join(dir, "db", "migrations"), { recursive: true });
+    writeFileSync(join(dir, "db", "migrations", "001_init.sql"), "", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("*.sql"), "should detect nested SQL files");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: .db file triggers SQLite detection", () => {
   const dir = makeTempDir("signals-db");
   try {
@@ -454,12 +466,38 @@ test("detectProjectSignals: .NET project via .csproj extension", () => {
   }
 });
 
+test("detectProjectSignals: nested .csproj detection", () => {
+  const dir = makeTempDir("signals-dotnet-nested");
+  try {
+    mkdirSync(join(dir, "src", "App"), { recursive: true });
+    writeFileSync(join(dir, "src", "App", "App.csproj"), "<Project></Project>", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("*.csproj"), "should detect nested .csproj files");
+    assert.equal(signals.primaryLanguage, "csharp");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: .NET project via .sln extension", () => {
   const dir = makeTempDir("signals-sln");
   try {
     writeFileSync(join(dir, "MyApp.sln"), "", "utf-8");
     const signals = detectProjectSignals(dir);
-    assert.ok(signals.detectedFiles.includes("*.csproj"), "should add synthetic *.csproj marker for .sln files");
+    assert.ok(signals.detectedFiles.includes("*.sln"), "should add synthetic *.sln marker for .sln files");
+    assert.equal(signals.primaryLanguage, "dotnet");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: F# project via .fsproj extension", () => {
+  const dir = makeTempDir("signals-fsharp");
+  try {
+    writeFileSync(join(dir, "MyApp.fsproj"), "<Project></Project>", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("*.fsproj"), "should add synthetic *.fsproj marker");
+    assert.equal(signals.primaryLanguage, "fsharp");
   } finally {
     cleanup(dir);
   }
@@ -546,6 +584,19 @@ test("detectProjectSignals: Vue.js via .vue files in src/", () => {
     writeFileSync(join(dir, "src", "App.vue"), "<template></template>", "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("*.vue"), "should add *.vue synthetic marker");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: Vue.js via nested .vue file in src/components/", () => {
+  const dir = makeTempDir("signals-vue-nested");
+  try {
+    writeFileSync(join(dir, "package.json"), '{"name":"vue-app"}', "utf-8");
+    mkdirSync(join(dir, "src", "components"), { recursive: true });
+    writeFileSync(join(dir, "src", "components", "Card.vue"), "<template></template>", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("*.vue"), "should detect nested .vue files");
   } finally {
     cleanup(dir);
   }
@@ -709,6 +760,18 @@ test("detectProjectSignals: FastAPI detected case-insensitively (PyPI canonical 
     writeFileSync(join(dir, "pyproject.toml"), '[project]\ndependencies = ["FastAPI>=0.100"]\n', "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("dep:fastapi"), "should detect FastAPI (mixed case)");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: FastAPI detected via nested service requirements.txt", () => {
+  const dir = makeTempDir("signals-fastapi-nested");
+  try {
+    mkdirSync(join(dir, "services", "api"), { recursive: true });
+    writeFileSync(join(dir, "services", "api", "requirements.txt"), "fastapi==0.115.0\n", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("dep:fastapi"), "should detect FastAPI in nested service requirements.txt");
   } finally {
     cleanup(dir);
   }

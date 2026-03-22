@@ -322,7 +322,7 @@ export const SKILL_CATALOG: SkillPack[] = [
     description: ".NET backend architecture, middleware, and production patterns",
     repo: "wshobson/agents",
     skills: ["dotnet-backend-patterns"],
-    matchFiles: ["*.csproj"],
+    matchFiles: ["*.csproj", "*.fsproj", "*.sln"],
   },
   // ── Flutter / Dart ────────────────────────────────────────────────────────
   {

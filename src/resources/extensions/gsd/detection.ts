@@ -222,6 +222,23 @@ const TEST_MARKERS = [
   "phpunit.xml",
 ] as const;
 
+/** Directories skipped during bounded recursive project scans. */
+const RECURSIVE_SCAN_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".nuxt",
+  "target",
+  "vendor",
+  ".turbo",
+]) as ReadonlySet<string>;
+
+const MAX_RECURSIVE_SCAN_FILES = 2000;
+const MAX_RECURSIVE_SCAN_DEPTH = 6;
+
 // ─── Core Detection ─────────────────────────────────────────────────────────────
 
 /**
@@ -343,46 +360,54 @@ export function detectProjectSignals(basePath: string): ProjectSignals {
     }
   }
 
-  // SQLite / SQL / .NET file detection — scan root entries for file extensions.
-  // Adds synthetic markers (e.g. "*.sqlite", "*.sql", "*.csproj") to detectedFiles
-  // so skill catalog matchFiles can reference them.
-  try {
-    const rootEntries = readdirSync(basePath);
-    if (rootEntries.some((e) => SQLITE_EXTENSIONS.some((ext) => e.endsWith(ext)))) {
-      detectedFiles.push("*.sqlite");
-    }
-    if (rootEntries.some((e) => SQL_EXTENSIONS.some((ext) => e.endsWith(ext)))) {
-      detectedFiles.push("*.sql");
-    }
-    if (rootEntries.some((e) => DOTNET_EXTENSIONS.some((ext) => e.endsWith(ext)))) {
-      detectedFiles.push("*.csproj");
-      if (!primaryLanguage) primaryLanguage = "csharp";
-    }
-    // Vue.js: scan src/ dir for .vue files (Vite-based Vue projects have no vue.config.*)
-    try {
-      const srcEntries = readdirSync(join(basePath, "src"));
-      if (srcEntries.some((e) => VUE_EXTENSIONS.some((ext) => e.endsWith(ext)))) {
-        detectedFiles.push("*.vue");
-      }
-    } catch {
-      // no src/ directory — skip Vue scan
-    }
-  } catch {
-    // unreadable root — skip extension scan
+  // Bounded recursive scan for nested markers and dependency files.
+  // This covers common brownfield layouts like src/App/App.csproj,
+  // db/migrations/*.sql, src/components/*.vue, and services/api/pyproject.toml
+  // without walking the entire repo or diving into heavyweight folders.
+  const scannedFiles = scanProjectFiles(basePath);
+
+  if (scannedFiles.some((file) => SQLITE_EXTENSIONS.some((ext) => file.endsWith(ext)))) {
+    pushUnique(detectedFiles, "*.sqlite");
+  }
+  if (scannedFiles.some((file) => SQL_EXTENSIONS.some((ext) => file.endsWith(ext)))) {
+    pushUnique(detectedFiles, "*.sql");
+  }
+
+  const hasCsproj = scannedFiles.some((file) => file.endsWith(".csproj"));
+  const hasFsproj = scannedFiles.some((file) => file.endsWith(".fsproj"));
+  const hasSln = scannedFiles.some((file) => file.endsWith(".sln"));
+
+  if (hasCsproj) {
+    pushUnique(detectedFiles, "*.csproj");
+    if (!primaryLanguage) primaryLanguage = "csharp";
+  }
+  if (hasFsproj) {
+    pushUnique(detectedFiles, "*.fsproj");
+    if (!primaryLanguage) primaryLanguage = "fsharp";
+  }
+  if (hasSln) {
+    pushUnique(detectedFiles, "*.sln");
+    if (!primaryLanguage) primaryLanguage = "dotnet";
+  }
+
+  if (scannedFiles.some((file) => VUE_EXTENSIONS.some((ext) => file.endsWith(ext)))) {
+    pushUnique(detectedFiles, "*.vue");
   }
 
   // Python framework detection — scan dependency files for framework-specific packages.
   // Adds synthetic markers (e.g. "dep:fastapi") so skill catalog matchFiles can reference them.
-  if (detectedFiles.includes("requirements.txt") || detectedFiles.includes("pyproject.toml")) {
+  const dependencyFiles = scannedFiles.filter((file) =>
+    file.endsWith("requirements.txt") || file.endsWith("pyproject.toml"),
+  );
+  if (dependencyFiles.length > 0) {
     try {
       const depContent: string[] = [];
-      const reqPath = join(basePath, "requirements.txt");
-      if (existsSync(reqPath)) depContent.push(readBounded(reqPath, 64 * 1024));
-      const pyprojectPath = join(basePath, "pyproject.toml");
-      if (existsSync(pyprojectPath)) depContent.push(readBounded(pyprojectPath, 64 * 1024));
+      for (const relativePath of dependencyFiles.slice(0, 10)) {
+        depContent.push(readBounded(join(basePath, relativePath), 64 * 1024));
+      }
       const combined = depContent.join("\n").toLowerCase();
       if (/\bfastapi\b/.test(combined)) {
-        detectedFiles.push("dep:fastapi");
+        pushUnique(detectedFiles, "dep:fastapi");
       }
     } catch {
       // unreadable dependency files — skip framework scan
@@ -699,4 +724,41 @@ function readMakefileTargets(basePath: string): string[] {
   } catch {
     return [];
   }
+}
+
+function pushUnique(arr: string[], value: string): void {
+  if (!arr.includes(value)) arr.push(value);
+}
+
+function scanProjectFiles(basePath: string): string[] {
+  const files: string[] = [];
+  const queue: Array<{ path: string; depth: number }> = [{ path: basePath, depth: 0 }];
+
+  while (queue.length > 0 && files.length < MAX_RECURSIVE_SCAN_FILES) {
+    const current = queue.shift()!;
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+    try {
+      entries = readdirSync(current.path, { withFileTypes: true, encoding: "utf8" });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(current.path, entry.name);
+      const relativePath = entryPath.slice(basePath.length + 1);
+
+      if (entry.isDirectory()) {
+        if (current.depth < MAX_RECURSIVE_SCAN_DEPTH && !RECURSIVE_SCAN_IGNORED_DIRS.has(entry.name)) {
+          queue.push({ path: entryPath, depth: current.depth + 1 });
+        }
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      files.push(relativePath);
+      if (files.length >= MAX_RECURSIVE_SCAN_FILES) break;
+    }
+  }
+
+  return files;
 }
