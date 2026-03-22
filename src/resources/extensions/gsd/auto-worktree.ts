@@ -20,7 +20,6 @@ import {
 import { isAbsolute, join } from "node:path";
 import { GSDError, GSD_IO_ERROR, GSD_GIT_ERROR } from "./errors.js";
 import {
-  copyWorktreeDb,
   reconcileWorktreeDb,
   isDbAvailable,
 } from "./gsd-db.js";
@@ -733,16 +732,11 @@ function copyPlanningArtifacts(srcBase: string, wtPath: string): void {
     safeCopy(join(srcGsd, file), join(dstGsd, file), { force: true });
   }
 
-  // Copy gsd.db if present in source
-  const srcDb = join(srcGsd, "gsd.db");
-  const destDb = join(dstGsd, "gsd.db");
-  if (existsSync(srcDb)) {
-    try {
-      copyWorktreeDb(srcDb, destDb);
-    } catch {
-      /* non-fatal */
-    }
-  }
+  // Shared WAL (R012): worktrees use the project root's DB directly.
+  // No longer copy gsd.db into the worktree — the DB path resolver in
+  // ensureDbOpen() detects the worktree location and opens the root DB.
+  // Compat note: reconcileWorktreeDb() in mergeMilestoneToMain handles
+  // worktrees that already have a local gsd.db from before this change.
 }
 
 /**
