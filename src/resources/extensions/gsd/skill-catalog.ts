@@ -169,13 +169,19 @@ export const SKILL_CATALOG: SkillPack[] = [
   // ── React / Next.js ───────────────────────────────────────────────────────
   {
     label: "React & Web Frontend",
-    description: "React best practices, web design, accessibility, core web vitals",
+    description: "React best practices, composition patterns, shadcn/ui components",
     repo: "vercel-labs/agent-skills",
     skills: [
       "vercel-react-best-practices",
-      "web-design-guidelines",
       "vercel-composition-patterns",
     ],
+    matchLanguages: ["javascript/typescript"],
+  },
+  {
+    label: "shadcn/ui",
+    description: "shadcn/ui component library patterns and usage",
+    repo: "shadcn/ui",
+    skills: ["shadcn"],
     matchLanguages: ["javascript/typescript"],
   },
   // ── React Native ──────────────────────────────────────────────────────────
@@ -220,6 +226,25 @@ export const SKILL_CATALOG: SkillPack[] = [
     skills: ["go-best-practices"],
     matchLanguages: ["go"],
     matchFiles: ["go.mod"],
+  },
+  // ── Essential (all projects) ────────────────────────────────────────────
+  {
+    label: "Skill Discovery",
+    description: "Find and install new agent skills from the ecosystem",
+    repo: "vercel-labs/skills",
+    skills: ["find-skills"],
+  },
+  {
+    label: "Skill Authoring",
+    description: "Create, audit, and refine SKILL.md files",
+    repo: "anthropics/skills",
+    skills: ["skill-creator"],
+  },
+  {
+    label: "Browser Automation",
+    description: "Browser automation for web scraping, testing, and interaction",
+    repo: "vercel-labs/agent-browser",
+    skills: ["agent-browser"],
   },
   // ── General Tooling ───────────────────────────────────────────────────────
   {
@@ -266,8 +291,8 @@ export const GREENFIELD_STACKS: Array<{
   {
     id: "react-web",
     label: "React Web",
-    description: "React, Next.js, web frontend",
-    packs: ["React & Web Frontend", "Frontend Design & UX"],
+    description: "React, Next.js, shadcn/ui, web frontend",
+    packs: ["React & Web Frontend", "shadcn/ui", "Frontend Design & UX"],
   },
   {
     id: "react-native",
@@ -279,7 +304,7 @@ export const GREENFIELD_STACKS: Array<{
     id: "fullstack-js",
     label: "Full-Stack JavaScript/TypeScript",
     description: "Node.js backend + React frontend",
-    packs: ["React & Web Frontend", "Frontend Design & UX"],
+    packs: ["React & Web Frontend", "shadcn/ui", "Frontend Design & UX"],
   },
   {
     id: "rust",
