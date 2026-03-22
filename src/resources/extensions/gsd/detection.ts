@@ -430,19 +430,15 @@ export function detectProjectSignals(basePath: string): ProjectSignals {
   const dependencyFiles = scannedFiles.filter((file) =>
     file.endsWith("requirements.txt") || file.endsWith("pyproject.toml"),
   );
-  if (dependencyFiles.length > 0) {
-    try {
-      const depContent: string[] = [];
-      for (const relativePath of dependencyFiles) {
-        depContent.push(readBounded(join(basePath, relativePath), 64 * 1024));
-      }
-      const combined = depContent.join("\n").toLowerCase();
-      if (/\bfastapi\b/.test(combined)) {
-        pushUnique(detectedFiles, "dep:fastapi");
-      }
-    } catch {
-      // unreadable dependency files — skip framework scan
-    }
+  if (containsDependencyMarker(basePath, dependencyFiles, "fastapi")) {
+    pushUnique(detectedFiles, "dep:fastapi");
+  }
+
+  const springBootFiles = scannedFiles.filter((file) =>
+    file.endsWith("pom.xml") || file.endsWith("build.gradle") || file.endsWith("build.gradle.kts"),
+  );
+  if (containsDependencyMarker(basePath, springBootFiles, "spring-boot")) {
+    pushUnique(detectedFiles, "dep:spring-boot");
   }
 
   // Git repo detection
@@ -767,6 +763,43 @@ function matchesProjectFileMarker(scannedFile: string, marker: string): boolean 
     scannedFile.endsWith(`/${marker}`) ||
     scannedFile.endsWith(`\\${marker}`)
   );
+}
+
+function containsDependencyMarker(basePath: string, relativePaths: string[], marker: "fastapi" | "spring-boot"): boolean {
+  for (const relativePath of relativePaths) {
+    try {
+      const raw = readBounded(join(basePath, relativePath), 64 * 1024);
+      const content = stripDependencyComments(relativePath, raw).toLowerCase();
+      if (marker === "fastapi" && /\bfastapi(?:[-_][a-z0-9]+)?\b/.test(content)) {
+        return true;
+      }
+      if (marker === "spring-boot" && /(org\.springframework\.boot|spring-boot(?:-starter)?)/.test(content)) {
+        return true;
+      }
+    } catch {
+      // unreadable file — continue scanning other candidate files
+    }
+  }
+
+  return false;
+}
+
+function stripDependencyComments(relativePath: string, content: string): string {
+  if (relativePath.endsWith("requirements.txt")) {
+    return content.replace(/^\s*#.*$/gm, "");
+  }
+  if (relativePath.endsWith("pyproject.toml")) {
+    return content.replace(/^\s*#.*$/gm, "");
+  }
+  if (relativePath.endsWith("pom.xml")) {
+    return content.replace(/<!--[\s\S]*?-->/g, "");
+  }
+  if (relativePath.endsWith("build.gradle") || relativePath.endsWith("build.gradle.kts")) {
+    return content
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+  }
+  return content;
 }
 
 function scanProjectFiles(basePath: string): string[] {

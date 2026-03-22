@@ -782,6 +782,17 @@ test("detectProjectSignals: FastAPI detected via pyproject.toml dependency", () 
   }
 });
 
+test("detectProjectSignals: FastAPI comments do not trigger dep:fastapi", () => {
+  const dir = makeTempDir("signals-fastapi-comment");
+  try {
+    writeFileSync(join(dir, "requirements.txt"), "# maybe evaluate fastapi later\nflask==3.0\n", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(!signals.detectedFiles.includes("dep:fastapi"), "comments should not trigger FastAPI detection");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: Django project does NOT get dep:fastapi marker", () => {
   const dir = makeTempDir("signals-django-no-fastapi");
   try {
@@ -826,6 +837,35 @@ test("detectProjectSignals: nested Prisma schema normalizes to prisma/schema.pri
     writeFileSync(join(dir, "services", "api", "prisma", "schema.prisma"), "datasource db { provider = \"sqlite\" }", "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(signals.detectedFiles.includes("prisma/schema.prisma"), "should detect nested Prisma schema");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: nested Spring Boot Gradle service emits dep:spring-boot", () => {
+  const dir = makeTempDir("signals-spring-gradle-nested");
+  try {
+    mkdirSync(join(dir, "services", "api"), { recursive: true });
+    writeFileSync(
+      join(dir, "services", "api", "build.gradle"),
+      "plugins { id 'org.springframework.boot' version '3.2.0' }",
+      "utf-8",
+    );
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("dep:spring-boot"), "should detect nested Spring Boot Gradle service");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: Android Gradle project does not emit dep:spring-boot", () => {
+  const dir = makeTempDir("signals-android-no-spring");
+  try {
+    writeFileSync(join(dir, "build.gradle"), "plugins { id 'com.android.application' }", "utf-8");
+    mkdirSync(join(dir, "app"), { recursive: true });
+    writeFileSync(join(dir, "app", "build.gradle"), "plugins { id 'com.android.application' }", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(!signals.detectedFiles.includes("dep:spring-boot"), "Android Gradle files should not trigger Spring Boot detection");
   } finally {
     cleanup(dir);
   }

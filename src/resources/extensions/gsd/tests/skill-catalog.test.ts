@@ -133,6 +133,14 @@ test("matchPacksForProject: Spring Boot does not match via language alone", () =
   assert.ok(!labels.includes("Java & Spring Boot"), "Spring Boot should NOT match via language alone");
 });
 
+test("matchPacksForProject: Spring Boot matches only dep:spring-boot", () => {
+  const positive = packLabels(makeSignals({ detectedFiles: ["dep:spring-boot"] }));
+  assert.ok(positive.includes("Java & Spring Boot"), "should include Spring Boot pack when dependency marker exists");
+
+  const androidLike = packLabels(makeSignals({ detectedFiles: ["build.gradle", "app/build.gradle"], primaryLanguage: "java/kotlin" }));
+  assert.ok(!androidLike.includes("Java & Spring Boot"), "generic Gradle + Android markers should not imply Spring Boot");
+});
+
 test("matchPacksForProject: Unity does not include Godot", () => {
   const labels = packLabels(makeSignals({ detectedFiles: ["ProjectSettings/ProjectVersion.txt"] }));
   assert.ok(labels.includes("Unity"), "should include Unity");
@@ -164,6 +172,7 @@ test("SKILL_CATALOG: every matchFiles entry is backed by detection", () => {
     "*.sln",
     "*.vue",
     "dep:fastapi",
+    "dep:spring-boot",
   ]);
 
   for (const pack of SKILL_CATALOG) {

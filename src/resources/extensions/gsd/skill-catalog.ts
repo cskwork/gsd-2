@@ -306,7 +306,7 @@ export const SKILL_CATALOG: SkillPack[] = [
     description: "Spring Boot best practices, DI, RESTful APIs, JPA, testing, and security",
     repo: "github/awesome-copilot",
     skills: ["java-springboot"],
-    matchFiles: ["pom.xml", "build.gradle", "build.gradle.kts"],
+    matchFiles: ["dep:spring-boot"],
   },
   // ── .NET / C# ────────────────────────────────────────────────────────────
   {
