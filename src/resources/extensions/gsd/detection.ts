@@ -916,16 +916,22 @@ function extractRequirementName(spec: string): string | null {
 function containsFastapiInPyproject(content: string): boolean {
   for (const line of content.split("\n")) {
     const keyMatch = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=/);
-    if (keyMatch && normalizePackageName(keyMatch[1]) === "fastapi") {
-      return true;
+    if (keyMatch) {
+      const key = normalizePackageName(keyMatch[1]);
+      if (key === "fastapi") {
+        return true;
+      }
+      if (key !== "dependencies") {
+        continue;
+      }
     }
-  }
 
-  const quotedSpecRe = /["']([^"']+)["']/g;
-  let match: RegExpExecArray | null;
-  while ((match = quotedSpecRe.exec(content)) !== null) {
-    if (extractRequirementName(match[1]) === "fastapi") {
-      return true;
+    const quotedSpecRe = /["']([^"']+)["']/g;
+    let match: RegExpExecArray | null;
+    while ((match = quotedSpecRe.exec(line)) !== null) {
+      if (extractRequirementName(match[1]) === "fastapi") {
+        return true;
+      }
     }
   }
 
@@ -934,11 +940,11 @@ function containsFastapiInPyproject(content: string): boolean {
 
 function containsDirectSpringBootReference(relativePath: string, content: string): boolean {
   if (relativePath.endsWith("pom.xml")) {
-    return /<groupId>\s*org\.springframework\.boot\s*<\/groupId>|<artifactId>\s*spring-boot[^<]*<\/artifactId>/i.test(content);
+    return /<groupId>\s*org\.springframework\.boot\s*<\/groupId>/i.test(content);
   }
 
   if (relativePath.endsWith("build.gradle") || relativePath.endsWith("build.gradle.kts")) {
-    return /(id\s*\(?\s*["']org\.springframework\.boot["']|(?:implementation|api|compileOnly|runtimeOnly|testImplementation|annotationProcessor|kapt)\s*\(?\s*["'][^"']*org\.springframework\.boot:[^"']*spring-boot[^"']*["'])/i.test(content);
+    return /(id\s*\(?\s*["']org\.springframework\.boot["']|apply\s*\(?\s*plugin\s*[:=]\s*["']org\.springframework\.boot["']|(?:implementation|api|compileOnly|runtimeOnly|testImplementation|annotationProcessor|kapt)\s*\(?\s*["'][^"']*org\.springframework\.boot:[^"']*spring-boot[^"']*["'])/i.test(content);
   }
 
   return false;

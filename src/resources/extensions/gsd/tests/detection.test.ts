@@ -808,6 +808,21 @@ test("detectProjectSignals: pyproject metadata mention does not trigger dep:fast
   }
 });
 
+test("detectProjectSignals: pyproject dependency table extras do not trigger dep:fastapi", () => {
+  const dir = makeTempDir("signals-fastapi-pyproject-table-extra");
+  try {
+    writeFileSync(
+      join(dir, "pyproject.toml"),
+      '[tool.poetry.dependencies]\npython = "^3.12"\nmy-sdk = { version = "^1.0", extras = ["fastapi"] }\n',
+      "utf-8",
+    );
+    const signals = detectProjectSignals(dir);
+    assert.ok(!signals.detectedFiles.includes("dep:fastapi"), "dependency table extras should not imply FastAPI framework usage");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: pyproject optional-dependency group name does not trigger dep:fastapi", () => {
   const dir = makeTempDir("signals-fastapi-pyproject-extra-name");
   try {
@@ -959,6 +974,17 @@ test("detectProjectSignals: nested Spring Boot Gradle service emits dep:spring-b
   }
 });
 
+test("detectProjectSignals: legacy apply plugin syntax emits dep:spring-boot", () => {
+  const dir = makeTempDir("signals-spring-apply-plugin");
+  try {
+    writeFileSync(join(dir, "build.gradle"), "apply plugin: 'org.springframework.boot'", "utf-8");
+    const signals = detectProjectSignals(dir);
+    assert.ok(signals.detectedFiles.includes("dep:spring-boot"), "apply plugin syntax should trigger Spring Boot detection");
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("detectProjectSignals: nested Spring Boot Kotlin DSL service still uses neutral java/kotlin language hint", () => {
   const dir = makeTempDir("signals-spring-gradle-kts-nested");
   try {
@@ -1008,6 +1034,21 @@ test("detectProjectSignals: build metadata mentioning spring-boot does not emit 
     writeFileSync(join(dir, "build.gradle"), 'def notes = "spring-boot migration planned later"', "utf-8");
     const signals = detectProjectSignals(dir);
     assert.ok(!signals.detectedFiles.includes("dep:spring-boot"), "arbitrary metadata text should not trigger Spring Boot detection");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("detectProjectSignals: Maven artifactId alone does not emit dep:spring-boot", () => {
+  const dir = makeTempDir("signals-spring-maven-artifact-only");
+  try {
+    writeFileSync(
+      join(dir, "pom.xml"),
+      '<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>spring-boot-tools</artifactId></project>',
+      "utf-8",
+    );
+    const signals = detectProjectSignals(dir);
+    assert.ok(!signals.detectedFiles.includes("dep:spring-boot"), "artifactId alone should not imply Spring Boot");
   } finally {
     cleanup(dir);
   }
