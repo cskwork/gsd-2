@@ -421,7 +421,9 @@ function resolvePreferredSkillNames(
 
 function formatSkillActivationBlock(skillNames: string[]): string {
   if (skillNames.length === 0) return "";
-  const calls = skillNames.map(name => `Call Skill('${name}')`).join('. ');
+  // Use explicit parameter syntax so LLMs pass { skill: "..." } instead of { name: "..." }.
+  // Positional-looking `Skill('name')` caused validation failures — see #2224.
+  const calls = skillNames.map(name => `Call Skill({ skill: '${name}' })`).join('. ');
   return `<skill_activation>${calls}.</skill_activation>`;
 }
 

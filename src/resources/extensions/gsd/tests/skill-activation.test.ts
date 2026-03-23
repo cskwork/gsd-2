@@ -75,7 +75,7 @@ test("buildSkillActivationBlock activates skills via prefer_skills when context 
       prefer_skills: ["react"],
     });
 
-    assert.match(result, /Call Skill\('react'\)/);
+    assert.match(result, /Call Skill\(\{ skill: 'react' \}\)/);
     assert.doesNotMatch(result, /swiftui/);
   } finally {
     cleanup(base);
@@ -92,7 +92,7 @@ test("buildSkillActivationBlock includes always_use_skills from preferences usin
       always_use_skills: ["swift-testing"],
     });
 
-    assert.equal(result, "<skill_activation>Call Skill('swift-testing').</skill_activation>");
+    assert.equal(result, "<skill_activation>Call Skill({ skill: 'swift-testing' }).</skill_activation>");
   } finally {
     cleanup(base);
   }
@@ -120,8 +120,8 @@ test("buildSkillActivationBlock includes skill_rules matches and task-plan skill
       skill_rules: [{ when: "prisma database schema", use: ["prisma"] }],
     });
 
-    assert.match(result, /Call Skill\('accessibility'\)/);
-    assert.match(result, /Call Skill\('prisma'\)/);
+    assert.match(result, /Call Skill\(\{ skill: 'accessibility' \}\)/);
+    assert.match(result, /Call Skill\(\{ skill: 'prisma' \}\)/);
   } finally {
     cleanup(base);
   }
