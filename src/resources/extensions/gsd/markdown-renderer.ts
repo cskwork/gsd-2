@@ -10,6 +10,7 @@
 
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { createRequire } from "node:module";
 import {
   getAllMilestones,
   getMilestone,
@@ -30,7 +31,7 @@ import {
   buildTaskFileName,
   buildSliceFileName,
 } from "./paths.js";
-import { saveFile, clearParseCache, parseRoadmap, parsePlan } from "./files.js";
+import { saveFile, clearParseCache } from "./files.js";
 import { invalidateStateCache } from "./state.js";
 import { clearPathCache } from "./paths.js";
 
@@ -776,6 +777,17 @@ export interface StaleEntry {
  * Logs to stderr when stale files are detected.
  */
 export function detectStaleRenders(basePath: string): StaleEntry[] {
+  // Lazy-load parsers — intentional disk-vs-DB comparison requires parsers
+  const _require = createRequire(import.meta.url);
+  let parseRoadmap: Function, parsePlan: Function;
+  try {
+    const m = _require("./files.ts");
+    parseRoadmap = m.parseRoadmap; parsePlan = m.parsePlan;
+  } catch {
+    const m = _require("./files.js");
+    parseRoadmap = m.parseRoadmap; parsePlan = m.parsePlan;
+  }
+
   const stale: StaleEntry[] = [];
   const milestones = getAllMilestones();
 

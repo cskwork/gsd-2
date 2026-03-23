@@ -18,10 +18,12 @@ import {
   lstatSync as lstatSyncFn,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { createRequire } from "node:module";
 import { GSDError, GSD_IO_ERROR, GSD_GIT_ERROR } from "./errors.js";
 import {
   reconcileWorktreeDb,
   isDbAvailable,
+  getMilestoneSlices,
 } from "./gsd-db.js";
 import { atomicWriteSync } from "./atomic-write.js";
 import { execFileSync } from "node:child_process";
@@ -40,7 +42,6 @@ import {
 } from "./worktree.js";
 import { MergeConflictError, readIntegrationBranch, RUNTIME_EXCLUSION_PATHS } from "./git-service.js";
 import { debugLog } from "./debug-logger.js";
-import { parseRoadmap } from "./files.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 import {
   nativeGetCurrentBranch,
@@ -998,9 +999,20 @@ export function mergeMilestoneToMain(
     }
   }
 
-  // 2. Parse roadmap for slice listing
-  const roadmap = parseRoadmap(roadmapContent);
-  const completedSlices = roadmap.slices.filter((s) => s.done);
+  // 2. Get completed slices for commit message
+  let completedSlices: { id: string; title: string }[] = [];
+  if (isDbAvailable()) {
+    completedSlices = getMilestoneSlices(milestoneId)
+      .filter(s => s.status === "complete")
+      .map(s => ({ id: s.id, title: s.title }));
+  } else {
+    const _require = createRequire(import.meta.url);
+    let parseRoadmap: Function;
+    try { parseRoadmap = _require("./files.ts").parseRoadmap; }
+    catch { parseRoadmap = _require("./files.js").parseRoadmap; }
+    const roadmap = parseRoadmap(roadmapContent);
+    completedSlices = roadmap.slices.filter((s: { done: boolean }) => s.done).map((s: { id: string; title: string }) => ({ id: s.id, title: s.title }));
+  }
 
   // 3. chdir to original base
   const previousCwd = process.cwd();

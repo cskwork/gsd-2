@@ -123,3 +123,9 @@ const roadmap = parseRoadmap(roadmapContent);
 - `src/resources/extensions/gsd/auto-worktree.ts` — module-level parseRoadmap removed, DB + fallback
 - `src/resources/extensions/gsd/reactive-graph.ts` — module-level parsePlan removed, DB + fallback
 - `src/resources/extensions/gsd/markdown-renderer.ts` — module-level parser imports moved to lazy loading inside findStaleArtifacts()
+
+## Observability Impact
+
+- **Fallback visibility:** All 6 migrated files write to `process.stderr` when falling back from DB to lazy parser, matching the pattern established in T03. Detectable via `grep 'falling back to parser' <stderr-log>`.
+- **Inspection surface:** `isDbAvailable()` gate at each call site means DB-vs-parser path selection is deterministic and inspectable. A future agent can verify which path executed by checking stderr output.
+- **Failure state:** If DB is corrupted or unavailable, all call sites gracefully degrade to lazy parser with stderr warning — no silent data loss or hard failure.

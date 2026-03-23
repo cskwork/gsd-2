@@ -10,9 +10,10 @@
 import type { ExtensionContext } from "@gsd/pi-coding-agent";
 import { parseUnitId } from "./unit-id.js";
 import { atomicWriteSync } from "./atomic-write.js";
+import { createRequire } from "node:module";
 import { clearUnitRuntimeRecord } from "./unit-runtime.js";
-import { clearParseCache, parseRoadmap, parsePlan } from "./files.js";
-import { isDbAvailable, getTask, getSlice } from "./gsd-db.js";
+import { clearParseCache } from "./files.js";
+import { isDbAvailable, getTask, getSlice, getSliceTasks } from "./gsd-db.js";
 import { isValidationTerminal } from "./state.js";
 import {
   nativeConflictFiles,
@@ -366,13 +367,31 @@ export function verifyExpectedArtifact(
     const sid = parts[1];
     if (mid && sid) {
       try {
-        const planContent = readFileSync(absPath, "utf-8");
-        const plan = parsePlan(planContent);
-        const tasksDir = resolveTasksDir(base, mid, sid);
-        if (plan.tasks.length > 0 && tasksDir) {
-          for (const task of plan.tasks) {
-            const taskPlanFile = join(tasksDir, `${task.id}-PLAN.md`);
-            if (!existsSync(taskPlanFile)) return false;
+        // DB primary path — get task IDs to verify task plan files exist
+        let taskIds: string[] | null = null;
+        if (isDbAvailable()) {
+          const tasks = getSliceTasks(mid, sid);
+          if (tasks.length > 0) taskIds = tasks.map(t => t.id);
+        }
+
+        if (!taskIds) {
+          // Parser fallback
+          const planContent = readFileSync(absPath, "utf-8");
+          const _require = createRequire(import.meta.url);
+          let parsePlan: Function;
+          try { parsePlan = _require("./files.ts").parsePlan; }
+          catch { parsePlan = _require("./files.js").parsePlan; }
+          const plan = parsePlan(planContent);
+          if (plan.tasks.length > 0) taskIds = plan.tasks.map((t: { id: string }) => t.id);
+        }
+
+        if (taskIds && taskIds.length > 0) {
+          const tasksDir = resolveTasksDir(base, mid, sid);
+          if (tasksDir) {
+            for (const tid of taskIds) {
+              const taskPlanFile = join(tasksDir, `${tid}-PLAN.md`);
+              if (!existsSync(taskPlanFile)) return false;
+            }
           }
         }
       } catch {
@@ -404,6 +423,10 @@ export function verifyExpectedArtifact(
         if (roadmapFile && existsSync(roadmapFile)) {
           try {
             const roadmapContent = readFileSync(roadmapFile, "utf-8");
+            const _require = createRequire(import.meta.url);
+            let parseRoadmap: Function;
+            try { parseRoadmap = _require("./files.ts").parseRoadmap; }
+            catch { parseRoadmap = _require("./files.js").parseRoadmap; }
             const roadmap = parseRoadmap(roadmapContent);
             const slice = roadmap.slices.find((s) => s.id === sid);
             if (slice && !slice.done) return false;
