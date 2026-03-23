@@ -15,18 +15,6 @@ import type { RiskLevel } from "./types.js";
 import { type ValidationIssue, validateCompleteBoundary, validatePlanBoundary } from "./observability-validator.js";
 import { getSliceBranchName, detectWorktreeName } from "./worktree.js";
 
-// Lazy-loaded parsers — only resolved when DB is unavailable (fallback path)
-import { createRequire } from "node:module";
-let _lazyParsers: { parseRoadmap: (c: string) => { title: string; slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }; parsePlan: (c: string) => { title: string; tasks: Array<{ id: string; done: boolean; title: string; estimate?: string }> } } | null = null;
-function getLazyParsers() {
-  if (!_lazyParsers) {
-    const req = createRequire(import.meta.url);
-    try { const mod = req("./files.ts"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-    catch { const mod = req("./files.js"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-  }
-  return _lazyParsers!;
-}
-
 export interface WorkspaceTaskTarget {
   id: string;
   title: string;
@@ -75,10 +63,12 @@ export interface GSDWorkspaceIndex {
   validationIssues: ValidationIssue[];
 }
 
-
+// Extract milestone title from roadmap header without using parsers.
+// Falls back to the milestone ID if no title line found.
 function titleFromRoadmapHeader(content: string, fallbackId: string): string {
-  const roadmap = getLazyParsers().parseRoadmap(content);
-  return roadmap.title.replace(/^M\d+(?:-[a-z0-9]{6})?[^:]*:\s*/, "") || fallbackId;
+  // Parse the "# M001: Title" header directly
+  const match = content.match(/^#\s+M\d+(?:-[a-z0-9]{6})?[^:]*:\s*(.+)/m);
+  return match?.[1]?.trim() || fallbackId;
 }
 
 async function indexSlice(basePath: string, milestoneId: string, sliceId: string, fallbackTitle: string, done: boolean, roadmapMeta?: { risk?: RiskLevel; depends?: string[]; demo?: string }): Promise<WorkspaceSliceTarget> {
@@ -90,7 +80,7 @@ async function indexSlice(basePath: string, milestoneId: string, sliceId: string
   const tasks: WorkspaceTaskTarget[] = [];
   let title = fallbackTitle;
 
-  // Prefer DB for task data, fall back to parser
+  // Prefer DB for task data
   if (isDbAvailable()) {
     const dbTasks = getSliceTasks(milestoneId, sliceId);
     for (const task of dbTasks) {
@@ -103,22 +93,8 @@ async function indexSlice(basePath: string, milestoneId: string, sliceId: string
         summaryPath: resolveTaskFile(basePath, milestoneId, sliceId, task.id, "SUMMARY") ?? undefined,
       });
     }
-  } else if (planPath) {
-    const content = await loadFile(planPath);
-    if (content) {
-      const plan = getLazyParsers().parsePlan(content);
-      title = plan.title || fallbackTitle;
-      for (const task of plan.tasks) {
-        tasks.push({
-          id: task.id,
-          title: task.title,
-          done: task.done,
-          planPath: resolveTaskFile(basePath, milestoneId, sliceId, task.id, "PLAN") ?? undefined,
-          summaryPath: resolveTaskFile(basePath, milestoneId, sliceId, task.id, "SUMMARY") ?? undefined,
-        });
-      }
-    }
   }
+  // When DB unavailable, tasks stays empty
 
   return {
     id: sliceId,
@@ -158,24 +134,18 @@ export async function indexWorkspace(basePath: string, opts: IndexWorkspaceOptio
     const slices: WorkspaceSliceTarget[] = [];
 
     if (roadmapPath || isDbAvailable()) {
-      // Normalize slices: prefer DB, fall back to parser
+      // Normalize slices from DB
       type NormSlice = { id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string };
       let normSlices: NormSlice[];
       if (isDbAvailable()) {
         normSlices = getMilestoneSlices(milestoneId).map(s => ({ id: s.id, done: s.status === "complete", title: s.title, risk: s.risk || "medium", depends: s.depends, demo: s.demo }));
-        // Get title from DB milestone or roadmap header
+        // Get title from roadmap header
         if (roadmapPath) {
           const roadmapContent = await loadFile(roadmapPath);
           if (roadmapContent) title = titleFromRoadmapHeader(roadmapContent, milestoneId);
         }
       } else {
-        const roadmapContent = await loadFile(roadmapPath!);
-        if (roadmapContent) {
-          normSlices = getLazyParsers().parseRoadmap(roadmapContent).slices;
-          title = titleFromRoadmapHeader(roadmapContent, milestoneId);
-        } else {
-          normSlices = [];
-        }
+        normSlices = [];
       }
 
       if (normSlices!.length > 0) {

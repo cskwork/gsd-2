@@ -9,7 +9,6 @@ import { deriveState } from "./state.js";
 import { resolveMilestoneFile, resolveSliceFile } from "./paths.js";
 import { findMilestoneIds } from "./guided-flow.js";
 import { isDbAvailable, getMilestoneSlices, getSliceTasks } from "./gsd-db.js";
-import { createRequire } from "node:module";
 import type { MilestoneRegistryEntry } from "./types.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -52,41 +51,8 @@ async function collectTouchedFiles(
         }
       }
     }
-  } else {
-    // Disk fallback: lazy-load parsers
-    const req = createRequire(import.meta.url);
-    let filesModule: {
-      loadFile: (p: string) => Promise<string | null>;
-      parseRoadmap: (c: string) => { slices: { id: string }[] };
-      parsePlan: (c: string) => { filesLikelyTouched: string[] };
-    };
-    try {
-      filesModule = req("./files.ts");
-    } catch {
-      filesModule = req("./files.js");
-    }
-
-    const roadmapPath = resolveMilestoneFile(basePath, milestoneId, "ROADMAP");
-    if (!roadmapPath) return [];
-
-    const roadmapContent = await filesModule.loadFile(roadmapPath);
-    if (!roadmapContent) return [];
-
-    const roadmap = filesModule.parseRoadmap(roadmapContent);
-
-    for (const slice of roadmap.slices) {
-      const planPath = resolveSliceFile(basePath, milestoneId, slice.id, "PLAN");
-      if (!planPath) continue;
-
-      const planContent = await filesModule.loadFile(planPath);
-      if (!planContent) continue;
-
-      const plan = filesModule.parsePlan(planContent);
-      for (const f of plan.filesLikelyTouched) {
-        files.add(f);
-      }
-    }
   }
+  // When DB unavailable, return empty file set — parallel eligibility cannot be determined
 
   return [...files];
 }

@@ -205,16 +205,8 @@ export async function loadSliceTaskIO(
   } catch { /* fall through */ }
 
   if (!taskEntries) {
-    // Parser fallback
-    if (!planContent) return [];
-    const { createRequire } = await import("node:module");
-    const _require = createRequire(import.meta.url);
-    let parsePlan: Function;
-    try { parsePlan = _require("./files.ts").parsePlan; }
-    catch { parsePlan = _require("./files.js").parsePlan; }
-    const plan = parsePlan(planContent);
-    taskEntries = plan.tasks;
-    if (!taskEntries || taskEntries.length === 0) return [];
+    // DB unavailable — cannot determine task graph
+    return [];
   }
 
   const tDir = resolveTasksDir(basePath, mid, sid);

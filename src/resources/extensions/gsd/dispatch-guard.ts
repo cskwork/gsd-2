@@ -1,26 +1,8 @@
 // GSD Dispatch Guard — prevents out-of-order slice dispatch
 
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { resolveMilestoneFile } from "./paths.js";
 import { findMilestoneIds } from "./guided-flow.js";
 import { isDbAvailable, getMilestoneSlices } from "./gsd-db.js";
-
-// Lazy-loaded parser — only resolved when DB is unavailable (fallback path).
-// Uses createRequire so the function stays synchronous. Tries .ts first (strip-types dev)
-// then .js (compiled production).
-let _lazyParser: ((content: string) => { id: string; done: boolean; depends: string[] }[]) | null = null;
-function lazyParseRoadmapSlices(content: string) {
-  if (!_lazyParser) {
-    const req = createRequire(import.meta.url);
-    try {
-      _lazyParser = req("./roadmap-slices.ts").parseRoadmapSlices;
-    } catch {
-      _lazyParser = req("./roadmap-slices.js").parseRoadmapSlices;
-    }
-  }
-  return _lazyParser!(content);
-}
 
 const SLICE_DISPATCH_TYPES = new Set([
   "research-slice",
@@ -29,28 +11,6 @@ const SLICE_DISPATCH_TYPES = new Set([
   "execute-task",
   "complete-slice",
 ]);
-
-/**
- * Read a roadmap file from disk (working tree) rather than from a git branch.
- *
- * Prior implementation used `git show <branch>:<path>` which read committed
- * state on a specific branch. This caused false-positive blockers when work
- * was committed on a milestone/worktree branch but the integration branch
- * (main) hadn't been updated yet — the guard would see prior slices as
- * incomplete on main even though they were done in the working tree (#530).
- *
- * Reading from disk always reflects the latest state, regardless of which
- * branch is checked out or whether changes have been committed.
- */
-function readRoadmapFromDisk(base: string, milestoneId: string): string | null {
-  try {
-    const absPath = resolveMilestoneFile(base, milestoneId, "ROADMAP");
-    if (!absPath) return null;
-    return readFileSync(absPath, "utf-8").trim();
-  } catch {
-    return null;
-  }
-}
 
 export function getPriorSliceCompletionBlocker(
   base: string,
@@ -74,24 +34,18 @@ export function getPriorSliceCompletionBlocker(
     if (resolveMilestoneFile(base, mid, "PARKED")) continue;
     if (resolveMilestoneFile(base, mid, "SUMMARY")) continue;
 
-    // Normalised slice list: prefer DB, fall back to disk parsing
+    // Normalised slice list from DB
     type NormSlice = { id: string; done: boolean; depends: string[] };
-    let slices: NormSlice[];
 
-    if (isDbAvailable()) {
-      const rows = getMilestoneSlices(mid);
-      if (rows.length === 0) continue;
-      slices = rows.map((r) => ({
-        id: r.id,
-        done: r.status === "complete",
-        depends: r.depends ?? [],
-      }));
-    } else {
-      // Fallback: disk parsing when DB is not yet initialised
-      const roadmapContent = readRoadmapFromDisk(base, mid);
-      if (!roadmapContent) continue;
-      slices = lazyParseRoadmapSlices(roadmapContent);
-    }
+    if (!isDbAvailable()) continue;
+
+    const rows = getMilestoneSlices(mid);
+    if (rows.length === 0) continue;
+    const slices: NormSlice[] = rows.map((r) => ({
+      id: r.id,
+      done: r.status === "complete",
+      depends: r.depends ?? [],
+    }));
 
     if (mid !== targetMid) {
       const incomplete = slices.find((slice) => !slice.done);

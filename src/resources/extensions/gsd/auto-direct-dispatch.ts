@@ -157,19 +157,8 @@ export async function dispatchDirectPhase(
       if (isDbAvailable()) {
         completedSliceIds = getMilestoneSlices(mid).filter(s => s.status === "complete").map(s => s.id);
       } else {
-        const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-        const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-        if (!roadmapContent) {
-          ctx.ui.notify("Cannot dispatch reassess-roadmap: no roadmap found.", "warning");
-          return;
-        }
-        const { createRequire } = await import("node:module");
-        const _require = createRequire(import.meta.url);
-        let parseRoadmap: Function;
-        try { parseRoadmap = _require("./files.ts").parseRoadmap; }
-        catch { parseRoadmap = _require("./files.js").parseRoadmap; }
-        const roadmap = parseRoadmap(roadmapContent);
-        completedSliceIds = roadmap.slices.filter((s: { done: boolean }) => s.done).map((s: { id: string }) => s.id);
+        ctx.ui.notify("Cannot dispatch reassess-roadmap: DB unavailable.", "warning");
+        return;
       }
       if (completedSliceIds.length === 0) {
         ctx.ui.notify("Cannot dispatch reassess-roadmap: no completed slices.", "warning");
@@ -192,19 +181,8 @@ export async function dispatchDirectPhase(
       if (isDbAvailable()) {
         uatCompletedSliceIds = getMilestoneSlices(mid).filter(s => s.status === "complete").map(s => s.id);
       } else {
-        const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-        const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-        if (!roadmapContent) {
-          ctx.ui.notify("Cannot dispatch run-uat: no roadmap found.", "warning");
-          return;
-        }
-        const { createRequire } = await import("node:module");
-        const _require = createRequire(import.meta.url);
-        let parseRoadmap: Function;
-        try { parseRoadmap = _require("./files.ts").parseRoadmap; }
-        catch { parseRoadmap = _require("./files.js").parseRoadmap; }
-        const roadmap = parseRoadmap(roadmapContent);
-        uatCompletedSliceIds = roadmap.slices.filter((s: { done: boolean }) => s.done).map((s: { id: string }) => s.id);
+        ctx.ui.notify("Cannot dispatch run-uat: DB unavailable.", "warning");
+        return;
       }
       if (uatCompletedSliceIds.length === 0) {
         ctx.ui.notify("Cannot dispatch run-uat: no completed slices.", "warning");

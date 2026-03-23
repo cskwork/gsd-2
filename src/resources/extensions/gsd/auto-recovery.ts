@@ -10,9 +10,9 @@
 import type { ExtensionContext } from "@gsd/pi-coding-agent";
 import { parseUnitId } from "./unit-id.js";
 import { atomicWriteSync } from "./atomic-write.js";
-import { createRequire } from "node:module";
 import { clearUnitRuntimeRecord } from "./unit-runtime.js";
 import { clearParseCache } from "./files.js";
+import { parseRoadmap as parseLegacyRoadmap, parsePlan as parseLegacyPlan } from "./parsers-legacy.js";
 import { isDbAvailable, getTask, getSlice, getSliceTasks } from "./gsd-db.js";
 import { isValidationTerminal } from "./state.js";
 import {
@@ -375,13 +375,9 @@ export function verifyExpectedArtifact(
         }
 
         if (!taskIds) {
-          // Parser fallback
+          // DB unavailable or no tasks in DB — parse plan file for task IDs
           const planContent = readFileSync(absPath, "utf-8");
-          const _require = createRequire(import.meta.url);
-          let parsePlan: Function;
-          try { parsePlan = _require("./parsers-legacy.ts").parsePlan; }
-          catch { parsePlan = _require("./parsers-legacy.js").parsePlan; }
-          const plan = parsePlan(planContent);
+          const plan = parseLegacyPlan(planContent);
           if (plan.tasks.length > 0) taskIds = plan.tasks.map((t: { id: string }) => t.id);
         }
 
@@ -418,16 +414,12 @@ export function verifyExpectedArtifact(
         // DB available — trust it
         if (dbSlice.status !== "complete") return false;
       } else if (!isDbAvailable()) {
-        // DB unavailable — fall back to roadmap checkbox check
+        // DB unavailable — fall back to roadmap checkbox check via parsers-legacy
         const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
         if (roadmapFile && existsSync(roadmapFile)) {
           try {
             const roadmapContent = readFileSync(roadmapFile, "utf-8");
-            const _require = createRequire(import.meta.url);
-            let parseRoadmap: Function;
-            try { parseRoadmap = _require("./parsers-legacy.ts").parseRoadmap; }
-            catch { parseRoadmap = _require("./parsers-legacy.js").parseRoadmap; }
-            const roadmap = parseRoadmap(roadmapContent);
+            const roadmap = parseLegacyRoadmap(roadmapContent);
             const slice = roadmap.slices.find((s) => s.id === sid);
             if (slice && !slice.done) return false;
           } catch {

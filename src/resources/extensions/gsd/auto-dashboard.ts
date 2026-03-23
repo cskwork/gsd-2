@@ -26,18 +26,6 @@ import { getActiveWorktreeName } from "./worktree-command.js";
 import { loadEffectiveGSDPreferences, getGlobalGSDPreferencesPath } from "./preferences.js";
 import { resolveServiceTierIcon, getEffectiveServiceTier } from "./service-tier.js";
 
-// Lazy-loaded parsers — only resolved when DB is unavailable (fallback path)
-import { createRequire } from "node:module";
-let _lazyParsers: { parseRoadmap: (c: string) => { slices: Array<{ id: string; done: boolean; title: string }> }; parsePlan: (c: string) => { tasks: Array<{ id: string; done: boolean; title: string }> } } | null = null;
-function getLazyParsers() {
-  if (!_lazyParsers) {
-    const req = createRequire(import.meta.url);
-    try { const mod = req("./files.ts"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-    catch { const mod = req("./files.js"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-  }
-  return _lazyParsers!;
-}
-
 // ─── UAT Slice Extraction ─────────────────────────────────────────────────────
 
 /**
@@ -266,10 +254,7 @@ export function updateSliceProgressCache(base: string, mid: string, activeSid?: 
     if (isDbAvailable()) {
       normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete", title: s.title }));
     } else {
-      const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-      if (!roadmapFile) return;
-      const content = readFileSync(roadmapFile, "utf-8");
-      normSlices = getLazyParsers().parseRoadmap(content).slices;
+      normSlices = [];
     }
 
     let activeSliceTasks: { done: number; total: number } | null = null;
@@ -284,17 +269,6 @@ export function updateSliceProgressCache(base: string, mid: string, activeSid?: 
               total: dbTasks.length,
             };
             taskDetails = dbTasks.map(t => ({ id: t.id, title: t.title, done: t.status === "complete" || t.status === "done" }));
-          }
-        } else {
-          const planFile = resolveSliceFile(base, mid, activeSid, "PLAN");
-          if (planFile && existsSync(planFile)) {
-            const planContent = readFileSync(planFile, "utf-8");
-            const plan = getLazyParsers().parsePlan(planContent);
-            activeSliceTasks = {
-              done: plan.tasks.filter(t => t.done).length,
-              total: plan.tasks.length,
-            };
-            taskDetails = plan.tasks.map(t => ({ id: t.id, title: t.title, done: t.done }));
           }
         }
       } catch {

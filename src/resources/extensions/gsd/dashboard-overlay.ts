@@ -27,18 +27,6 @@ import { estimateTimeRemaining } from "./auto-dashboard.js";
 import { computeProgressScore, formatProgressLine } from "./progress-score.js";
 import { runEnvironmentChecks, type EnvironmentCheckResult } from "./doctor-environment.js";
 
-// Lazy-loaded parsers — only resolved when DB is unavailable (fallback path)
-import { createRequire } from "node:module";
-let _lazyParsers: { parseRoadmap: (c: string) => { slices: Array<{ id: string; done: boolean; title: string; risk: string }> }; parsePlan: (c: string) => { tasks: Array<{ id: string; done: boolean; title: string }> } } | null = null;
-function getLazyParsers() {
-  if (!_lazyParsers) {
-    const req = createRequire(import.meta.url);
-    try { const mod = req("./files.ts"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-    catch { const mod = req("./files.js"); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-  }
-  return _lazyParsers!;
-}
-
 function unitLabel(type: string): string {
   switch (type) {
     case "research-milestone": return "Research";
@@ -172,13 +160,11 @@ export class GSDDashboardOverlay {
 
       const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
       const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-      // Normalize slices: prefer DB, fall back to parser
+      // Normalize slices from DB
       type NormSlice = { id: string; done: boolean; title: string; risk: string };
       let normSlices: NormSlice[] = [];
       if (isDbAvailable()) {
         normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete", title: s.title, risk: s.risk || "medium" }));
-      } else if (roadmapContent) {
-        normSlices = getLazyParsers().parseRoadmap(roadmapContent).slices;
       }
 
       for (const s of normSlices) {
@@ -192,7 +178,7 @@ export class GSDDashboardOverlay {
           };
 
           if (sliceView.active) {
-            // Normalize tasks: prefer DB, fall back to parser
+            // Normalize tasks from DB
             if (isDbAvailable()) {
               const dbTasks = getSliceTasks(mid, s.id);
               sliceView.taskProgress = {
@@ -206,24 +192,6 @@ export class GSDDashboardOverlay {
                   done: t.status === "complete" || t.status === "done",
                   active: state.activeTask?.id === t.id,
                 });
-              }
-            } else {
-              const planFile = resolveSliceFile(base, mid, s.id, "PLAN");
-              const planContent = planFile ? await loadFile(planFile) : null;
-              if (planContent) {
-                const plan = getLazyParsers().parsePlan(planContent);
-                sliceView.taskProgress = {
-                  done: plan.tasks.filter(t => t.done).length,
-                  total: plan.tasks.length,
-                };
-                for (const t of plan.tasks) {
-                  sliceView.tasks.push({
-                    id: t.id,
-                    title: t.title,
-                    done: t.done,
-                    active: state.activeTask?.id === t.id,
-                  });
-                }
               }
             }
           }

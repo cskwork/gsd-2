@@ -28,27 +28,6 @@ import { formatDecisionsCompact, formatRequirementsCompact } from "./structured-
 
 const MAX_PREAMBLE_CHARS = 30_000;
 
-// ─── Lazy parser helpers ──────────────────────────────────────────────────────
-// Centralize createRequire fallback for callers that need parser as a last resort.
-async function lazyParseRoadmap(content: string) {
-  const { createRequire } = await import("node:module");
-  const _require = createRequire(import.meta.url);
-  let parseRoadmap: Function;
-  try { parseRoadmap = _require("./files.ts").parseRoadmap; }
-  catch { parseRoadmap = _require("./files.js").parseRoadmap; }
-  return parseRoadmap(content) as { slices: { id: string; done: boolean; depends: string[] }[] };
-}
-
-async function lazyParsePlan(content: string) {
-  const { createRequire } = await import("node:module");
-  const _require = createRequire(import.meta.url);
-  let parsePlan: Function;
-  try { parsePlan = _require("./files.ts").parsePlan; }
-  catch { parsePlan = _require("./files.js").parsePlan; }
-  return parsePlan(content) as { tasks: { id: string; title: string; done: boolean; files: string[] }[]; filesLikelyTouched: string[] };
-}
-// ──────────────────────────────────────────────────────────────────────────────
-
 function capPreamble(preamble: string): string {
   if (preamble.length <= MAX_PREAMBLE_CHARS) return preamble;
   return truncateAtSectionBoundary(preamble, MAX_PREAMBLE_CHARS).content;
@@ -207,17 +186,11 @@ export async function inlineDependencySummaries(
       if (!slice || slice.depends.length === 0) return "- (no dependencies)";
       depends = slice.depends as string[];
     }
-  } catch { /* fall through to parser */ }
+  } catch { /* fall through */ }
 
-  // Parser fallback — load roadmap and parse for depends
+  // If DB didn't provide depends, we can't determine them without parsers
   if (!depends) {
-    const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-    const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-    if (!roadmapContent) return "- (no dependencies)";
-    const roadmap = await lazyParseRoadmap(roadmapContent);
-    const sliceEntry = roadmap.slices.find(s => s.id === sid);
-    if (!sliceEntry || sliceEntry.depends.length === 0) return "- (no dependencies)";
-    depends = sliceEntry.depends;
+    return "- (no dependencies)";
   }
 
   const sections: string[] = [];
@@ -738,34 +711,10 @@ export async function checkNeedsReassessment(
       if (!hasSummary) return null;
       return { sliceId: lastCompleted };
     }
-  } catch { /* fall through to parser */ }
+  } catch { /* fall through */ }
 
-  // Parser fallback
-  const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-  const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-  if (!roadmapContent) return null;
-
-  const roadmap = await lazyParseRoadmap(roadmapContent);
-  const completedSlices = roadmap.slices.filter(s => s.done);
-  const incompleteSlices = roadmap.slices.filter(s => !s.done);
-
-  // No completed slices or all slices done — skip
-  if (completedSlices.length === 0 || incompleteSlices.length === 0) return null;
-
-  // Check the last completed slice
-  const lastCompleted = completedSlices[completedSlices.length - 1];
-  const assessmentFile = resolveSliceFile(base, mid, lastCompleted.id, "ASSESSMENT");
-  const hasAssessment = !!(assessmentFile && await loadFile(assessmentFile));
-
-  if (hasAssessment) return null;
-
-  // Also need a summary to reassess against
-  const summaryFile = resolveSliceFile(base, mid, lastCompleted.id, "SUMMARY");
-  const hasSummary = !!(summaryFile && await loadFile(summaryFile));
-
-  if (!hasSummary) return null;
-
-  return { sliceId: lastCompleted.id };
+  // DB unavailable — cannot determine assessment needs
+  return null;
 }
 
 /**
@@ -806,47 +755,10 @@ export async function checkNeedsRunUat(
       const uatType = extractUatType(uatContent) ?? "artifact-driven";
       return { sliceId: sid, uatType };
     }
-  } catch { /* fall through to parser */ }
+  } catch { /* fall through */ }
 
-  // Parser fallback
-  const roadmapFile = resolveMilestoneFile(base, mid, "ROADMAP");
-  const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-  if (!roadmapContent) return null;
-
-  const roadmap = await lazyParseRoadmap(roadmapContent);
-  const completedSlices = roadmap.slices.filter(s => s.done);
-  const incompleteSlices = roadmap.slices.filter(s => !s.done);
-
-  // No completed slices — nothing to UAT yet
-  if (completedSlices.length === 0) return null;
-
-  // All slices done — milestone complete path, skip (reassessment handles)
-  if (incompleteSlices.length === 0) return null;
-
-  // uat_dispatch must be opted in
-  if (!prefs?.uat_dispatch) return null;
-
-  // Take the last completed slice
-  const lastCompleted = completedSlices[completedSlices.length - 1];
-  const sid = lastCompleted.id;
-
-  // UAT file must exist
-  const uatFile = resolveSliceFile(base, mid, sid, "UAT");
-  if (!uatFile) return null;
-  const uatContent = await loadFile(uatFile);
-  if (!uatContent) return null;
-
-  // If UAT result already exists, skip (idempotent)
-  const uatResultFile = resolveSliceFile(base, mid, sid, "UAT-RESULT");
-  if (uatResultFile) {
-    const hasResult = !!(await loadFile(uatResultFile));
-    if (hasResult) return null;
-  }
-
-  // Classify UAT type; default to artifact-driven (LLM-executed UATs are always artifact-driven)
-  const uatType = extractUatType(uatContent) ?? "artifact-driven";
-
-  return { sliceId: sid, uatType };
+  // DB unavailable — cannot determine UAT needs
+  return null;
 }
 
 // ─── Prompt Builders ──────────────────────────────────────────────────────
@@ -1307,13 +1219,7 @@ export async function buildCompleteMilestonePrompt(
       sliceIds = getMilestoneSlices(mid).map(s => s.id);
     }
   } catch { /* fall through */ }
-  if (sliceIds.length === 0) {
-    const roadmapContent = roadmapPath ? await loadFile(roadmapPath) : null;
-    if (roadmapContent) {
-      const roadmap = await lazyParseRoadmap(roadmapContent);
-      sliceIds = roadmap.slices.map(s => s.id);
-    }
-  }
+  // If DB didn't provide slice IDs, sliceIds stays empty — no summaries to inline
   const seenSlices = new Set<string>();
   for (const sid of sliceIds) {
     if (seenSlices.has(sid)) continue;
@@ -1373,13 +1279,7 @@ export async function buildValidateMilestonePrompt(
       valSliceIds = getMilestoneSlices(mid).map(s => s.id);
     }
   } catch { /* fall through */ }
-  if (valSliceIds.length === 0) {
-    const roadmapContent = roadmapPath ? await loadFile(roadmapPath) : null;
-    if (roadmapContent) {
-      const roadmap = await lazyParseRoadmap(roadmapContent);
-      valSliceIds = roadmap.slices.map(s => s.id);
-    }
-  }
+  // If DB didn't provide slice IDs, valSliceIds stays empty
   const seenValSlices = new Set<string>();
   for (const sid of valSliceIds) {
     if (seenValSlices.has(sid)) continue;
@@ -1714,12 +1614,8 @@ export async function buildRewriteDocsPrompt(
         } catch { /* fall through */ }
 
         if (!incompleteTasks) {
-          // Parser fallback
-          const planContent = await loadFile(slicePlanPath);
-          if (planContent) {
-            const plan = await lazyParsePlan(planContent);
-            incompleteTasks = plan.tasks.filter(t => !t.done).map(t => ({ id: t.id }));
-          }
+          // DB unavailable — no task data to inline
+          incompleteTasks = [];
         }
 
         if (incompleteTasks) {

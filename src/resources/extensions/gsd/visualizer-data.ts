@@ -37,18 +37,6 @@ import type {
   UnitMetrics,
 } from './metrics.js';
 
-// Lazy-loaded parsers — only resolved when DB is unavailable (fallback path)
-import { createRequire } from 'node:module';
-let _lazyParsers: { parseRoadmap: (c: string) => { slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }; parsePlan: (c: string) => { tasks: Array<{ id: string; done: boolean; title: string; estimate?: string }> } } | null = null;
-function getLazyParsers() {
-  if (!_lazyParsers) {
-    const req = createRequire(import.meta.url);
-    try { const mod = req('./files.ts'); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-    catch { const mod = req('./files.js'); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
-  }
-  return _lazyParsers!;
-}
-
 // ─── Visualizer Types ─────────────────────────────────────────────────────────
 
 export interface VisualizerMilestone {
@@ -810,13 +798,13 @@ export async function loadVisualizerData(basePath: string): Promise<VisualizerDa
     const roadmapContent = roadmapFile ? readFileCached(roadmapFile) : null;
 
     if (roadmapContent || isDbAvailable()) {
-      // Normalize slices: prefer DB, fall back to parser
+      // Normalize slices from DB
       type NormSlice = { id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string };
       let normSlices: NormSlice[];
       if (isDbAvailable()) {
         normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === 'complete', title: s.title, risk: s.risk || 'medium', depends: s.depends, demo: s.demo }));
       } else {
-        normSlices = getLazyParsers().parseRoadmap(roadmapContent!).slices;
+        normSlices = [];
       }
 
       for (const s of normSlices) {
@@ -827,7 +815,7 @@ export async function loadVisualizerData(basePath: string): Promise<VisualizerDa
         const tasks: VisualizerTask[] = [];
 
         if (isActiveSlice) {
-          // Normalize tasks: prefer DB, fall back to parser
+          // Normalize tasks from DB
           if (isDbAvailable()) {
             for (const t of getSliceTasks(mid, s.id)) {
               tasks.push({
@@ -837,21 +825,6 @@ export async function loadVisualizerData(basePath: string): Promise<VisualizerDa
                 active: state.activeTask?.id === t.id,
                 estimate: t.estimate || undefined,
               });
-            }
-          } else {
-            const planFile = resolveSliceFile(basePath, mid, s.id, 'PLAN');
-            const planContent = planFile ? readFileCached(planFile) : null;
-            if (planContent) {
-              const plan = getLazyParsers().parsePlan(planContent);
-              for (const t of plan.tasks) {
-                tasks.push({
-                  id: t.id,
-                  title: t.title,
-                  done: t.done,
-                  active: state.activeTask?.id === t.id,
-                  estimate: t.estimate || undefined,
-                });
-              }
             }
           }
         }

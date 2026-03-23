@@ -14,21 +14,7 @@ import type { GSDPreferences } from "./preferences.js";
 import type { UatType } from "./files.js";
 import { loadFile, extractUatType, loadActiveOverrides } from "./files.js";
 import { isDbAvailable, getMilestoneSlices } from "./gsd-db.js";
-import { createRequire } from "node:module";
 
-// Lazy-loaded parseRoadmap — only resolved when DB is unavailable (fallback path).
-let _lazyParseRoadmap: ((content: string) => { slices: { id: string; done: boolean }[] }) | null = null;
-function lazyParseRoadmap(content: string) {
-  if (!_lazyParseRoadmap) {
-    const req = createRequire(import.meta.url);
-    try {
-      _lazyParseRoadmap = req("./files.ts").parseRoadmap;
-    } catch {
-      _lazyParseRoadmap = req("./files.js").parseRoadmap;
-    }
-  }
-  return _lazyParseRoadmap!(content);
-}
 import {
   resolveMilestoneFile,
   resolveMilestonePath,
@@ -194,11 +180,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
           .filter(s => s.status === "complete")
           .map(s => s.id);
       } else {
-        // Disk fallback
-        const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-        if (!roadmapContent) return null;
-        const roadmap = lazyParseRoadmap(roadmapContent);
-        completedSliceIds = roadmap.slices.filter(s => s.done).map(s => s.id);
+        return null;
       }
 
       for (const sliceId of completedSliceIds) {
@@ -532,14 +514,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
       if (isDbAvailable()) {
         sliceIds = getMilestoneSlices(mid).map(s => s.id);
       } else {
-        const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
-        const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-        if (roadmapContent) {
-          const roadmap = lazyParseRoadmap(roadmapContent);
-          sliceIds = roadmap.slices.map(s => s.id);
-        } else {
-          sliceIds = [];
-        }
+        sliceIds = [];
       }
 
       if (sliceIds.length > 0) {
@@ -600,14 +575,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
       if (isDbAvailable()) {
         sliceIds = getMilestoneSlices(mid).map(s => s.id);
       } else {
-        const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
-        const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-        if (roadmapContent) {
-          const roadmap = lazyParseRoadmap(roadmapContent);
-          sliceIds = roadmap.slices.map(s => s.id);
-        } else {
-          sliceIds = [];
-        }
+        sliceIds = [];
       }
 
       if (sliceIds.length > 0) {

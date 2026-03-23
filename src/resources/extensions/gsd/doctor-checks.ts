@@ -4,6 +4,7 @@ import { basename, dirname, join, sep } from "node:path";
 import type { DoctorIssue, DoctorIssueCode } from "./doctor-types.js";
 import { readRepoMeta, externalProjectsRoot } from "./repo-identity.js";
 import { loadFile } from "./files.js";
+import { parseRoadmap as parseLegacyRoadmap } from "./parsers-legacy.js";
 import { isDbAvailable, getMilestoneSlices } from "./gsd-db.js";
 import { resolveMilestoneFile, milestonesDir, gsdRoot, resolveGsdRootFile, relGsdRootFile } from "./paths.js";
 import { deriveState, isMilestoneComplete } from "./state.js";
@@ -19,17 +20,6 @@ import { readAllSessionStatuses, isSessionStale, removeSessionStatus } from "./s
 import { recoverFailedMigration } from "./migrate-external.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 
-// Lazy-loaded parser — only resolved when DB is unavailable (fallback path)
-import { createRequire } from "node:module";
-let _lazyParseRoadmap: ((c: string) => { title: string; slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }) | null = null;
-function lazyParseRoadmap(content: string) {
-  if (!_lazyParseRoadmap) {
-    const req = createRequire(import.meta.url);
-    try { _lazyParseRoadmap = req("./files.ts").parseRoadmap; }
-    catch { _lazyParseRoadmap = req("./files.js").parseRoadmap; }
-  }
-  return _lazyParseRoadmap!(content);
-}
 export async function checkGitHealth(
   basePath: string,
   issues: DoctorIssue[],
@@ -70,10 +60,11 @@ export async function checkGitHealth(
           const roadmapPath = resolveMilestoneFile(basePath, milestoneId, "ROADMAP");
           const roadmapContent = roadmapPath ? await loadFile(roadmapPath) : null;
           if (roadmapContent) {
-            const roadmap = lazyParseRoadmap(roadmapContent);
+            const roadmap = parseLegacyRoadmap(roadmapContent);
             isComplete = isMilestoneComplete(roadmap);
           }
         }
+        // When DB unavailable and no roadmap, isComplete stays false
       }
 
       if (isComplete) {
@@ -122,7 +113,7 @@ export async function checkGitHealth(
           } else {
             const roadmapContent = roadmapPath ? await loadFile(roadmapPath) : null;
             if (!roadmapContent) continue;
-            const roadmap = lazyParseRoadmap(roadmapContent);
+            const roadmap = parseLegacyRoadmap(roadmapContent);
             branchMilestoneComplete = isMilestoneComplete(roadmap);
           }
           if (branchMilestoneComplete) {

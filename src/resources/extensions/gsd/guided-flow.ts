@@ -39,18 +39,6 @@ import { findMilestoneIds, nextMilestoneId, reserveMilestoneId, getReservedMiles
 import { parkMilestone, discardMilestone } from "./milestone-actions.js";
 import { resolveModelWithFallbacksForUnit } from "./preferences-models.js";
 
-// Lazy-loaded parseRoadmap — only resolved when DB is unavailable (fallback path)
-import { createRequire } from "node:module";
-let _lazyParseRoadmap: ((c: string) => { slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }) | null = null;
-function lazyParseRoadmap(content: string) {
-  if (!_lazyParseRoadmap) {
-    const req = createRequire(import.meta.url);
-    try { _lazyParseRoadmap = req("./files.ts").parseRoadmap; }
-    catch { _lazyParseRoadmap = req("./files.js").parseRoadmap; }
-  }
-  return _lazyParseRoadmap!(content);
-}
-
 // ─── Re-exports (preserve public API for existing importers) ────────────────
 export {
   MILESTONE_ID_RE, generateMilestoneSuffix, nextMilestoneId,
@@ -464,8 +452,6 @@ async function buildDiscussSlicePrompt(
     let normSlices: NormSlice[] = [];
     if (isDbAvailable()) {
       normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete" }));
-    } else if (roadmapContent) {
-      normSlices = lazyParseRoadmap(roadmapContent).slices;
     }
     for (const s of normSlices) {
       if (!s.done || s.id === sid) continue;
@@ -608,7 +594,7 @@ export async function showDiscuss(
   if (isDbAvailable()) {
     normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete", title: s.title }));
   } else {
-    normSlices = lazyParseRoadmap(roadmapContent!).slices;
+    normSlices = [];
   }
   const pendingSlices = normSlices.filter(s => !s.done);
 

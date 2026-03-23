@@ -18,7 +18,6 @@ import {
   lstatSync as lstatSyncFn,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { createRequire } from "node:module";
 import { GSDError, GSD_IO_ERROR, GSD_GIT_ERROR } from "./errors.js";
 import {
   reconcileWorktreeDb,
@@ -1005,14 +1004,8 @@ export function mergeMilestoneToMain(
     completedSlices = getMilestoneSlices(milestoneId)
       .filter(s => s.status === "complete")
       .map(s => ({ id: s.id, title: s.title }));
-  } else {
-    const _require = createRequire(import.meta.url);
-    let parseRoadmap: Function;
-    try { parseRoadmap = _require("./files.ts").parseRoadmap; }
-    catch { parseRoadmap = _require("./files.js").parseRoadmap; }
-    const roadmap = parseRoadmap(roadmapContent);
-    completedSlices = roadmap.slices.filter((s: { done: boolean }) => s.done).map((s: { id: string; title: string }) => ({ id: s.id, title: s.title }));
   }
+  // When DB unavailable, completedSlices stays empty — commit message will omit slice details
 
   // 3. chdir to original base
   const previousCwd = process.cwd();
