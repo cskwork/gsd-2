@@ -834,7 +834,7 @@ export async function runUnitPhase(
       // Log a warning but allow execution to proceed. The .git check above is sufficient
       // to ensure we're in a valid working directory.
       debugLog("runUnitPhase", { phase: "worktree-health-warn-greenfield", basePath: s.basePath, hasProjectFile, hasSrcDir });
-      ctx.ui.notify(`Warning: ${s.basePath} has no recognized project files — proceeding as greenfield project`, "warn");
+      ctx.ui.notify(`Warning: ${s.basePath} has no recognized project files — proceeding as greenfield project`, "warning");
     }
   }
 
