@@ -10,7 +10,8 @@ import { StringEnum } from "@gsd/pi-ai";
  * Register an alias tool that shares the same execute function as its canonical counterpart.
  * The alias description and promptGuidelines direct the LLM to prefer the canonical name.
  */
-function registerAlias(pi: ExtensionAPI, toolDef: Record<string, unknown> & { description: string }, aliasName: string, canonicalName: string): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- toolDef shape matches ToolDefinition but typing it fully requires generics
+function registerAlias(pi: ExtensionAPI, toolDef: any, aliasName: string, canonicalName: string): void {
   pi.registerTool({
     ...toolDef,
     name: aliasName,
@@ -22,7 +23,7 @@ function registerAlias(pi: ExtensionAPI, toolDef: Record<string, unknown> & { de
 export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_decision_save (formerly gsd_save_decision) ─────────────────────
 
-  const decisionSaveExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const decisionSaveExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -93,7 +94,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_requirement_update (formerly gsd_update_requirement) ───────────
 
-  const requirementUpdateExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const requirementUpdateExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -163,7 +164,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_summary_save (formerly gsd_save_summary) ──────────────────────
 
-  const summarySaveExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const summarySaveExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -241,7 +242,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_milestone_generate_id (formerly gsd_generate_milestone_id) ────
 
-  const milestoneGenerateIdExecute = async (_toolCallId: string, _params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const milestoneGenerateIdExecute = async (_toolCallId: string, _params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     try {
       // Claim a reserved ID if the guided-flow already previewed one to the user.
       // This guarantees the ID shown in the UI matches the one materialised on disk.
@@ -294,7 +295,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_plan_milestone (gsd_milestone_plan alias) ─────────────────────
 
-  const planMilestoneExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const planMilestoneExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -385,7 +386,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_plan_slice (gsd_slice_plan alias) ─────────────────────────────
 
-  const planSliceExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const planSliceExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -462,7 +463,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_plan_task (gsd_task_plan alias) ───────────────────────────────
 
-  const planTaskExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const planTaskExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -532,7 +533,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_task_complete (gsd_complete_task alias) ────────────────────────
 
-  const taskCompleteExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const taskCompleteExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -613,7 +614,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_slice_complete (gsd_complete_slice alias) ─────────────────────
 
-  const sliceCompleteExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const sliceCompleteExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -726,7 +727,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_replan_slice (gsd_slice_replan alias) ─────────────────────────
 
-  const replanSliceExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const replanSliceExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
@@ -806,7 +807,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
 
   // ─── gsd_reassess_roadmap (gsd_roadmap_reassess alias) ─────────────────
 
-  const reassessRoadmapExecute = async (_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
+  const reassessRoadmapExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
     const dbAvailable = await ensureDbOpen();
     if (!dbAvailable) {
       return {
