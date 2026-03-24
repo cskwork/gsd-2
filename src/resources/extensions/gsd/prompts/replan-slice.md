@@ -32,8 +32,8 @@ Consider these captures when rewriting the remaining tasks — they represent th
 
 1. Read the blocker task summary carefully. Understand exactly what was discovered and why it blocks the current plan.
 2. Analyze the remaining `[ ]` tasks in the slice plan. Determine which are still valid, which need modification, and which should be replaced.
-3. **Canonical write path — use `gsd_replan_slice`:** If the `gsd_replan_slice` tool is available, use it with the following parameters: `milestoneId`, `sliceId`, `blockerTaskId`, `blockerDescription`, `whatChanged`, `updatedTasks` (array of task objects with taskId, title, description, estimate, files, verify, inputs, expectedOutput), `removedTaskIds` (array of task ID strings). This is the canonical write path — it structurally enforces preservation of completed tasks, writes replan history to the DB, re-renders PLAN.md, and renders REPLAN.md. Skip steps 4–5 if this tool succeeds.
-4. **Degraded fallback — direct file writes:** If the `gsd_replan_slice` tool is not available, fall back to writing files directly. Write `{{replanPath}}` documenting:
+3. **Persist replan state through `gsd_replan_slice`.** Call it with the following parameters: `milestoneId`, `sliceId`, `blockerTaskId`, `blockerDescription`, `whatChanged`, `updatedTasks` (array of task objects with taskId, title, description, estimate, files, verify, inputs, expectedOutput), `removedTaskIds` (array of task ID strings). The tool structurally enforces preservation of completed tasks, writes replan history to the DB, re-renders PLAN.md, and renders REPLAN.md. Skip steps 4–5 when this tool succeeds.
+4. **Degraded fallback — direct file writes:** If `gsd_replan_slice` is not available, fall back to writing files directly. Write `{{replanPath}}` documenting:
    - What blocker was discovered and in which task
    - What changed in the plan and why
    - Which incomplete tasks were modified, added, or removed
@@ -46,7 +46,5 @@ Consider these captures when rewriting the remaining tasks — they represent th
    - If a DB-backed planning tool exists for this phase, use it as the source of truth and make any rewritten `PLAN.md` reflect that persisted state rather than bypassing it
 6. If any incomplete task had a `T0x-PLAN.md`, remove or rewrite it to match the new task description.
 7. Do not commit manually — the system auto-commits your changes after this unit completes.
-
-**You MUST write `{{replanPath}}` and the updated slice plan before finishing.**
 
 When done, say: "Slice {{sliceId}} replanned."

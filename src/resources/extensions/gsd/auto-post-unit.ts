@@ -524,16 +524,6 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
 export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"continue" | "step-wizard" | "stopped"> {
   const { s, ctx, pi, buildSnapshotOpts, lockBase, stopAuto, pauseAuto, updateProgressWidget } = pctx;
 
-  // ── DB dual-write ──
-  if (isDbAvailable()) {
-    try {
-      const { migrateFromMarkdown } = await import("./md-importer.js");
-      migrateFromMarkdown(s.basePath);
-    } catch (err) {
-      process.stderr.write(`gsd-db: re-import failed: ${(err as Error).message}\n`);
-    }
-  }
-
   // ── Post-unit hooks ──
   if (s.currentUnit && !s.stepMode) {
     const hookUnit = checkPostUnitHooks(s.currentUnit.type, s.currentUnit.id, s.basePath);

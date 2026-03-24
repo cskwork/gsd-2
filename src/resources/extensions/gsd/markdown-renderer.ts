@@ -213,17 +213,6 @@ function renderTaskPlanMarkdown(task: TaskRow): string {
     lines.push("");
   }
 
-  lines.push("## Steps");
-  lines.push("");
-  if (task.description.trim()) {
-    for (const paragraph of task.description.split(/\n+/).map((line) => line.trim()).filter(Boolean)) {
-      lines.push(`- ${paragraph}`);
-    }
-  } else {
-    lines.push("- Implement the planned task work.");
-  }
-  lines.push("");
-
   lines.push("## Inputs");
   lines.push("");
   if (task.inputs.length > 0) {

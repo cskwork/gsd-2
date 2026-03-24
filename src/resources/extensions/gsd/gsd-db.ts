@@ -1061,7 +1061,7 @@ export function insertTask(t: {
 }): void {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
   currentDb.prepare(
-    `INSERT OR REPLACE INTO tasks (
+    `INSERT INTO tasks (
       milestone_id, slice_id, id, title, status, one_liner, narrative,
       verification_result, duration, completed_at, blocker_discovered,
       deviations, known_issues, key_files, key_decisions, full_summary_md,
@@ -1071,7 +1071,29 @@ export function insertTask(t: {
       :verification_result, :duration, :completed_at, :blocker_discovered,
       :deviations, :known_issues, :key_files, :key_decisions, :full_summary_md,
       :description, :estimate, :files, :verify, :inputs, :expected_output, :observability_impact, :sequence
-    )`,
+    )
+    ON CONFLICT(milestone_id, slice_id, id) DO UPDATE SET
+      title = CASE WHEN NULLIF(:title, '') IS NOT NULL THEN :title ELSE tasks.title END,
+      status = :status,
+      one_liner = :one_liner,
+      narrative = :narrative,
+      verification_result = :verification_result,
+      duration = :duration,
+      completed_at = :completed_at,
+      blocker_discovered = :blocker_discovered,
+      deviations = :deviations,
+      known_issues = :known_issues,
+      key_files = :key_files,
+      key_decisions = :key_decisions,
+      full_summary_md = :full_summary_md,
+      description = CASE WHEN NULLIF(:description, '') IS NOT NULL THEN :description ELSE tasks.description END,
+      estimate = CASE WHEN NULLIF(:estimate, '') IS NOT NULL THEN :estimate ELSE tasks.estimate END,
+      files = CASE WHEN NULLIF(:files, '[]') IS NOT NULL THEN :files ELSE tasks.files END,
+      verify = CASE WHEN NULLIF(:verify, '') IS NOT NULL THEN :verify ELSE tasks.verify END,
+      inputs = CASE WHEN NULLIF(:inputs, '[]') IS NOT NULL THEN :inputs ELSE tasks.inputs END,
+      expected_output = CASE WHEN NULLIF(:expected_output, '[]') IS NOT NULL THEN :expected_output ELSE tasks.expected_output END,
+      observability_impact = CASE WHEN NULLIF(:observability_impact, '') IS NOT NULL THEN :observability_impact ELSE tasks.observability_impact END,
+      sequence = :sequence`,
   ).run({
     ":milestone_id": t.milestoneId,
     ":slice_id": t.sliceId,
