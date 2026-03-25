@@ -533,7 +533,7 @@ describe('git-service', async () => {
 
     // Auto-commit with .gsd/ excluded (simulates pre-switch)
     const msg = svc.autoCommit("pre-switch", "main", [".gsd/"]);
-    assert.deepStrictEqual(msg, "chore(main): auto-commit after pre-switch", "pre-switch autoCommit with .gsd/ exclusion commits");
+    assert.deepStrictEqual(msg, "chore: auto-commit after pre-switch\n\nGSD-Unit: main", "pre-switch autoCommit with .gsd/ exclusion commits");
 
     // Verify .gsd/ file was NOT committed
     const show = run("git show --stat HEAD", repo);
