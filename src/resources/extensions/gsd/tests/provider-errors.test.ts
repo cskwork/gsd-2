@@ -43,6 +43,13 @@ test("classifyError defaults to 60s for rate limit without reset", () => {
   assert.ok("retryAfterMs" in result && result.retryAfterMs === 60_000);
 });
 
+test("classifyError treats stream_exhausted_without_result as transient connection failure", () => {
+  const result = classifyError("stream_exhausted_without_result");
+  assert.ok(isTransient(result));
+  assert.equal(result.kind, "connection");
+  assert.ok("retryAfterMs" in result && result.retryAfterMs === 15_000);
+});
+
 test("classifyError detects Anthropic internal server error", () => {
   const msg = '{"type":"error","error":{"details":null,"type":"api_error","message":"Internal server error"}}';
   const result = classifyError(msg);
