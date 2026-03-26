@@ -11,9 +11,10 @@
 
 import type { GSDState } from "./types.js";
 import type { GSDPreferences } from "./preferences.js";
-import type { UatType } from "./files.js";
-import { loadFile, extractUatType, loadActiveOverrides } from "./files.js";
+import { loadFile, loadActiveOverrides } from "./files.js";
 import { isDbAvailable, getMilestoneSlices } from "./gsd-db.js";
+import { extractVerdict, isAcceptableUatVerdict } from "./verdict-parser.js";
+import { extractUatType } from "./files.js";
 
 import {
   resolveMilestoneFile,
@@ -188,20 +189,10 @@ export const DISPATCH_RULES: DispatchRule[] = [
         if (!resultFile) continue;
         const content = await loadFile(resultFile);
         if (!content) continue;
-        const verdictMatch = content.match(/verdict:\s*([\w-]+)/i);
-        const verdict = verdictMatch?.[1]?.toLowerCase();
-
-        // Determine acceptable verdicts based on UAT type.
-        // mixed / human-experience / live-runtime modes may legitimately
-        // produce PARTIAL when all automatable checks pass but human-only
-        // checks remain — this should not block progression.
-        const acceptableVerdicts: string[] = ["pass", "passed"];
+        const verdict = extractVerdict(content);
         const uatType = extractUatType(content);
-        if (uatType === "mixed" || uatType === "human-experience" || uatType === "live-runtime") {
-          acceptableVerdicts.push("partial");
-        }
 
-        if (verdict && !acceptableVerdicts.includes(verdict)) {
+        if (verdict && !isAcceptableUatVerdict(verdict, uatType)) {
           return {
             action: "stop" as const,
             reason: `UAT verdict for ${sliceId} is "${verdict}" — blocking progression until resolved.\nReview the UAT result and update the verdict to PASS, or re-run /gsd auto after fixing.`,
