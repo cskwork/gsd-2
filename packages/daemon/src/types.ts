@@ -1,3 +1,5 @@
+import type { RpcClient, SdkAgentEvent, RpcExtensionUIRequest } from '@gsd-build/rpc-client';
+
 /**
  * Log severity levels, ordered from most to least verbose.
  */
@@ -45,10 +47,6 @@ export type SessionStatus = 'starting' | 'running' | 'blocked' | 'completed' | '
 
 /**
  * A daemon-managed GSD headless session.
- *
- * The `client` and `events` fields use generic types here. T02 will add
- * @gsd-build/rpc-client as a dependency and narrow these to RpcClient and
- * SdkAgentEvent respectively.
  */
 export interface ManagedSession {
   /** Unique session ID returned from RpcClient.init() */
@@ -63,11 +61,11 @@ export interface ManagedSession {
   /** Current lifecycle status */
   status: SessionStatus;
 
-  /** The RpcClient instance managing the agent process (typed when rpc-client is wired) */
-  client: unknown;
+  /** The RpcClient instance managing the agent process */
+  client: RpcClient;
 
   /** Ring buffer of recent events (capped at MAX_EVENTS) */
-  events: unknown[];
+  events: SdkAgentEvent[];
 
   /** Pending blocker requiring user response, if any */
   pendingBlocker: PendingBlocker | null;
@@ -100,7 +98,7 @@ export interface PendingBlocker {
   message: string;
 
   /** Full event payload for inspection */
-  event: unknown;
+  event: RpcExtensionUIRequest;
 }
 
 // ---------------------------------------------------------------------------
