@@ -75,6 +75,13 @@ export function generatePlist(opts: PlistOptions): string {
   const stderrPath = opts.stderrPath ?? resolve(home, '.gsd', 'daemon-stderr.log');
   const envPath = buildEnvPath(opts.nodePath);
 
+  // Forward ANTHROPIC_API_KEY so the orchestrator LLM can authenticate.
+  // Captured at install time from the current process environment.
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const anthropicKeyXml = anthropicKey
+    ? `\n\t\t<key>ANTHROPIC_API_KEY</key>\n\t\t<string>${escapeXml(anthropicKey)}</string>`
+    : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -104,7 +111,7 @@ export function generatePlist(opts: PlistOptions): string {
 \t\t<key>PATH</key>
 \t\t<string>${escapeXml(envPath)}</string>
 \t\t<key>HOME</key>
-\t\t<string>${escapeXml(home)}</string>
+\t\t<string>${escapeXml(home)}</string>${anthropicKeyXml}
 \t</dict>
 
 \t<key>WorkingDirectory</key>
@@ -183,21 +190,18 @@ export function uninstall(runCommand: RunCommandFn = defaultRunCommand): void {
 /**
  * Query launchd for the daemon's status.
  * Returns structured information about registration, PID, and last exit code.
+ *
+ * Handles two launchctl output formats:
+ * 1. Tabular: "PID\tStatus\tLabel" (older macOS)
+ * 2. JSON-style dict: `"PID" = 1234;` / `"LastExitStatus" = 0;` (newer macOS)
  */
 export function status(runCommand: RunCommandFn = defaultRunCommand): LaunchdStatus {
   try {
     const output = runCommand(`launchctl list ${LABEL}`);
 
-    // launchctl list <label> outputs a table like:
-    //   PID  Status  Label
-    //   1234 0       com.gsd.daemon
-    // or:
-    //   -    0       com.gsd.daemon
-    // Parse the last line that contains the label
+    // --- Try tabular format first ---
     const lines = output.trim().split('\n');
     for (const line of lines) {
-      // Match only tabular lines: "PID<tab>Status<tab>Label" format
-      // Skip JSON-style output and header lines
       const parts = line.trim().split(/\t+/);
       if (parts.length >= 3 && parts[2] === LABEL) {
         const pidStr = parts[0];
@@ -214,7 +218,22 @@ export function status(runCommand: RunCommandFn = defaultRunCommand): LaunchdSta
       }
     }
 
-    // Label found in output but no parseable line — still registered
+    // --- Try JSON-style dict format ---
+    // Matches: "PID" = 1234;  or  "LastExitStatus" = 0;
+    const pidMatch = output.match(/"PID"\s*=\s*(\d+)\s*;/);
+    const exitMatch = output.match(/"LastExitStatus"\s*=\s*(\d+)\s*;/);
+
+    if (pidMatch || exitMatch) {
+      const pid = pidMatch ? parseInt(pidMatch[1], 10) : null;
+      const lastExitStatus = exitMatch ? parseInt(exitMatch[1], 10) : null;
+      return {
+        registered: true,
+        pid: Number.isNaN(pid!) ? null : pid,
+        lastExitStatus: Number.isNaN(lastExitStatus!) ? null : lastExitStatus,
+      };
+    }
+
+    // Label resolved (no error) but no parseable output — still registered
     return { registered: true, pid: null, lastExitStatus: null };
   } catch {
     // launchctl list exits non-zero when the label isn't found

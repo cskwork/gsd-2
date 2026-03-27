@@ -149,7 +149,42 @@ export class DiscordBot {
       this.logger.error('discord error', { error: error.message });
     });
 
-    await client.login(this.config.token);
+    // Wait for both login AND the 'ready' event.
+    // client.login() resolves on WebSocket auth, but the 'ready' event fires
+    // asynchronously later. We need 'ready' before getChannelManager() works.
+    let readyTimeout: ReturnType<typeof setTimeout> | undefined;
+    let readySettled = false;
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      readyTimeout = setTimeout(() => {
+        if (!readySettled) { readySettled = true; reject(new Error('Discord ready timeout (30s)')); }
+      }, 30_000);
+      const cleanup = () => {
+        if (readyTimeout) { clearTimeout(readyTimeout); readyTimeout = undefined; }
+      };
+      client.once('ready', () => {
+        cleanup();
+        if (!readySettled) { readySettled = true; resolve(); }
+      });
+      client.once('error', (err) => {
+        cleanup();
+        if (!readySettled) { readySettled = true; reject(err); }
+      });
+      // shardDisconnect fires on fatal gateway errors (e.g. 4014 disallowed intents)
+      client.once('shardDisconnect', (event) => {
+        cleanup();
+        if (!readySettled) { readySettled = true; reject(new Error(`Shard disconnected: ${event.code}`)); }
+      });
+    });
+
+    try {
+      await client.login(this.config.token);
+    } catch (err) {
+      // Login itself failed — clean up the ready timer so it doesn't fire as unhandled rejection
+      if (readyTimeout) { clearTimeout(readyTimeout); readyTimeout = undefined; }
+      readySettled = true;
+      throw err;
+    }
+    await readyPromise;
     this.client = client;
     this.destroyed = false;
   }
@@ -351,16 +386,20 @@ export class DiscordBot {
       const projectPath = collected.values[0];
       this.logger.info('gsd-start: project selected', { projectPath });
 
+      // Defer the update immediately — startSession can take 10-30s to spawn the GSD process,
+      // and Discord's component interaction token expires in 3 seconds without deferral.
+      await collected.deferUpdate();
+
       try {
         const sessionId = await this.sessionManager.startSession({ projectDir: projectPath });
-        await collected.update({
+        await interaction.editReply({
           content: `✅ Session started for **${projectPath}** (ID: \`${sessionId}\`)`,
           components: [],
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger.error('gsd-start: startSession failed', { error: errMsg, projectPath });
-        await collected.update({
+        await interaction.editReply({
           content: `❌ Failed to start session: ${errMsg}`,
           components: [],
         });

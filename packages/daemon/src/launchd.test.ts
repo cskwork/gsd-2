@@ -308,6 +308,41 @@ describe('status', () => {
     assert.ok('lastExitStatus' in result);
   });
 
+  it('parses JSON-style dict output (newer macOS)', () => {
+    const mockRun: RunCommandFn = (_cmd: string) => {
+      return `{
+\t"StandardOutPath" = "/Users/me/.gsd/daemon-stdout.log";
+\t"LimitLoadToSessionType" = "Aqua";
+\t"StandardErrorPath" = "/Users/me/.gsd/daemon-stderr.log";
+\t"Label" = "com.gsd.daemon";
+\t"OnDemand" = true;
+\t"LastExitStatus" = 0;
+\t"PID" = 23802;
+\t"Program" = "/usr/local/bin/node";
+};`;
+    };
+
+    const result = status(mockRun);
+    assert.equal(result.registered, true);
+    assert.equal(result.pid, 23802);
+    assert.equal(result.lastExitStatus, 0);
+  });
+
+  it('parses JSON-style dict output when daemon stopped (no PID key)', () => {
+    const mockRun: RunCommandFn = (_cmd: string) => {
+      return `{
+\t"Label" = "com.gsd.daemon";
+\t"LastExitStatus" = 1;
+\t"OnDemand" = true;
+};`;
+    };
+
+    const result = status(mockRun);
+    assert.equal(result.registered, true);
+    assert.equal(result.pid, null);
+    assert.equal(result.lastExitStatus, 1);
+  });
+
   it('handles unexpected output format gracefully', () => {
     const mockRun: RunCommandFn = (_cmd: string) => {
       return 'some unexpected output without the label';
