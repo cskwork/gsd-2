@@ -304,7 +304,7 @@ All events are subscribed via `pi.on(eventName, handler)`. Handlers receive `(ev
 | `session_fork` | `SessionForkEvent` | — | After forking a session |
 | `session_before_compact` | `SessionBeforeCompactEvent` | `SessionBeforeCompactResult` | Before compaction. Can cancel or provide custom compaction result. |
 | `session_compact` | `SessionCompactEvent` | — | After compaction |
-| `session_before_tree` | `SessionBeforeTreeEvent` | `SessionBeforeTreeResult` | Before tree navigation. Can cancel, provide summary, or override instructions. |
+| `session_before_tree` | `SessionBeforeTreeEvent` | `SessionBeforeTreeResult` | Before tree navigation. Can cancel, provide summary, or supply custom instructions. |
 | `session_tree` | `SessionTreeEvent` | — | After navigating to a different branch |
 | `session_shutdown` | `SessionShutdownEvent` | — | Before process exit |
 
