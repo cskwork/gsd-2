@@ -772,6 +772,7 @@ async function loadSessionBrowserSessionsViaChildProcess(config: BridgeRuntimeCo
           GSD_SESSION_BROWSER_DIR: config.projectSessionsDir,
         },
         maxBuffer: 1024 * 1024,
+        windowsHide: true,
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -833,6 +834,7 @@ async function appendSessionInfoViaChildProcess(
           GSD_TARGET_SESSION_NAME: name,
         },
         maxBuffer: 1024 * 1024,
+        windowsHide: true,
       },
       (error, _stdout, stderr) => {
         if (error) {
@@ -1031,6 +1033,7 @@ async function loadWorkspaceIndexViaChildProcess(basePath: string, packageRoot: 
           GSD_WORKSPACE_BASE: basePath,
         },
         maxBuffer: 1024 * 1024,
+        windowsHide: true,
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -1624,6 +1627,7 @@ export class BridgeService {
       cwd: cliEntry.cwd,
       env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     }) as SpawnedRpcChild;
 
     this.process = child;
