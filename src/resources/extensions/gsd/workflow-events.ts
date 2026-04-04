@@ -75,7 +75,7 @@ export function readEvents(logPath: string): WorkflowEvent[] {
     try {
       events.push(JSON.parse(line) as WorkflowEvent);
     } catch {
-      logWarning("event-log", `skipping corrupted event line: ${line.slice(0, 80)}`);
+      logWarning("event-log", `skipping corrupted event line (${line.length} bytes)`);
     }
   }
 

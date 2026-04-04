@@ -725,9 +725,8 @@ function processWorkerLine(basePath: string, milestoneId: string, line: string):
   let event: Record<string, unknown>;
   try {
     event = JSON.parse(line);
-  } catch (e) {
-    logWarning("parallel", `JSON.parse(line) from worker output failed: ${(e as Error).message}`);
-    return;
+  } catch {
+    return; // Non-NDJSON lines (progress text, tool output) are expected — silent drop
   }
 
   const type = String(event.type ?? "");
