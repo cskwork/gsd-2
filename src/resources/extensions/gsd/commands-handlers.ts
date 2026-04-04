@@ -21,6 +21,7 @@ import {
   filterDoctorIssues,
 } from "./doctor.js";
 import { isAutoActive } from "./auto.js";
+import { getAutoWorktreePath } from "./auto-worktree.js";
 import { projectRoot } from "./commands/context.js";
 import { loadPrompt } from "./prompt-loader.js";
 
@@ -222,7 +223,14 @@ export async function handleSteer(change: string, ctx: ExtensionCommandContext, 
   const sid = state.activeSlice?.id ?? "none";
   const tid = state.activeTask?.id ?? "none";
   const appliedAt = `${mid}/${sid}/${tid}`;
-  await appendOverride(basePath, change, appliedAt);
+
+  // Resolve the correct target path: if a worktree is active for the current
+  // milestone, write the override there so the auto-mode agent sees it.
+  // Without this, steering from a second terminal writes to the project root
+  // .gsd/ while the agent reads from the worktree .gsd/ — the override is lost.
+  const wtPath = mid !== "none" ? getAutoWorktreePath(basePath, mid) : null;
+  const targetPath = wtPath ?? basePath;
+  await appendOverride(targetPath, change, appliedAt);
 
   if (isAutoActive()) {
     pi.sendMessage({
