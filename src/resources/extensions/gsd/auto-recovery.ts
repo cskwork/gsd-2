@@ -112,9 +112,9 @@ function detectMainBranch(basePath: string): string {
       encoding: "utf-8",
     });
     if (result.trim()) return "main";
-  } catch (err) {
-    // main doesn't exist
-    logWarning("recovery", `main branch not found: ${err instanceof Error ? err.message : String(err)}`);
+  } catch (_) {
+    // Expected — main doesn't exist, try master next
+    void _;
   }
   try {
     const result = execFileSync("git", ["rev-parse", "--verify", "master"], {
@@ -123,11 +123,13 @@ function detectMainBranch(basePath: string): string {
       encoding: "utf-8",
     });
     if (result.trim()) return "master";
-  } catch (err) {
-    // master doesn't exist either
-    logWarning("recovery", `master branch not found: ${err instanceof Error ? err.message : String(err)}`);
+  } catch (_) {
+    // Expected — master doesn't exist either
+    void _;
   }
-  return "main"; // default fallback
+  // Neither main nor master found — warn and fall back
+  logWarning("recovery", "neither main nor master branch found, defaulting to main");
+  return "main";
 }
 
 /**
