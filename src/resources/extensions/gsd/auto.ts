@@ -1351,6 +1351,7 @@ const widgetStateAccessors: WidgetStateAccessors = {
   getBasePath: () => s.basePath,
   isVerbose: () => s.verbose,
   isSessionSwitching: isSessionSwitchInFlight,
+  getCurrentDispatchedModelId: () => s.currentDispatchedModelId,
 };
 
 // ─── Preconditions ────────────────────────────────────────────────────────────
