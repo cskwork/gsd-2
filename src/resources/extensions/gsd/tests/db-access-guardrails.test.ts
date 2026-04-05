@@ -80,16 +80,19 @@ test("no prompt file contains an unguarded sqlite3 command invocation", () => {
       const line = lines[i];
       const trimmed = line.trim();
 
-      // Match lines containing sqlite3 or node -e require('better-sqlite3') targeting gsd.db.
+      // Match lines containing sqlite3 targeting gsd.db in any common form:
+      //   sqlite3 .gsd/gsd.db, sqlite3 ./.gsd/gsd.db, sqlite3 "/path/.gsd/gsd.db",
+      //   sqlite3 -header .gsd/gsd.db, etc.
       // Guardrail text that says "Never run" or "Do NOT query" is fine — only flag
       // lines where these appear without a surrounding prohibition keyword.
-      if (/sqlite3\s+\.?\.?gsd\/gsd\.db/.test(trimmed)) {
+      if (/sqlite3\b.*gsd\.db/.test(trimmed)) {
         const context = lines.slice(Math.max(0, i - 3), i + 1).join(" ");
         if (!/Never|Do NOT|do not|don't|prohibited|forbidden|never run/i.test(context)) {
           violations.push(`${file}:${i + 1} — unguarded sqlite3 command: ${trimmed}`);
         }
       }
-      if (/node\s+-e\s+.*require\(.*better-sqlite3/.test(trimmed)) {
+      // Match node -e with better-sqlite3 require in any quoting style
+      if (/node\s+-e\s+.*(?:require|import).*better-sqlite3/.test(trimmed)) {
         const context = lines.slice(Math.max(0, i - 3), i + 1).join(" ");
         if (!/Never|Do NOT|do not|don't|prohibited|forbidden|never run/i.test(context)) {
           violations.push(`${file}:${i + 1} — unguarded node -e require command: ${trimmed}`);

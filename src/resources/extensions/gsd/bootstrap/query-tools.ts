@@ -3,7 +3,6 @@
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 
-import { ensureDbOpen } from "./dynamic-tools.js";
 import { logWarning } from "../workflow-logger.js";
 
 export function registerQueryTools(pi: ExtensionAPI): void {
@@ -26,53 +25,69 @@ export function registerQueryTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
-        const dbAvailable = await ensureDbOpen();
-        if (!dbAvailable) {
+        // Strictly read-only: only use an already-open DB connection.
+        // Do NOT call ensureDbOpen() — it can create/migrate the DB as a side effect.
+        const {
+          isDbAvailable,
+          getMilestone,
+          getSliceStatusSummary,
+          getSliceTaskCounts,
+          _getAdapter,
+        } = await import("../gsd-db.js");
+
+        if (!isDbAvailable()) {
           return {
             content: [{ type: "text" as const, text: "Error: GSD database is not available." }],
             details: { operation: "milestone_status", error: "db_unavailable" } as any,
           };
         }
 
-        const {
-          getMilestone,
-          getSliceStatusSummary,
-          getSliceTaskCounts,
-        } = await import("../gsd-db.js");
+        // Wrap all reads in a single transaction for snapshot consistency.
+        // SQLite WAL mode guarantees reads within a transaction see a single
+        // consistent snapshot, preventing torn reads from concurrent writes.
+        const adapter = _getAdapter()!;
+        adapter.exec("BEGIN");  // eslint-disable-line -- SQLite exec, not child_process
+        try {
+          const milestone = getMilestone(params.milestoneId);
+          if (!milestone) {
+            adapter.exec("COMMIT");  // eslint-disable-line
+            return {
+              content: [{ type: "text" as const, text: `Milestone ${params.milestoneId} not found in database.` }],
+              details: { operation: "milestone_status", milestoneId: params.milestoneId, found: false } as any,
+            };
+          }
 
-        const milestone = getMilestone(params.milestoneId);
-        if (!milestone) {
-          return {
-            content: [{ type: "text" as const, text: `Milestone ${params.milestoneId} not found in database.` }],
-            details: { operation: "milestone_status", milestoneId: params.milestoneId, found: false } as any,
+          const sliceStatuses = getSliceStatusSummary(params.milestoneId);
+
+          const slices = sliceStatuses.map((s) => {
+            const counts = getSliceTaskCounts(params.milestoneId, s.id);
+            return {
+              id: s.id,
+              status: s.status,
+              taskCounts: counts,
+            };
+          });
+
+          adapter.exec("COMMIT");  // eslint-disable-line
+
+          const result = {
+            milestoneId: milestone.id,
+            title: milestone.title,
+            status: milestone.status,
+            createdAt: milestone.created_at,
+            completedAt: milestone.completed_at,
+            sliceCount: slices.length,
+            slices,
           };
+
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+            details: { operation: "milestone_status", milestoneId: milestone.id, sliceCount: slices.length } as any,
+          };
+        } catch (txErr) {
+          try { adapter.exec("ROLLBACK"); } catch { /* swallow */ }  // eslint-disable-line
+          throw txErr;
         }
-
-        const sliceStatuses = getSliceStatusSummary(params.milestoneId);
-
-        const slices = sliceStatuses.map((s) => {
-          const counts = getSliceTaskCounts(params.milestoneId, s.id);
-          return {
-            id: s.id,
-            status: s.status,
-            taskCounts: counts,
-          };
-        });
-
-        const result = {
-          milestoneId: milestone.id,
-          title: milestone.title,
-          status: milestone.status,
-          createdAt: milestone.created_at,
-          completedAt: milestone.completed_at,
-          sliceCount: slices.length,
-          slices,
-        };
-
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          details: { operation: "milestone_status", milestoneId: milestone.id, sliceCount: slices.length } as any,
-        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logWarning("tool", `gsd_milestone_status tool failed: ${msg}`);
