@@ -17,11 +17,7 @@ test("defer captures without milestone ID are stamped as executed (#3542)", asyn
     appendCapture(base, "Improve error messages");
     const captures = loadAllCaptures(base);
     const id = captures[0].id;
-    markCaptureResolved(base, id, {
-      classification: "defer",
-      resolution: "Deferred to a future UX-polish milestone",
-      reason: "Not urgent",
-    });
+    markCaptureResolved(base, id, "defer", "Deferred to a future UX-polish milestone", "Not urgent");
 
     executeTriageResolutions(base, "M001", "S01");
 
