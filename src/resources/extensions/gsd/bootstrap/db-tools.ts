@@ -707,7 +707,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
       // Coerce string items to objects for verificationEvidence (#3541).
       const coerced = { ...params };
       coerced.verificationEvidence = (params.verificationEvidence ?? []).map((v: any) =>
-        typeof v === "string" ? { command: v, exitCode: 0, verdict: "pass", durationMs: 0 } : v,
+        typeof v === "string" ? { command: v, exitCode: -1, verdict: "unknown (coerced from string)", durationMs: 0 } : v,
       );
 
       const { handleCompleteTask } = await import("../tools/complete-task.js");
@@ -798,22 +798,37 @@ export function registerDbTools(pi: ExtensionAPI): void {
     try {
       // Coerce string items to objects for fields where LLMs sometimes pass
       // plain strings instead of the expected { key, value } shape (#3541).
+      // Parses "key — value" or "key - value" format when possible.
+      const splitPair = (s: string): [string, string] => {
+        const m = s.match(/^(.+?)\s*(?:—|-)\s+(.+)$/);
+        return m ? [m[1].trim(), m[2].trim()] : [s.trim(), ""];
+      };
       const coerced = { ...params };
-      coerced.filesModified = (params.filesModified ?? []).map((f: any) =>
-        typeof f === "string" ? { path: f, description: "" } : f,
-      );
-      coerced.requires = (params.requires ?? []).map((r: any) =>
-        typeof r === "string" ? { slice: r, provides: "" } : r,
-      );
-      coerced.requirementsAdvanced = (params.requirementsAdvanced ?? []).map((r: any) =>
-        typeof r === "string" ? { id: r, how: "" } : r,
-      );
-      coerced.requirementsValidated = (params.requirementsValidated ?? []).map((r: any) =>
-        typeof r === "string" ? { id: r, proof: "" } : r,
-      );
-      coerced.requirementsInvalidated = (params.requirementsInvalidated ?? []).map((r: any) =>
-        typeof r === "string" ? { id: r, what: "" } : r,
-      );
+      coerced.filesModified = (params.filesModified ?? []).map((f: any) => {
+        if (typeof f !== "string") return f;
+        const [path, description] = splitPair(f);
+        return { path, description };
+      });
+      coerced.requires = (params.requires ?? []).map((r: any) => {
+        if (typeof r !== "string") return r;
+        const [slice, provides] = splitPair(r);
+        return { slice, provides };
+      });
+      coerced.requirementsAdvanced = (params.requirementsAdvanced ?? []).map((r: any) => {
+        if (typeof r !== "string") return r;
+        const [id, how] = splitPair(r);
+        return { id, how };
+      });
+      coerced.requirementsValidated = (params.requirementsValidated ?? []).map((r: any) => {
+        if (typeof r !== "string") return r;
+        const [id, proof] = splitPair(r);
+        return { id, proof };
+      });
+      coerced.requirementsInvalidated = (params.requirementsInvalidated ?? []).map((r: any) => {
+        if (typeof r !== "string") return r;
+        const [id, what] = splitPair(r);
+        return { id, what };
+      });
 
       const { handleCompleteSlice } = await import("../tools/complete-slice.js");
       const result = await handleCompleteSlice(coerced, process.cwd());
