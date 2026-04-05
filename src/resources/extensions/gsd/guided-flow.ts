@@ -591,7 +591,9 @@ export async function showDiscuss(
   try {
     const { buildStateMarkdown } = await import("./doctor.js");
     await saveFile(resolveGsdRootFile(basePath, "STATE"), buildStateMarkdown(state));
-  } catch { /* non-fatal — stale STATE.md is better than crashing */ }
+  } catch (err) {
+    process.stderr.write(`gsd: STATE.md rebuild: ${(err as Error).message}\n`);
+  }
 
   // No active milestone (or corrupted milestone with undefined id) —
   // check for pending milestones to discuss instead
