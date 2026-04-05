@@ -453,7 +453,7 @@ if (isPrintMode) {
   await resourceLoader.reload()
   markStartup('resourceLoader.reload')
 
-  const { session, extensionsResult } = await createAgentSession({
+  const { session, extensionsResult, modelFallbackMessage } = await createAgentSession({
     authStorage,
     modelRegistry,
     settingsManager,
@@ -466,6 +466,25 @@ if (isPrintMode) {
   // Before this, extension-provided models (e.g. claude-code/*) were not yet in the
   // registry, causing the user's valid choice to be silently overwritten.
   validateConfiguredModel(modelRegistry, settingsManager)
+
+  // Re-apply the validated model to the session only when findInitialModel() used a
+  // fallback (not when restoring an existing session's model). This prevents silently
+  // overriding the persisted model of resumed conversations (#3534).
+  if (modelFallbackMessage) {
+    const validatedProvider = settingsManager.getDefaultProvider()
+    const validatedModelId = settingsManager.getDefaultModel()
+    if (validatedProvider && validatedModelId) {
+      const correctModel = modelRegistry.getAvailable()
+        .find((m) => m.provider === validatedProvider && m.id === validatedModelId)
+      if (correctModel) {
+        try {
+          await session.setModel(correctModel)
+        } catch {
+          // Provider not ready — leave session on its current model
+        }
+      }
+    }
+  }
 
   if (extensionsResult.errors.length > 0) {
     for (const err of extensionsResult.errors) {
@@ -606,7 +625,7 @@ const resourceLoadPromise = resourceLoader.reload()
 await resourceLoadPromise
 markStartup('resourceLoader.reload')
 
-const { session, extensionsResult } = await createAgentSession({
+const { session, extensionsResult, modelFallbackMessage: interactiveFallbackMsg } = await createAgentSession({
   authStorage,
   modelRegistry,
   settingsManager,
@@ -619,6 +638,25 @@ markStartup('createAgentSession')
 // Before this, extension-provided models (e.g. claude-code/*) were not yet in the
 // registry, causing the user's valid choice to be silently overwritten.
 validateConfiguredModel(modelRegistry, settingsManager)
+
+// Re-apply the validated model to the session only when findInitialModel() used a
+// fallback (not when restoring an existing session's model). This prevents silently
+// overriding the persisted model of resumed conversations (#3534).
+if (interactiveFallbackMsg) {
+  const validatedProvider = settingsManager.getDefaultProvider()
+  const validatedModelId = settingsManager.getDefaultModel()
+  if (validatedProvider && validatedModelId) {
+    const correctModel = modelRegistry.getAvailable()
+      .find((m) => m.provider === validatedProvider && m.id === validatedModelId)
+    if (correctModel) {
+      try {
+        await session.setModel(correctModel)
+      } catch {
+        // Provider not ready — leave session on its current model
+      }
+    }
+  }
+}
 
 if (extensionsResult.errors.length > 0) {
   for (const err of extensionsResult.errors) {
