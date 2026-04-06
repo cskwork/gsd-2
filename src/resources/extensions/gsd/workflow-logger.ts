@@ -19,6 +19,8 @@
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { appendNotification } from "./notification-store.js";
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export type LogSeverity = "warn" | "error";
@@ -244,6 +246,17 @@ function _push(
   const prefix = severity === "error" ? "ERROR" : "WARN";
   const ctxStr = context ? ` ${JSON.stringify(context)}` : "";
   process.stderr.write(`[gsd:${component}] ${prefix}: ${message}${ctxStr}\n`);
+
+  // Persist to notification store (both warnings and errors)
+  try {
+    appendNotification(
+      `[${component}] ${message}`,
+      severity === "error" ? "error" : "warning",
+      "workflow-logger",
+    );
+  } catch (notifErr) {
+    process.stderr.write(`[gsd:workflow-logger] notification-store append failed: ${(notifErr as Error).message}\n`);
+  }
 
   // Buffer for auto-loop to drain
   _buffer.push(entry);
