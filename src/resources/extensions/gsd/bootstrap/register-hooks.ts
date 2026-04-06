@@ -21,6 +21,9 @@ import { resetAskUserQuestionsCache } from "../../ask-user-questions.js";
 import { recordToolCall as safetyRecordToolCall, recordToolResult as safetyRecordToolResult } from "../safety/evidence-collector.js";
 import { classifyCommand } from "../safety/destructive-guard.js";
 import { logWarning as safetyLogWarning } from "../workflow-logger.js";
+import { installNotifyInterceptor } from "./notify-interceptor.js";
+import { initNotificationStore } from "../notification-store.js";
+import { initNotificationWidget } from "../notification-widget.js";
 
 // Skip the welcome screen on the very first session_start — cli.ts already
 // printed it before the TUI launched. Only re-print on /clear (subsequent sessions).
@@ -33,6 +36,9 @@ async function syncServiceTierStatus(ctx: ExtensionContext): Promise<void> {
 
 export function registerHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
+    initNotificationStore(process.cwd());
+    installNotifyInterceptor(ctx);
+    initNotificationWidget(ctx);
     resetWriteGateState();
     resetToolCallLoopGuard();
     resetAskUserQuestionsCache();
@@ -70,6 +76,8 @@ export function registerHooks(pi: ExtensionAPI): void {
   });
 
   pi.on("session_switch", async (_event, ctx) => {
+    initNotificationStore(process.cwd());
+    installNotifyInterceptor(ctx);
     resetWriteGateState();
     resetToolCallLoopGuard();
     resetAskUserQuestionsCache();
