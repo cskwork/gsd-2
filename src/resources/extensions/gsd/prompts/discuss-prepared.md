@@ -113,6 +113,19 @@ Options:
 
 ---
 
+## Ecosystem Research (between layers)
+
+Before presenting Layer 2 findings, use your available web search tools to research the technologies identified in the Codebase Brief. For each major technology (framework, ORM, key library):
+
+1. Search for "[technology] [version] best practices [current year]"
+2. Search for "[technology] [version] known issues"
+
+Summarize findings concisely. If no search tools are available, note this and proceed using your training knowledge — don't block the discussion on missing search results.
+
+Present ecosystem findings at the start of Layer 2 alongside your architecture recommendation.
+
+---
+
 ## Layer 2 — Architecture (How will it work?)
 
 ### Present Findings

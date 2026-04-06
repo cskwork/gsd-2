@@ -509,24 +509,35 @@ async function prepareAndBuildDiscussPrompt(
   preamble: string,
   basePath: string,
 ): Promise<string> {
+  // Clear stale preparation result immediately to prevent cross-session/project
+  // state leaks. This ensures data from a prior milestone/project never leaks
+  // into subsequent discussions (adversarial review fix #3602).
+  lastPreparationResult = null;
+
   const prefs = loadEffectiveGSDPreferences()?.preferences ?? {};
 
   // Run preparation if enabled (default: true)
   if (prefs.discuss_preparation !== false) {
-    const prepResult = await runPreparation(basePath, ctx.ui, {
-      discuss_preparation: prefs.discuss_preparation,
-      discuss_web_research: prefs.discuss_web_research,
-      discuss_depth: prefs.discuss_depth,
-    });
-    lastPreparationResult = prepResult;
+    try {
+      const prepResult = await runPreparation(basePath, ctx.ui, {
+        discuss_preparation: prefs.discuss_preparation,
+        discuss_web_research: prefs.discuss_web_research,
+        discuss_depth: prefs.discuss_depth,
+      });
+      lastPreparationResult = prepResult;
 
-    // Use prepared prompt if preparation was enabled and produced results
-    if (prepResult.enabled) {
-      return buildPreparedPrompt(nextId, preamble, basePath, prepResult);
+      // Use prepared prompt if preparation was enabled and produced results
+      if (prepResult.enabled) {
+        return buildPreparedPrompt(nextId, preamble, basePath, prepResult);
+      }
+    } catch {
+      // If preparation throws, ensure stale data doesn't persist
+      lastPreparationResult = null;
     }
   }
 
   // Fall back to standard discuss prompt for backward compatibility
+  // lastPreparationResult is already null (cleared at entry or on error)
   return buildDiscussPrompt(nextId, preamble, basePath);
 }
 

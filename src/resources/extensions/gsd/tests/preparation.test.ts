@@ -17,7 +17,6 @@ import {
   formatCodebaseBrief,
   aggregatePriorContext,
   formatPriorContextBrief,
-  hasSearchApiKey,
   researchEcosystem,
   formatEcosystemBrief,
   runPreparation,
@@ -902,313 +901,86 @@ test("formatPriorContextBrief: caps total output at 6K chars", async (t) => {
   assert.ok(formatted.length <= 6000, `should cap at 6000 chars, got ${formatted.length}`);
 });
 
-// ─── hasSearchApiKey ────────────────────────────────────────────────────────────
-
-test("hasSearchApiKey: returns false when no search API keys configured", async (t) => {
-  // Save original env values
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  // Clear the env vars
-  delete process.env.TAVILY_API_KEY;
-  delete process.env.BRAVE_API_KEY;
-
-  t.after(() => {
-    // Restore original values
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const result = hasSearchApiKey();
-
-  assert.equal(result.available, false, "should return available: false");
-  assert.equal(result.provider, undefined, "should not have provider");
-});
-
-test("hasSearchApiKey: returns true when TAVILY_API_KEY is set", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  process.env.TAVILY_API_KEY = "test-tavily-key";
-  delete process.env.BRAVE_API_KEY;
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const result = hasSearchApiKey();
-
-  assert.equal(result.available, true, "should return available: true");
-  assert.equal(result.provider, "tavily", "should identify tavily provider");
-});
-
-test("hasSearchApiKey: returns true when BRAVE_API_KEY is set", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  delete process.env.TAVILY_API_KEY;
-  process.env.BRAVE_API_KEY = "test-brave-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const result = hasSearchApiKey();
-
-  assert.equal(result.available, true, "should return available: true");
-  assert.equal(result.provider, "brave", "should identify brave provider");
-});
-
-test("hasSearchApiKey: prefers tavily over brave when both set", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  process.env.TAVILY_API_KEY = "test-tavily-key";
-  process.env.BRAVE_API_KEY = "test-brave-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const result = hasSearchApiKey();
-
-  assert.equal(result.available, true, "should return available: true");
-  assert.equal(result.provider, "tavily", "should prefer tavily (first in list)");
-});
-
 // ─── researchEcosystem ──────────────────────────────────────────────────────────
+// Note: Ecosystem research now always returns available: false from the preparation
+// phase. Research happens during the discussion using web search tools.
 
-test("researchEcosystem: returns graceful skip when no API keys", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  delete process.env.TAVILY_API_KEY;
-  delete process.env.BRAVE_API_KEY;
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const dir = makeTempDir("ecosystem-no-key");
+test("researchEcosystem: always returns available: false (research happens during discussion)", async (t) => {
+  const dir = makeTempDir("ecosystem-disabled");
   t.after(() => cleanup(dir));
 
   const brief = await researchEcosystem(["Next.js", "TypeScript"], dir);
 
-  assert.equal(brief.available, false, "should indicate research not available");
+  assert.equal(brief.available, false, "should indicate research not available from preparation");
   assert.ok(brief.skippedReason, "should have skipped reason");
   assert.ok(
-    brief.skippedReason!.includes("No search API key"),
-    "should explain missing API key",
+    brief.skippedReason!.includes("during the discussion"),
+    "should explain research happens during discussion",
   );
   assert.deepEqual(brief.queries, [], "should have empty queries");
   assert.deepEqual(brief.findings, [], "should have empty findings");
 });
 
-test("researchEcosystem: returns valid structure when API key is set", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  const originalBrave = process.env.BRAVE_API_KEY;
-
-  process.env.TAVILY_API_KEY = "test-key";
-  delete process.env.BRAVE_API_KEY;
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-    if (originalBrave !== undefined) process.env.BRAVE_API_KEY = originalBrave;
-    else delete process.env.BRAVE_API_KEY;
-  });
-
-  const dir = makeTempDir("ecosystem-with-key");
+test("researchEcosystem: returns consistent result regardless of tech stack", async (t) => {
+  const dir = makeTempDir("ecosystem-consistent");
   t.after(() => cleanup(dir));
 
-  const brief = await researchEcosystem(["Next.js", "TypeScript"], dir);
+  // With tech stack
+  const briefWithTech = await researchEcosystem(["React", "Next.js"], dir);
+  // Without tech stack
+  const briefEmpty = await researchEcosystem([], dir);
 
-  assert.equal(brief.available, true, "should indicate research available");
-  assert.equal(brief.skippedReason, undefined, "should not have skipped reason");
-  assert.ok(brief.queries.length > 0, "should have queries");
-  assert.ok(Array.isArray(brief.findings), "should have findings array");
-  assert.equal(brief.provider, "tavily", "should identify provider");
+  // Both should return the same unavailable result
+  assert.equal(briefWithTech.available, false);
+  assert.equal(briefEmpty.available, false);
+  assert.deepEqual(briefWithTech.queries, []);
+  assert.deepEqual(briefEmpty.queries, []);
 });
 
-test("researchEcosystem: builds appropriate queries for tech stack", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
+// ─── formatEcosystemBrief ─��─────────────────────────────────────────────────────
+// Note: formatEcosystemBrief now returns a simple fixed message since ecosystem
+// research always returns unavailable from the preparation phase.
 
-  process.env.TAVILY_API_KEY = "test-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-  });
-
-  const dir = makeTempDir("ecosystem-queries");
-  t.after(() => cleanup(dir));
-
-  const brief = await researchEcosystem(["Next.js", "React"], dir);
-
-  assert.ok(brief.queries.length > 0, "should have queries");
-  assert.ok(brief.queries.length <= 3, "should cap at 3 queries");
-  // Should include tech names in queries
-  const allQueriesText = brief.queries.join(" ");
-  assert.ok(
-    allQueriesText.includes("Next.js") || allQueriesText.includes("React"),
-    "should include tech names in queries",
-  );
-});
-
-test("researchEcosystem: handles empty tech stack gracefully", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-
-  process.env.TAVILY_API_KEY = "test-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-  });
-
-  const dir = makeTempDir("ecosystem-empty");
-  t.after(() => cleanup(dir));
-
-  const brief = await researchEcosystem([], dir);
-
-  // Should gracefully handle empty tech stack
-  assert.equal(brief.available, false, "should indicate research skipped");
-  assert.ok(brief.skippedReason, "should have skipped reason");
-  assert.ok(
-    brief.skippedReason!.includes("No technology stack"),
-    "should explain no tech stack",
-  );
-});
-
-test("researchEcosystem: does not throw on timeout", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-
-  process.env.TAVILY_API_KEY = "test-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-  });
-
-  const dir = makeTempDir("ecosystem-timeout");
-  t.after(() => cleanup(dir));
-
-  // This should complete quickly and not throw
-  const startTime = Date.now();
-  const brief = await researchEcosystem(["Node.js"], dir);
-  const elapsed = Date.now() - startTime;
-
-  assert.ok(brief, "should return a brief");
-  assert.ok(elapsed < 1000, "should complete quickly (stub implementation)");
-});
-
-// ─── formatEcosystemBrief ───────────────────────────────────────────────────────
-
-test("formatEcosystemBrief: formats skipped research correctly", async (t) => {
+test("formatEcosystemBrief: returns simplified message for discussion-phase research", async (t) => {
   const brief: EcosystemBrief = {
     available: false,
     queries: [],
     findings: [],
-    skippedReason: "No search API key configured.",
+    skippedReason: "Ecosystem research is performed during the discussion using web search tools, not during preparation.",
   };
 
   const formatted = formatEcosystemBrief(brief);
 
   assert.ok(formatted.includes("## Ecosystem Research"), "should have section header");
-  assert.ok(formatted.includes("⚠️"), "should have warning indicator");
-  assert.ok(formatted.includes("No search API key"), "should include skip reason");
-  assert.ok(formatted.includes("FYI"), "should frame as informational");
+  assert.ok(formatted.includes("during the discussion"), "should mention discussion phase");
+  assert.ok(formatted.includes("web search tools"), "should mention web search tools");
 });
 
-test("formatEcosystemBrief: formats available research with no findings", async (t) => {
-  const brief: EcosystemBrief = {
+test("formatEcosystemBrief: returns consistent output regardless of brief content", async (t) => {
+  // Even if a brief has findings (which shouldn't happen from preparation),
+  // the function returns the simplified message
+  const briefWithFindings: EcosystemBrief = {
     available: true,
-    queries: ["Next.js best practices 2026"],
+    queries: ["test query"],
+    findings: [{ query: "test", title: "Test", snippet: "test", url: "https://example.com" }],
+    provider: "tavily",
+  };
+
+  const briefEmpty: EcosystemBrief = {
+    available: false,
+    queries: [],
     findings: [],
-    provider: "tavily",
+    skippedReason: "Test reason",
   };
 
-  const formatted = formatEcosystemBrief(brief);
+  const formatted1 = formatEcosystemBrief(briefWithFindings);
+  const formatted2 = formatEcosystemBrief(briefEmpty);
 
-  assert.ok(formatted.includes("## Ecosystem Research"), "should have section header");
-  assert.ok(formatted.includes("Queries performed"), "should list queries");
-  assert.ok(formatted.includes("Next.js best practices"), "should include query text");
-  assert.ok(formatted.includes("No relevant findings"), "should indicate no findings");
-  assert.ok(formatted.includes("FYI"), "should frame as informational");
+  // Both should return the same simplified message
+  assert.equal(formatted1, formatted2, "should return consistent output");
+  assert.ok(formatted1.includes("## Ecosystem Research"), "should have section header");
 });
 
-test("formatEcosystemBrief: formats findings correctly", async (t) => {
-  const brief: EcosystemBrief = {
-    available: true,
-    queries: ["React best practices"],
-    findings: [
-      {
-        query: "React best practices",
-        title: "Using React Server Components",
-        snippet: "Server Components allow you to render on the server...",
-        url: "https://example.com/react-rsc",
-      },
-      {
-        query: "React best practices",
-        title: "React 19 Features",
-        snippet: "New features in React 19 include...",
-        url: "https://example.com/react-19",
-      },
-    ],
-    provider: "tavily",
-  };
-
-  const formatted = formatEcosystemBrief(brief);
-
-  assert.ok(formatted.includes("## Ecosystem Research"), "should have section header");
-  assert.ok(formatted.includes("Key findings"), "should have findings header");
-  assert.ok(formatted.includes("Using React Server Components"), "should include finding title");
-  assert.ok(formatted.includes("Server Components allow"), "should include snippet");
-  assert.ok(formatted.includes("example.com"), "should include source URL");
-  assert.ok(formatted.includes("FYI"), "should frame as informational");
-});
-
-test("formatEcosystemBrief: caps output at 4000 chars", async (t) => {
-  // Create a brief with many findings to exceed the limit
-  const manyFindings: EcosystemFinding[] = [];
-  for (let i = 0; i < 50; i++) {
-    manyFindings.push({
-      query: "Test query",
-      title: `Finding ${i} with a long title that takes up space`,
-      snippet: `This is a detailed snippet for finding ${i} that contains lots of text to simulate real search results. `.repeat(
-        5,
-      ),
-      url: `https://example.com/finding-${i}`,
-    });
-  }
-
-  const brief: EcosystemBrief = {
-    available: true,
-    queries: ["Test query"],
-    findings: manyFindings,
-    provider: "tavily",
-  };
-
-  const formatted = formatEcosystemBrief(brief);
-
-  assert.ok(
-    formatted.length <= 4000,
-    `should cap at 4000 chars, got ${formatted.length}`,
-  );
-});
 
 // ─── runPreparation (Orchestrator) ──────────────────────────────────────────────
 
@@ -1294,8 +1066,8 @@ test("runPreparation: returns early when discuss_preparation is false", async (t
   assert.ok(result.durationMs >= 0, "should have non-negative duration");
 });
 
-test("runPreparation: skips ecosystem research when discuss_web_research is false", async (t) => {
-  const dir = makeTempDir("runprep-no-web");
+test("runPreparation: ecosystem research always returns unavailable (happens during discussion)", async (t) => {
+  const dir = makeTempDir("runprep-no-ecosystem");
   t.after(() => cleanup(dir));
 
   mkdirSync(join(dir, ".gsd"), { recursive: true });
@@ -1304,61 +1076,23 @@ test("runPreparation: skips ecosystem research when discuss_web_research is fals
   const ui = createMockUI();
   const prefs: PreparationPreferences = {
     discuss_preparation: true,
-    discuss_web_research: false,
+    discuss_web_research: true, // Even with this enabled, ecosystem research returns unavailable
   };
 
   const result = await runPreparation(dir, ui, prefs);
 
   assert.equal(result.enabled, true);
-  assert.equal(result.ecosystemResearchPerformed, false, "should not perform ecosystem research");
+  assert.equal(result.ecosystemResearchPerformed, false, "should not perform ecosystem research from preparation");
   assert.equal(result.ecosystem.available, false);
   assert.ok(
-    result.ecosystem.skippedReason?.includes("Web research disabled"),
-    "should indicate disabled in preferences",
+    result.ecosystem.skippedReason?.includes("during the discussion"),
+    "should indicate research happens during discussion",
   );
 
-  // Should NOT have ecosystem research notifications
+  // Should NOT have ecosystem research notifications (no longer part of preparation)
   assert.ok(
     !ui.notifications.some((n) => n.message.includes("Researching ecosystem")),
     "should not show ecosystem research notification",
-  );
-});
-
-test("runPreparation: performs ecosystem research when enabled with API key", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  process.env.TAVILY_API_KEY = "test-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-  });
-
-  const dir = makeTempDir("runprep-with-web");
-  t.after(() => cleanup(dir));
-
-  mkdirSync(join(dir, ".gsd"), { recursive: true });
-  writeFileSync(join(dir, "package.json"), '{"name": "test"}', "utf-8");
-
-  const ui = createMockUI();
-  const prefs: PreparationPreferences = {
-    discuss_preparation: true,
-    discuss_web_research: true,
-  };
-
-  const result = await runPreparation(dir, ui, prefs);
-
-  assert.equal(result.enabled, true);
-  assert.equal(result.ecosystemResearchPerformed, true, "should perform ecosystem research");
-  assert.equal(result.ecosystem.available, true, "ecosystem should be available");
-
-  // Should have ecosystem research notifications
-  assert.ok(
-    ui.notifications.some((n) => n.message.includes("Researching ecosystem")),
-    "should show ecosystem research start",
-  );
-  assert.ok(
-    ui.notifications.some((n) => n.message.includes("✓ Researched ecosystem")),
-    "should show ecosystem research complete",
   );
 });
 
@@ -1436,15 +1170,7 @@ test("runPreparation: does not throw on any input", async (t) => {
   assert.equal(result!.enabled, true, "should be enabled by default");
 });
 
-test("runPreparation: detects framework from config files", async (t) => {
-  const originalTavily = process.env.TAVILY_API_KEY;
-  process.env.TAVILY_API_KEY = "test-key";
-
-  t.after(() => {
-    if (originalTavily !== undefined) process.env.TAVILY_API_KEY = originalTavily;
-    else delete process.env.TAVILY_API_KEY;
-  });
-
+test("runPreparation: detects framework from config files in codebase brief", async (t) => {
   const dir = makeTempDir("runprep-framework");
   t.after(() => cleanup(dir));
 
@@ -1454,18 +1180,17 @@ test("runPreparation: detects framework from config files", async (t) => {
 
   const prefs: PreparationPreferences = {
     discuss_preparation: true,
-    discuss_web_research: true,
   };
 
   const result = await runPreparation(dir, null, prefs);
 
-  // Should detect Next.js and include it in ecosystem queries
-  assert.ok(result.ecosystem.queries.length > 0, "should have queries");
-  const queriesText = result.ecosystem.queries.join(" ");
+  // Should detect Next.js config file in codebase analysis
   assert.ok(
-    queriesText.includes("Next.js"),
-    "should include Next.js in queries",
+    result.codebase.techStack.detectedFiles.includes("next.config.mjs"),
+    "should detect next.config.mjs in codebase brief",
   );
+  // Ecosystem queries are always empty from preparation (research happens during discussion)
+  assert.deepEqual(result.ecosystem.queries, [], "ecosystem queries should be empty from preparation");
 });
 
 test("runPreparation: default preferences enable preparation and web research", async (t) => {

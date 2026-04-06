@@ -17,7 +17,6 @@ import {
   type ProjectSignals,
 } from "./detection.js";
 import { loadFile } from "./files.js";
-import { PROVIDER_REGISTRY, type ProviderInfo } from "./key-manager.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1202,186 +1201,27 @@ export function formatPriorContextBrief(brief: PriorContextBrief): string {
 /** Maximum characters for the ecosystem brief. */
 const MAX_ECOSYSTEM_BRIEF_CHARS = 4000;
 
-/** Timeout per search query in milliseconds. */
-const QUERY_TIMEOUT_MS = 5000;
-
-/** Total timeout for all ecosystem research in milliseconds. */
-const TOTAL_ECOSYSTEM_TIMEOUT_MS = 15000;
-
-/** Search provider IDs that can be used for ecosystem research. */
-const SEARCH_PROVIDER_IDS = ["tavily", "brave"] as const;
-
-/**
- * Check if a search API key is available for ecosystem research.
- *
- * Checks for Tavily or Brave API keys via PROVIDER_REGISTRY and environment variables.
- * Does NOT require a live AuthStorage instance — checks env vars directly.
- *
- * @returns Object with available: boolean and provider ID if found
- */
-export function hasSearchApiKey(): { available: boolean; provider?: string; envVar?: string } {
-  for (const providerId of SEARCH_PROVIDER_IDS) {
-    const provider = PROVIDER_REGISTRY.find((p) => p.id === providerId);
-    if (!provider?.envVar) continue;
-
-    const envValue = process.env[provider.envVar];
-    if (envValue && envValue.trim().length > 0) {
-      return { available: true, provider: provider.id, envVar: provider.envVar };
-    }
-  }
-
-  return { available: false };
-}
-
-/**
- * Build search queries based on detected tech stack.
- *
- * @param techStack - Array of technology names (e.g., ["Next.js", "TypeScript"])
- * @returns Array of search query strings
- */
-function buildEcosystemQueries(techStack: string[]): string[] {
-  const queries: string[] = [];
-  const currentYear = new Date().getFullYear();
-
-  // Filter out generic terms, keep specific technologies
-  const relevantTech = techStack.filter((t) => {
-    const lower = t.toLowerCase();
-    // Skip generic terms
-    if (lower === "javascript" || lower === "typescript" || lower === "javascript/typescript") {
-      return false;
-    }
-    return t.length > 1; // Skip single-char entries
-  });
-
-  // If no specific tech, use the generic stack name
-  if (relevantTech.length === 0 && techStack.length > 0) {
-    const primary = techStack[0];
-    if (primary) {
-      queries.push(`${primary} best practices ${currentYear}`);
-      queries.push(`${primary} common issues and solutions`);
-    }
-    return queries.slice(0, 3);
-  }
-
-  // Build queries for the most relevant tech (limit to top 2)
-  const topTech = relevantTech.slice(0, 2);
-  for (const tech of topTech) {
-    queries.push(`${tech} best practices ${currentYear}`);
-  }
-
-  // Add a combined query if we have multiple tech
-  if (topTech.length >= 2) {
-    queries.push(`${topTech.join(" ")} common issues`);
-  } else if (topTech.length === 1) {
-    queries.push(`${topTech[0]} known issues and gotchas`);
-  }
-
-  return queries.slice(0, 3); // Cap at 3 queries
-}
-
-/**
- * Execute a single search query with timeout.
- *
- * This is a stub implementation that returns a graceful "no results" response.
- * In production, this would call the actual search API (Tavily/Brave).
- *
- * @param query - Search query string
- * @param provider - Provider ID to use
- * @param timeoutMs - Timeout in milliseconds
- * @returns Array of findings or empty on timeout/error
- */
-async function executeSearchQuery(
-  query: string,
-  provider: string,
-  timeoutMs: number,
-): Promise<EcosystemFinding[]> {
-  // Stub implementation: return empty results
-  // Real implementation would use the search API here
-  //
-  // NOTE: This is intentionally a stub. The actual search functionality
-  // requires integration with the web-search tool infrastructure which
-  // is not available as a direct import. The graceful degradation pattern
-  // is the primary contract for this function.
-
-  // Simulate async behavior
-  await Promise.resolve();
-
-  return [];
-}
-
 /**
  * Research the ecosystem for best practices and known issues.
  *
- * Performs optional web search with graceful fallback when API keys are unavailable.
- * Applies timeout constraints: 5s per query, 15s total.
+ * Ecosystem research is now performed during the discussion session (between
+ * Layer 1 and Layer 2) using whatever web search tools are available to the
+ * LLM — native Anthropic web search for Claude, search-the-web for other
+ * providers. The preparation phase focuses on mechanical work only.
  *
- * @param techStack - Array of technology names from codebase analysis
- * @param _basePath - Root directory of the project (unused but included for future use)
- * @returns EcosystemBrief with findings or graceful skip message
+ * @param _techStack - Array of technology names from codebase analysis (unused)
+ * @param _basePath - Root directory of the project (unused)
+ * @returns EcosystemBrief indicating research happens during discussion
  */
 export async function researchEcosystem(
-  techStack: string[],
+  _techStack: string[],
   _basePath: string,
 ): Promise<EcosystemBrief> {
-  // Check for search API key availability
-  const keyStatus = hasSearchApiKey();
-
-  if (!keyStatus.available) {
-    return {
-      available: false,
-      queries: [],
-      findings: [],
-      skippedReason: "No search API key configured. Set TAVILY_API_KEY or BRAVE_API_KEY to enable ecosystem research.",
-    };
-  }
-
-  // Build search queries based on tech stack
-  const queries = buildEcosystemQueries(techStack);
-
-  if (queries.length === 0) {
-    return {
-      available: false,
-      queries: [],
-      findings: [],
-      skippedReason: "No technology stack detected to research.",
-    };
-  }
-
-  const findings: EcosystemFinding[] = [];
-  const startTime = Date.now();
-
-  // Execute queries with timeout constraints
-  for (const query of queries) {
-    // Check total timeout
-    const elapsed = Date.now() - startTime;
-    if (elapsed >= TOTAL_ECOSYSTEM_TIMEOUT_MS) {
-      break; // Total timeout exceeded
-    }
-
-    const remainingTime = TOTAL_ECOSYSTEM_TIMEOUT_MS - elapsed;
-    const queryTimeout = Math.min(QUERY_TIMEOUT_MS, remainingTime);
-
-    try {
-      // Execute with timeout
-      const queryFindings = await Promise.race([
-        executeSearchQuery(query, keyStatus.provider!, queryTimeout),
-        new Promise<EcosystemFinding[]>((resolve) =>
-          setTimeout(() => resolve([]), queryTimeout),
-        ),
-      ]);
-
-      findings.push(...queryFindings);
-    } catch {
-      // Swallow errors — graceful degradation
-      continue;
-    }
-  }
-
   return {
-    available: true,
-    queries,
-    findings,
-    provider: keyStatus.provider,
+    available: false,
+    queries: [],
+    findings: [],
+    skippedReason: "Ecosystem research is performed during the discussion using web search tools, not during preparation.",
   };
 }
 
@@ -1544,55 +1384,11 @@ export async function runPreparation(
   const priorContextBrief = formatPriorContextBrief(priorContext);
   ui?.notify("✓ Reviewed prior context", "success");
 
-  // --- Phase 3: Ecosystem research (optional) ---
-  const webResearchEnabled = prefs.discuss_web_research !== false; // Default: true
-  let ecosystem: EcosystemBrief;
-  let ecosystemResearchPerformed = false;
-
-  if (webResearchEnabled) {
-    ui?.notify("Researching ecosystem...", "info");
-
-    // Build tech stack from codebase analysis
-    const techStack: string[] = [];
-    if (codebase.techStack.primaryLanguage) {
-      techStack.push(codebase.techStack.primaryLanguage);
-    }
-    // Add detected framework signals from files
-    for (const file of codebase.techStack.detectedFiles) {
-      if (file === "next.config.js" || file === "next.config.mjs" || file === "next.config.ts") {
-        techStack.push("Next.js");
-      } else if (file === "nuxt.config.js" || file === "nuxt.config.ts") {
-        techStack.push("Nuxt.js");
-      } else if (file === "svelte.config.js") {
-        techStack.push("Svelte");
-      } else if (file === "vue.config.js") {
-        techStack.push("Vue.js");
-      } else if (file === "angular.json") {
-        techStack.push("Angular");
-      } else if (file === "remix.config.js") {
-        techStack.push("Remix");
-      } else if (file === "astro.config.mjs") {
-        techStack.push("Astro");
-      }
-    }
-
-    ecosystem = await researchEcosystem(techStack, basePath);
-    ecosystemResearchPerformed = ecosystem.available;
-
-    if (ecosystem.available) {
-      ui?.notify("✓ Researched ecosystem", "success");
-    } else {
-      ui?.notify("⚠ Ecosystem research skipped", "warning");
-    }
-  } else {
-    ecosystem = {
-      available: false,
-      queries: [],
-      findings: [],
-      skippedReason: "Web research disabled in preferences.",
-    };
-  }
-
+  // --- Ecosystem research ---
+  // Ecosystem research is now performed during the discussion session (between
+  // Layer 1 and Layer 2) using available web search tools. The preparation
+  // phase focuses on mechanical work only.
+  const ecosystem: EcosystemBrief = await researchEcosystem([], basePath);
   const ecosystemBrief = formatEcosystemBrief(ecosystem);
 
   return {
@@ -1603,73 +1399,21 @@ export async function runPreparation(
     ecosystem,
     ecosystemBrief,
     enabled: true,
-    ecosystemResearchPerformed,
+    ecosystemResearchPerformed: false,
     durationMs: performance.now() - startTime,
   };
 }
 
-export function formatEcosystemBrief(brief: EcosystemBrief): string {
-  const sections: string[] = [];
-
-  sections.push("## Ecosystem Research");
-
-  if (!brief.available) {
-    sections.push("");
-    sections.push(`⚠️ ${brief.skippedReason || "Ecosystem research was skipped."}`);
-    sections.push("");
-    sections.push("_FYI: Ecosystem research provides best practices and known issues for your tech stack. Configure a search API key to enable._");
-    return sections.join("\n");
-  }
-
-  if (brief.queries.length > 0) {
-    sections.push("");
-    sections.push("**Queries performed:**");
-    for (const query of brief.queries) {
-      sections.push(`- "${query}"`);
-    }
-  }
-
-  if (brief.findings.length === 0) {
-    sections.push("");
-    sections.push("_No relevant findings returned. This may be due to API limitations or timeout._");
-    sections.push("");
-    sections.push("_FYI: Results are informational context only, not hard constraints._");
-  } else {
-    sections.push("");
-    sections.push("**Key findings:**");
-    sections.push("");
-
-    // Group findings by query for readability
-    const findingsByQuery = new Map<string, EcosystemFinding[]>();
-    for (const finding of brief.findings) {
-      const existing = findingsByQuery.get(finding.query) || [];
-      existing.push(finding);
-      findingsByQuery.set(finding.query, existing);
-    }
-
-    for (const [query, queryFindings] of findingsByQuery) {
-      sections.push(`### ${query}`);
-      for (const finding of queryFindings.slice(0, 5)) { // Limit per query
-        sections.push(`- **${finding.title}**`);
-        if (finding.snippet) {
-          sections.push(`  ${finding.snippet}`);
-        }
-        if (finding.url) {
-          sections.push(`  _Source: ${finding.url}_`);
-        }
-      }
-      sections.push("");
-    }
-
-    sections.push("_FYI: These findings are informational context only, not hard constraints._");
-  }
-
-  let result = sections.join("\n");
-
-  // Truncate if necessary
-  if (result.length > MAX_ECOSYSTEM_BRIEF_CHARS) {
-    result = truncateSection(result, MAX_ECOSYSTEM_BRIEF_CHARS);
-  }
-
-  return result;
+/**
+ * Format an EcosystemBrief as LLM-readable markdown.
+ *
+ * Since ecosystem research now always returns unavailable from the preparation
+ * phase (research happens during discussion using web search tools), this
+ * function returns a simple fixed message.
+ *
+ * @param _brief - The ecosystem brief (unused, always unavailable from preparation)
+ * @returns Markdown string directing the LLM to perform research during discussion
+ */
+export function formatEcosystemBrief(_brief: EcosystemBrief): string {
+  return "## Ecosystem Research\n\nEcosystem research is performed during the discussion using web search tools.";
 }

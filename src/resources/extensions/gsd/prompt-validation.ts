@@ -59,20 +59,25 @@ export function validateEnhancedContext(content: string): ValidationResult {
 
   // Additional validation: Architectural Decisions must have at least one entry
   if (hasArchitecturalDecisions) {
-    // Extract the section content between ## Architectural Decisions and the next ## heading
-    const sectionMatch = content.match(
-      /^## Architectural Decisions\b[\s\S]*?(?=^## |\z)/m,
-    );
-    const sectionContent = sectionMatch ? sectionMatch[0] : "";
+    // Extract the section content between ## Architectural Decisions and the next ## heading.
+    // Uses indexOf-based extraction instead of regex with \z (which is invalid in JavaScript
+    // regex — it's PCRE/Ruby syntax and JS treats it as literal 'z').
+    const sectionStart = content.indexOf("## Architectural Decisions");
+    if (sectionStart === -1) {
+      missing.push("Architectural Decisions");
+    } else {
+      const afterHeading = content.slice(sectionStart + "## Architectural Decisions".length);
+      const nextSection = afterHeading.search(/^## /m);
+      const sectionContent = nextSection === -1 ? afterHeading : afterHeading.slice(0, nextSection);
 
-    // Check for actual decision entries:
-    // - ### heading (subsection per decision)
-    // - **Decision marker (inline decision format)
-    const hasDecisionEntry =
-      /^### /m.test(sectionContent) || /^\*\*Decision/m.test(sectionContent);
+      // Check for actual decision entries:
+      // - ### heading (subsection per decision)
+      // - **Decision marker (inline decision format)
+      const hasDecisionEntry = /^### /m.test(sectionContent) || /^\*\*Decision/m.test(sectionContent);
 
-    if (!hasDecisionEntry) {
-      missing.push("At least one architectural decision entry");
+      if (!hasDecisionEntry) {
+        missing.push("At least one architectural decision entry");
+      }
     }
   }
 

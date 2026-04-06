@@ -258,7 +258,7 @@ test("formatPriorContextBrief() produces structured prior context output", async
   assert.ok(formatted.length <= 6000, `should cap at 6000 chars, got ${formatted.length}`);
 });
 
-test("formatEcosystemBrief() handles skipped research gracefully", async (t) => {
+test("formatEcosystemBrief() returns simplified message (research happens during discussion)", async (t) => {
   const dir = getGsdExtensionDir();
   const prefs: PreparationPreferences = {
     discuss_preparation: true,
@@ -271,9 +271,9 @@ test("formatEcosystemBrief() handles skipped research gracefully", async (t) => 
   // Should contain section header
   assert.ok(formatted.includes("## Ecosystem Research"), "should have Ecosystem Research section");
 
-  // Should indicate research was skipped
-  assert.ok(formatted.includes("⚠️"), "should have warning indicator");
-  assert.ok(formatted.includes("FYI"), "should frame as informational");
+  // Should indicate research happens during discussion
+  assert.ok(formatted.includes("during the discussion"), "should mention research happens during discussion");
+  assert.ok(formatted.includes("web search tools"), "should mention web search tools");
 
   // Should be within character limit
   assert.ok(formatted.length <= 4000, `should cap at 4000 chars, got ${formatted.length}`);
@@ -368,25 +368,25 @@ test("runPreparation() returns early when discuss_preparation is false", async (
   assert.equal(ui.notifications.length, 0, "should not show any notifications");
 });
 
-test("runPreparation() skips ecosystem research when discuss_web_research is false", async (t) => {
+test("runPreparation() ecosystem research always returns unavailable (happens during discussion)", async (t) => {
   const dir = getGsdExtensionDir();
   const ui = createMockUI();
   const prefs: PreparationPreferences = {
     discuss_preparation: true,
-    discuss_web_research: false,
+    discuss_web_research: true, // Even with this enabled, ecosystem research returns unavailable
   };
 
   const result = await runPreparation(dir, ui, prefs);
 
   assert.equal(result.enabled, true);
-  assert.equal(result.ecosystemResearchPerformed, false, "should not perform ecosystem research");
+  assert.equal(result.ecosystemResearchPerformed, false, "should not perform ecosystem research from preparation");
   assert.equal(result.ecosystem.available, false);
   assert.ok(
-    result.ecosystem.skippedReason?.includes("Web research disabled"),
-    "should indicate disabled in preferences",
+    result.ecosystem.skippedReason?.includes("during the discussion"),
+    "should indicate research happens during discussion",
   );
 
-  // Should NOT have ecosystem research notifications
+  // Should NOT have ecosystem research notifications (no longer part of preparation)
   assert.ok(
     !ui.notifications.some(n => n.message.includes("Researching ecosystem")),
     "should not show ecosystem research notification",

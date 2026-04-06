@@ -547,9 +547,11 @@ describe("Integration: Format Functions", () => {
     assert.ok(formatted.includes("D001"), "should include decision ID");
   });
 
-  test("formatEcosystemBrief produces non-empty output", async () => {
+  test("formatEcosystemBrief returns simplified message (research happens during discussion)", async () => {
     const { formatEcosystemBrief } = await import("../preparation.ts");
 
+    // formatEcosystemBrief now returns a fixed message regardless of brief content
+    // because ecosystem research happens during the discussion, not preparation
     const briefWithFindings = {
       available: true,
       queries: ["Next.js best practices 2024"],
@@ -567,10 +569,10 @@ describe("Integration: Format Functions", () => {
     const formatted = formatEcosystemBrief(briefWithFindings);
     assert.ok(formatted.length > 0, "formatted brief should not be empty");
     assert.ok(formatted.includes("Ecosystem Research"), "should include research heading");
-    assert.ok(formatted.includes("Next.js best practices"), "should include query");
+    assert.ok(formatted.includes("during the discussion"), "should mention research happens during discussion");
   });
 
-  test("formatEcosystemBrief handles unavailable state", async () => {
+  test("formatEcosystemBrief returns same output for any brief state", async () => {
     const { formatEcosystemBrief } = await import("../preparation.ts");
 
     const briefUnavailable = {
@@ -580,8 +582,19 @@ describe("Integration: Format Functions", () => {
       skippedReason: "No API key configured",
     };
 
-    const formatted = formatEcosystemBrief(briefUnavailable);
-    assert.ok(formatted.includes("No API key configured"), "should include skip reason");
+    const briefAvailable = {
+      available: true,
+      queries: ["test"],
+      findings: [],
+      provider: "tavily",
+    };
+
+    const formatted1 = formatEcosystemBrief(briefUnavailable);
+    const formatted2 = formatEcosystemBrief(briefAvailable);
+    
+    // Both should return the same simplified message
+    assert.equal(formatted1, formatted2, "should return consistent output regardless of brief state");
+    assert.ok(formatted1.includes("web search tools"), "should mention web search tools");
   });
 
   test("formatted briefs can be injected into prompt without errors", async () => {
@@ -650,6 +663,7 @@ describe("Integration: Format Functions", () => {
 
     assert.ok(result.includes("TypeScript"), "codebase brief should be present");
     assert.ok(result.includes("Prior Decisions"), "prior context brief should be present");
-    assert.ok(result.includes("Preparation disabled"), "ecosystem brief should be present");
+    // formatEcosystemBrief now returns a fixed message about research during discussion
+    assert.ok(result.includes("during the discussion"), "ecosystem brief should be present");
   });
 });
