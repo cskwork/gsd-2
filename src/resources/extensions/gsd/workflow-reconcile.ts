@@ -9,12 +9,18 @@ import {
   updateSliceStatus,
   updateMilestoneStatus,
   getSliceTasks,
+  insertMilestone,
+  insertSlice,
+  insertTask,
   insertVerificationEvidence,
   upsertDecision,
   openDatabase,
   setTaskBlockerDiscovered,
 } from "./gsd-db.js";
 import { isClosedStatus } from "./status-guards.js";
+import { invalidateStateCache } from "./state.js";
+import { clearPathCache } from "./paths.js";
+import { clearParseCache } from "./files.js";
 import { writeManifest } from "./workflow-manifest.js";
 import { atomicWriteSync } from "./atomic-write.js";
 import { acquireSyncLock, releaseSyncLock } from "./sync-lock.js";
@@ -131,9 +137,35 @@ function replayEvents(events: WorkflowEvent[]): void {
         }
         break;
       }
+      case "plan_milestone": {
+        // Replay milestone creation from worktree — INSERT OR IGNORE is safe
+        const milestoneId = p["milestoneId"] as string;
+        if (milestoneId) {
+          insertMilestone({ id: milestoneId, title: (p["title"] as string) ?? milestoneId });
+        }
+        break;
+      }
       case "plan_slice": {
-        // plan_slice events are informational — slice should already exist.
-        // No DB mutation needed during replay (the slice was inserted at plan time).
+        // Replay slice creation from worktree — INSERT OR IGNORE is safe
+        const milestoneId = p["milestoneId"] as string;
+        const sliceId = p["sliceId"] as string;
+        if (milestoneId && sliceId) {
+          insertSlice({ id: sliceId, milestoneId, title: (p["title"] as string) ?? sliceId });
+        }
+        break;
+      }
+      case "plan_task": {
+        // Replay task creation from worktree — INSERT OR IGNORE is safe
+        const milestoneId = p["milestoneId"] as string;
+        const sliceId = p["sliceId"] as string;
+        const taskId = p["taskId"] as string;
+        if (milestoneId && sliceId && taskId) {
+          insertTask({ id: taskId, sliceId, milestoneId, title: (p["title"] as string) ?? taskId });
+        }
+        break;
+      }
+      case "replan_slice": {
+        // Informational — replan events don't mutate DB during replay
         break;
       }
       case "save_decision": {
@@ -177,23 +209,26 @@ export function extractEntityKey(
     case "start_task":
     case "report_blocker":
     case "record_verification":
+    case "plan_task":
       return typeof p["taskId"] === "string"
         ? { type: "task", id: p["taskId"] }
         : null;
 
     case "complete_slice":
+    case "replan_slice":
       return typeof p["sliceId"] === "string"
         ? { type: "slice", id: p["sliceId"] }
-        : null;
-
-    case "complete_milestone":
-      return typeof p["milestoneId"] === "string"
-        ? { type: "milestone", id: p["milestoneId"] }
         : null;
 
     case "plan_slice":
       return typeof p["sliceId"] === "string"
         ? { type: "slice_plan", id: p["sliceId"] }
+        : null;
+
+    case "complete_milestone":
+    case "plan_milestone":
+      return typeof p["milestoneId"] === "string"
+        ? { type: "milestone", id: p["milestoneId"] }
         : null;
 
     case "save_decision":
@@ -394,6 +429,12 @@ function _reconcileWorktreeLogsInner(
   } catch (err) {
     logWarning("reconcile", "manifest write failed (non-fatal)", { error: (err as Error).message });
   }
+
+  // Step 10: Invalidate caches so deriveState() sees post-reconcile DB state.
+  // Use targeted invalidation (not invalidateAllCaches) to avoid wiping artifacts table.
+  invalidateStateCache();
+  clearPathCache();
+  clearParseCache();
 
   return { autoMerged: merged.length, conflicts: [] };
 }
