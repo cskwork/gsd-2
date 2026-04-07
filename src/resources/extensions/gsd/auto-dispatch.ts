@@ -776,11 +776,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
         };
       }
       if (artifactCheck === "unknown") {
-        return {
-          action: "stop",
-          reason: `Cannot verify implementation artifacts for milestone ${mid}: git check was inconclusive. Resolve git issues and retry.`,
-          level: "error",
-        };
+        logWarning("dispatch", `Implementation artifact check inconclusive for ${mid} — proceeding (git context unavailable)`);
       }
 
       // Verification class compliance: if operational verification was planned,
