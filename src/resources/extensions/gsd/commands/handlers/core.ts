@@ -71,6 +71,9 @@ export function showHelp(ctx: ExtensionCommandContext): void {
 
 export async function handleStatus(ctx: ExtensionCommandContext): Promise<void> {
   const basePath = projectRoot();
+  // Open DB in cold sessions so status uses DB-backed state, not filesystem fallback (#3385)
+  const { ensureDbOpen } = await import("../../bootstrap/dynamic-tools.js");
+  await ensureDbOpen();
   const state = await deriveState(basePath);
 
   if (state.registry.length === 0) {
