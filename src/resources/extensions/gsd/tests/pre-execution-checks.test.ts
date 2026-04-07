@@ -193,7 +193,7 @@ describe("checkFilePathConsistency", () => {
     }
   });
 
-  test("fails when files don't exist and not in prior outputs", () => {
+  test("fails when inputs don't exist and not in prior outputs", () => {
     tempDir = join(tmpdir(), `pre-exec-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
 
@@ -201,8 +201,8 @@ describe("checkFilePathConsistency", () => {
       const tasks = [
         createTask({
           id: "T01",
-          files: ["nonexistent.ts"],
-          inputs: [],
+          files: [],
+          inputs: ["nonexistent.ts"],
           expected_output: [],
         }),
       ];
@@ -218,7 +218,7 @@ describe("checkFilePathConsistency", () => {
     }
   });
 
-  test("checks both files and inputs arrays", () => {
+  test("checks only inputs array, not files array", () => {
     tempDir = join(tmpdir(), `pre-exec-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
 
@@ -232,10 +232,13 @@ describe("checkFilePathConsistency", () => {
         }),
       ];
 
+      // Only inputs are checked — files ("files likely touched") are excluded
+      // because they may include files the task will create (#3626)
       const results = checkFilePathConsistency(tasks, tempDir);
-      assert.equal(results.length, 2);
-      assert.ok(results.some((r) => r.target === "missing-file.ts"));
+      assert.equal(results.length, 1);
       assert.ok(results.some((r) => r.target === "missing-input.ts"));
+      // missing-file.ts should NOT produce a failure
+      assert.ok(!results.some((r) => r.target === "missing-file.ts"));
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -825,8 +828,8 @@ describe("runPreExecutionChecks", () => {
       const tasks = [
         createTask({
           id: "T01",
-          files: ["nonexistent.ts"],
-          inputs: [],
+          files: [],
+          inputs: ["nonexistent.ts"],
           expected_output: [],
         }),
       ];
