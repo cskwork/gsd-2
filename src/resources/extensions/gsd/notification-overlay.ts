@@ -258,13 +258,13 @@ export class GSDNotificationOverlay {
       const time = th.fg("dim", formatTimestamp(entry.ts));
       const source = entry.source === "workflow-logger" ? th.fg("dim", " [engine]") : "";
 
-      // First line: icon + timestamp + source
-      const msgMaxWidth = contentWidth - 20;
-      const msg = entry.message.length > msgMaxWidth
-        ? entry.message.slice(0, msgMaxWidth - 1) + "…"
-        : entry.message;
+      // Measure actual prefix width to truncate message accurately
+      const prefix = `${coloredIcon} ${time}${source}  `;
+      const prefixWidth = visibleWidth(prefix);
+      const msgMaxWidth = Math.max(10, contentWidth - prefixWidth);
+      const msg = truncateToWidth(entry.message, msgMaxWidth, "…");
 
-      lines.push(row(`${coloredIcon} ${time}${source}  ${msg}`));
+      lines.push(row(`${prefix}${msg}`));
     }
 
     return lines;
