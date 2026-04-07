@@ -30,7 +30,7 @@ import { renderRoadmapCheckboxes } from "../markdown-renderer.js";
 import { renderAllProjections } from "../workflow-projections.js";
 import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
-import { logWarning } from "../workflow-logger.js";
+import { logWarning, logError } from "../workflow-logger.js";
 
 export interface CompleteSliceResult {
   sliceId: string;
@@ -336,9 +336,19 @@ export async function handleCompleteSlice(
   clearParseCache();
 
   // ── Post-mutation hook: projections, manifest, event log ───────────────
+  // Separate try/catch per step so a projection failure doesn't prevent
+  // the event log entry (critical for worktree reconciliation).
   try {
     await renderAllProjections(basePath, params.milestoneId);
+  } catch (projErr) {
+    logWarning("tool", `complete-slice projection warning for ${params.milestoneId}/${params.sliceId}: ${(projErr as Error).message}`);
+  }
+  try {
     writeManifest(basePath);
+  } catch (mfErr) {
+    logWarning("tool", `complete-slice manifest warning: ${(mfErr as Error).message}`);
+  }
+  try {
     appendEvent(basePath, {
       cmd: "complete-slice",
       params: { milestoneId: params.milestoneId, sliceId: params.sliceId },
@@ -347,8 +357,8 @@ export async function handleCompleteSlice(
       actor_name: params.actorName,
       trigger_reason: params.triggerReason,
     });
-  } catch (hookErr) {
-    logWarning("tool", `complete-slice post-mutation hook failed for ${params.milestoneId}/${params.sliceId}`, { error: (hookErr as Error).message });
+  } catch (eventErr) {
+    logError("tool", `complete-slice event log FAILED — completion invisible to reconciliation`, { error: (eventErr as Error).message });
   }
 
   return {

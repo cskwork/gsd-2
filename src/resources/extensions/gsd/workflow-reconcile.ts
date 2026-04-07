@@ -9,6 +9,8 @@ import {
   updateSliceStatus,
   updateMilestoneStatus,
   getSliceTasks,
+  insertMilestone,
+  _getAdapter,
   getMilestoneSlices,
   insertVerificationEvidence,
   upsertDecision,
@@ -16,6 +18,9 @@ import {
   setTaskBlockerDiscovered,
 } from "./gsd-db.js";
 import { isClosedStatus } from "./status-guards.js";
+import { invalidateStateCache } from "./state.js";
+import { clearPathCache } from "./paths.js";
+import { clearParseCache } from "./files.js";
 import { writeManifest } from "./workflow-manifest.js";
 import { atomicWriteSync } from "./atomic-write.js";
 import { acquireSyncLock, releaseSyncLock } from "./sync-lock.js";
@@ -144,9 +149,51 @@ function replayEvents(events: WorkflowEvent[]): void {
         }
         break;
       }
+      case "plan_milestone": {
+        // Replay milestone creation — uses INSERT OR IGNORE (gsd-db's insertMilestone is safe)
+        const mId = p["milestoneId"] as string;
+        if (mId) {
+          insertMilestone({ id: mId, title: (p["title"] as string) ?? mId });
+        }
+        break;
+      }
       case "plan_slice": {
-        // plan_slice events are informational — slice should already exist.
-        // No DB mutation needed during replay (the slice was inserted at plan time).
+        // Replay slice creation — strict INSERT OR IGNORE to avoid overwriting
+        // progressed status. insertSlice() uses ON CONFLICT DO UPDATE which
+        // could downgrade a completed slice back to pending.
+        const milestoneId = p["milestoneId"] as string;
+        const sliceId = p["sliceId"] as string;
+        if (milestoneId && sliceId) {
+          const adapter = _getAdapter();
+          if (adapter) {
+            adapter.prepare(
+              `INSERT OR IGNORE INTO slices (milestone_id, id, title, status, created_at)
+               VALUES (:mid, :sid, :title, 'pending', :ts)`,
+            ).run({ ":mid": milestoneId, ":sid": sliceId, ":title": (p["title"] as string) ?? sliceId, ":ts": event.ts });
+          }
+        }
+        break;
+      }
+      case "plan_task": {
+        // Replay task creation — strict INSERT OR IGNORE to avoid overwriting
+        // progressed status. insertTask() uses ON CONFLICT DO UPDATE which
+        // could downgrade a done/in-progress task back to pending.
+        const milestoneId = p["milestoneId"] as string;
+        const sliceId = p["sliceId"] as string;
+        const taskId = p["taskId"] as string;
+        if (milestoneId && sliceId && taskId) {
+          const adapter = _getAdapter();
+          if (adapter) {
+            adapter.prepare(
+              `INSERT OR IGNORE INTO tasks (milestone_id, slice_id, id, title, status, created_at)
+               VALUES (:mid, :sid, :tid, :title, 'pending', :ts)`,
+            ).run({ ":mid": milestoneId, ":sid": sliceId, ":tid": taskId, ":title": (p["title"] as string) ?? taskId, ":ts": event.ts });
+          }
+        }
+        break;
+      }
+      case "replan_slice": {
+        // Informational — replan events don't mutate DB during replay
         break;
       }
       case "save_decision": {
@@ -191,11 +238,13 @@ export function extractEntityKey(
     case "start_task":
     case "report_blocker":
     case "record_verification":
+    case "plan_task":
       return typeof p["taskId"] === "string"
         ? { type: "task", id: p["taskId"] }
         : null;
 
     case "complete_slice":
+    case "replan_slice":
       return typeof p["sliceId"] === "string"
         ? { type: "slice", id: p["sliceId"] }
         : null;
@@ -208,6 +257,12 @@ export function extractEntityKey(
     case "plan_slice":
       return typeof p["sliceId"] === "string"
         ? { type: "slice_plan", id: p["sliceId"] }
+        : null;
+
+    case "complete_milestone":
+    case "plan_milestone":
+      return typeof p["milestoneId"] === "string"
+        ? { type: "milestone", id: p["milestoneId"] }
         : null;
 
     case "save_decision":
@@ -392,6 +447,14 @@ function _reconcileWorktreeLogsInner(
   const merged = indexed.map(({ e }) => e);
 
   // Step 7: Write merged event log FIRST (so crash recovery can re-derive DB state)
+  // Guard: detect concurrent appendEvent calls between our read (step 1) and
+  // this rewrite. If the log grew, re-read and retry to avoid dropping events.
+  const preWriteEvents = readEvents(mainLogPath);
+  if (preWriteEvents.length > mainEvents.length) {
+    logWarning("reconcile", `Event log grew during reconcile (${mainEvents.length} → ${preWriteEvents.length}), retrying with fresh read`);
+    return _reconcileWorktreeLogsInner(mainBasePath, worktreeBasePath);
+  }
+
   const baseEvents = mainEvents.slice(0, forkPoint + 1);
   const mergedLog = baseEvents.concat(merged);
   const logContent = mergedLog.map((e) => JSON.stringify(e)).join("\n") + (mergedLog.length > 0 ? "\n" : "");
@@ -408,6 +471,12 @@ function _reconcileWorktreeLogsInner(
   } catch (err) {
     logWarning("reconcile", "manifest write failed (non-fatal)", { error: (err as Error).message });
   }
+
+  // Step 10: Invalidate caches so deriveState() sees post-reconcile DB state.
+  // Use targeted invalidation (not invalidateAllCaches) to avoid wiping artifacts table.
+  invalidateStateCache();
+  clearPathCache();
+  clearParseCache();
 
   return { autoMerged: merged.length, conflicts: [] };
 }
