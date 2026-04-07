@@ -163,6 +163,12 @@ export class GSDNotificationOverlay {
     this.scrollOffset = Math.min(this.scrollOffset, maxScroll);
     const visibleContent = content.slice(this.scrollOffset, this.scrollOffset + visibleContentRows);
 
+    // Pad to consistent height so filter changes don't leave ghost artifacts
+    // (differential renderer can't clear old overlay positions)
+    while (visibleContent.length < maxVisibleRows) {
+      visibleContent.push("");
+    }
+
     const lines = this.wrapInBox(visibleContent, width);
 
     this.cachedWidth = width;
@@ -252,13 +258,13 @@ export class GSDNotificationOverlay {
       const time = th.fg("dim", formatTimestamp(entry.ts));
       const source = entry.source === "workflow-logger" ? th.fg("dim", " [engine]") : "";
 
-      // First line: icon + timestamp + source
-      const msgMaxWidth = contentWidth - 20;
-      const msg = entry.message.length > msgMaxWidth
-        ? entry.message.slice(0, msgMaxWidth - 1) + "…"
-        : entry.message;
+      // Measure actual prefix width to truncate message accurately
+      const prefix = `${coloredIcon} ${time}${source}  `;
+      const prefixWidth = visibleWidth(prefix);
+      const msgMaxWidth = Math.max(10, contentWidth - prefixWidth);
+      const msg = truncateToWidth(entry.message, msgMaxWidth, "…");
 
-      lines.push(row(`${coloredIcon} ${time}${source}  ${msg}`));
+      lines.push(row(`${prefix}${msg}`));
     }
 
     return lines;
