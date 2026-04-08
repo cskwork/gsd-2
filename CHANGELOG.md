@@ -6,6 +6,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.66.1] - 2026-04-08
+
+### Fixed
+- **pi-tui**: revert contentCursorRow, use hardwareCursorRow as movement baseline
+- **pi-tui**: use contentCursorRow for render movement baseline instead of cursorRow
+- **gsd**: add logWarning to empty catch block in orphaned worktree cleanup
+- **gsd**: add consecutiveFinalizeTimeouts to LoopState in journal tests
+- **gsd**: add escalation and unit-detach guards to finalize timeout handlers
+- **gsd**: add timeout guard around postUnitPreVerification to prevent auto-loop hang
+- **gsd**: OS-specific keyboard shortcut hints via formatShortcut helper
+- **subagent**: support list-style tools frontmatter
+- clear autocomplete rows from content bottom
+- parse annotated pre-exec file paths
+- **gsd**: add orphaned milestone branch audit at auto-mode bootstrap
+
 ## [2.66.0] - 2026-04-08
 
 ### Added
@@ -2551,7 +2566,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.66.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.66.1...HEAD
+[2.66.1]: https://github.com/gsd-build/gsd-2/compare/v2.66.0...v2.66.1
 [2.66.0]: https://github.com/gsd-build/gsd-2/compare/v2.65.0...v2.66.0
 [2.65.0]: https://github.com/gsd-build/gsd-2/compare/v2.64.0...v2.65.0
 [2.64.0]: https://github.com/gsd-build/gsd-2/compare/v2.63.0...v2.64.0
