@@ -92,6 +92,76 @@ type WorkflowToolExecutors = {
     },
     basePath?: string,
   ) => Promise<unknown>;
+  executeCompleteMilestone: (
+    params: {
+      milestoneId: string;
+      title: string;
+      oneLiner: string;
+      narrative: string;
+      verificationPassed: boolean;
+      successCriteriaResults?: string;
+      definitionOfDoneResults?: string;
+      requirementOutcomes?: string;
+      keyDecisions?: string[];
+      keyFiles?: string[];
+      lessonsLearned?: string[];
+      followUps?: string;
+      deviations?: string;
+    },
+    basePath?: string,
+  ) => Promise<unknown>;
+  executeValidateMilestone: (
+    params: {
+      milestoneId: string;
+      verdict: "pass" | "needs-attention" | "needs-remediation";
+      remediationRound: number;
+      successCriteriaChecklist: string;
+      sliceDeliveryAudit: string;
+      crossSliceIntegration: string;
+      requirementCoverage: string;
+      verificationClasses?: string;
+      verdictRationale: string;
+      remediationPlan?: string;
+    },
+    basePath?: string,
+  ) => Promise<unknown>;
+  executeReassessRoadmap: (
+    params: {
+      milestoneId: string;
+      completedSliceId: string;
+      verdict: string;
+      assessment: string;
+      sliceChanges: {
+        modified: Array<{
+          sliceId: string;
+          title: string;
+          risk?: string;
+          depends?: string[];
+          demo?: string;
+        }>;
+        added: Array<{
+          sliceId: string;
+          title: string;
+          risk?: string;
+          depends?: string[];
+          demo?: string;
+        }>;
+        removed: string[];
+      };
+    },
+    basePath?: string,
+  ) => Promise<unknown>;
+  executeSaveGateResult: (
+    params: {
+      milestoneId: string;
+      sliceId: string;
+      gateId: string;
+      taskId?: string;
+      verdict: "pass" | "flag" | "omitted";
+      rationale: string;
+      findings?: string;
+    },
+  ) => Promise<unknown>;
   executeSummarySave: (
     params: {
       milestone_id: string;
@@ -216,6 +286,101 @@ async function handleSliceComplete(
   const { executeSliceComplete } = await getWorkflowToolExecutors();
   return withProjectDir(projectDir, () => executeSliceComplete(args as any, projectDir));
 }
+
+async function handleCompleteMilestone(
+  projectDir: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const { executeCompleteMilestone } = await getWorkflowToolExecutors();
+  return withProjectDir(projectDir, () => executeCompleteMilestone(args as any, projectDir));
+}
+
+async function handleValidateMilestone(
+  projectDir: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const { executeValidateMilestone } = await getWorkflowToolExecutors();
+  return withProjectDir(projectDir, () => executeValidateMilestone(args as any, projectDir));
+}
+
+async function handleReassessRoadmap(
+  projectDir: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const { executeReassessRoadmap } = await getWorkflowToolExecutors();
+  return withProjectDir(projectDir, () => executeReassessRoadmap(args as any, projectDir));
+}
+
+async function handleSaveGateResult(
+  projectDir: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const { executeSaveGateResult } = await getWorkflowToolExecutors();
+  return withProjectDir(projectDir, () => executeSaveGateResult(args as any));
+}
+
+const completeMilestoneSchema = {
+  projectDir: z.string().describe("Absolute path to the project directory"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  title: z.string().describe("Milestone title"),
+  oneLiner: z.string().describe("One-sentence summary of what the milestone achieved"),
+  narrative: z.string().describe("Detailed narrative of what happened during the milestone"),
+  verificationPassed: z.boolean().describe("Must be true after milestone verification succeeds"),
+  successCriteriaResults: z.string().optional(),
+  definitionOfDoneResults: z.string().optional(),
+  requirementOutcomes: z.string().optional(),
+  keyDecisions: z.array(z.string()).optional(),
+  keyFiles: z.array(z.string()).optional(),
+  lessonsLearned: z.array(z.string()).optional(),
+  followUps: z.string().optional(),
+  deviations: z.string().optional(),
+};
+
+const validateMilestoneSchema = {
+  projectDir: z.string().describe("Absolute path to the project directory"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  verdict: z.enum(["pass", "needs-attention", "needs-remediation"]).describe("Validation verdict"),
+  remediationRound: z.number().describe("Remediation round (0 for first validation)"),
+  successCriteriaChecklist: z.string().describe("Markdown checklist of success criteria with evidence"),
+  sliceDeliveryAudit: z.string().describe("Markdown auditing each slice's claimed vs delivered output"),
+  crossSliceIntegration: z.string().describe("Markdown describing cross-slice issues or closure"),
+  requirementCoverage: z.string().describe("Markdown describing requirement coverage and gaps"),
+  verificationClasses: z.string().optional(),
+  verdictRationale: z.string().describe("Why this verdict was chosen"),
+  remediationPlan: z.string().optional(),
+};
+
+const roadmapSliceChangeSchema = z.object({
+  sliceId: z.string(),
+  title: z.string(),
+  risk: z.string().optional(),
+  depends: z.array(z.string()).optional(),
+  demo: z.string().optional(),
+});
+
+const reassessRoadmapSchema = {
+  projectDir: z.string().describe("Absolute path to the project directory"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  completedSliceId: z.string().describe("Slice ID that just completed"),
+  verdict: z.string().describe("Assessment verdict such as roadmap-confirmed or roadmap-adjusted"),
+  assessment: z.string().describe("Assessment text explaining the roadmap decision"),
+  sliceChanges: z.object({
+    modified: z.array(roadmapSliceChangeSchema),
+    added: z.array(roadmapSliceChangeSchema),
+    removed: z.array(z.string()),
+  }).describe("Slice changes to apply"),
+};
+
+const saveGateResultSchema = {
+  projectDir: z.string().describe("Absolute path to the project directory"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  sliceId: z.string().describe("Slice ID (e.g. S01)"),
+  gateId: z.enum(["Q3", "Q4", "Q5", "Q6", "Q7", "Q8"]).describe("Gate ID"),
+  taskId: z.string().optional().describe("Task ID for task-scoped gates"),
+  verdict: z.enum(["pass", "flag", "omitted"]).describe("Gate verdict"),
+  rationale: z.string().describe("One-sentence justification"),
+  findings: z.string().optional().describe("Detailed markdown findings"),
+};
 
 export function registerWorkflowTools(server: McpToolServer): void {
   server.tool(
@@ -393,6 +558,76 @@ export function registerWorkflowTools(server: McpToolServer): void {
     async (args: Record<string, unknown>) => {
       const { projectDir, ...sliceArgs } = args as { projectDir: string } & Record<string, unknown>;
       return handleSliceComplete(projectDir, sliceArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_complete_milestone",
+    "Record a completed milestone to the GSD database and render its SUMMARY.md.",
+    completeMilestoneSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...milestoneArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleCompleteMilestone(projectDir, milestoneArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_milestone_complete",
+    "Alias for gsd_complete_milestone. Record a completed milestone to the GSD database and render its SUMMARY.md.",
+    completeMilestoneSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...milestoneArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleCompleteMilestone(projectDir, milestoneArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_validate_milestone",
+    "Validate a milestone, persist validation results to the GSD database, and render VALIDATION.md.",
+    validateMilestoneSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...validationArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleValidateMilestone(projectDir, validationArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_milestone_validate",
+    "Alias for gsd_validate_milestone. Validate a milestone and render VALIDATION.md.",
+    validateMilestoneSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...validationArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleValidateMilestone(projectDir, validationArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_reassess_roadmap",
+    "Reassess a milestone roadmap after a slice completes, writing ASSESSMENT.md and re-rendering ROADMAP.md.",
+    reassessRoadmapSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...reassessArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleReassessRoadmap(projectDir, reassessArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_roadmap_reassess",
+    "Alias for gsd_reassess_roadmap. Reassess a roadmap after slice completion.",
+    reassessRoadmapSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...reassessArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleReassessRoadmap(projectDir, reassessArgs);
+    },
+  );
+
+  server.tool(
+    "gsd_save_gate_result",
+    "Save a quality gate result to the GSD database.",
+    saveGateResultSchema,
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...gateArgs } = args as { projectDir: string } & Record<string, unknown>;
+      return handleSaveGateResult(projectDir, gateArgs);
     },
   );
 

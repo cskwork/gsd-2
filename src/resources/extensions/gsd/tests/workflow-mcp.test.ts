@@ -172,10 +172,61 @@ test("transport compatibility now allows complete-slice over workflow MCP surfac
   assert.equal(error, null);
 });
 
-test("transport compatibility still blocks units whose MCP tools are not exposed", () => {
+test("transport compatibility now allows reassess-roadmap over workflow MCP surface", () => {
   const error = getWorkflowTransportSupportError(
     "claude-code",
-    ["gsd_complete_milestone"],
+    ["gsd_milestone_status", "gsd_reassess_roadmap"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "reassess-roadmap",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
+    },
+  );
+
+  assert.equal(error, null);
+});
+
+test("transport compatibility now allows gate-evaluate over workflow MCP surface", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_save_gate_result"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "gate-evaluate",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
+    },
+  );
+
+  assert.equal(error, null);
+});
+
+test("transport compatibility now allows validate-milestone over workflow MCP surface", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_milestone_status", "gsd_validate_milestone"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "validate-milestone",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
+    },
+  );
+
+  assert.equal(error, null);
+});
+
+test("transport compatibility now allows complete-milestone over workflow MCP surface", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_milestone_status", "gsd_complete_milestone"],
     {
       projectRoot: "/tmp/project",
       env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
@@ -186,7 +237,24 @@ test("transport compatibility still blocks units whose MCP tools are not exposed
     },
   );
 
-  assert.match(error ?? "", /requires gsd_complete_milestone/);
+  assert.equal(error, null);
+});
+
+test("transport compatibility still blocks units whose MCP tools are not exposed", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_replan_slice"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "replan-slice",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
+    },
+  );
+
+  assert.match(error ?? "", /requires gsd_replan_slice/);
   assert.match(error ?? "", /currently exposes only/);
 });
 

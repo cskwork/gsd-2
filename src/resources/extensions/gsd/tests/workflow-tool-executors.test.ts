@@ -9,8 +9,13 @@ import {
   openDatabase,
   closeDatabase,
   _getAdapter,
+  insertGateRow,
 } from "../gsd-db.ts";
 import {
+  executeCompleteMilestone,
+  executeValidateMilestone,
+  executeReassessRoadmap,
+  executeSaveGateResult,
   executeSummarySave,
   executeTaskComplete,
   executeMilestoneStatus,
@@ -283,6 +288,218 @@ test("executeSliceComplete coerces string enrichment entries and writes summary/
     assert.ok(existsSync(uatPath), "slice UAT should be written to disk");
     assert.match(readFileSync(summaryPath, "utf-8"), /shared executor path/);
     assert.match(readFileSync(summaryPath, "utf-8"), /R001/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executeValidateMilestone persists validation artifact and gate records", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    seedMilestone("M002", "Milestone Two");
+    seedSlice("M002", "S02", "complete");
+
+    const result = await inProjectDir(base, () => executeValidateMilestone({
+      milestoneId: "M002",
+      verdict: "pass",
+      remediationRound: 0,
+      successCriteriaChecklist: "- [x] Works",
+      sliceDeliveryAudit: "| Slice | Result |\n| --- | --- |\n| S02 | pass |",
+      crossSliceIntegration: "No cross-slice issues.",
+      requirementCoverage: "All requirements covered.",
+      verdictRationale: "Everything passed.",
+    }, base));
+
+    assert.equal(result.details.operation, "validate_milestone");
+    const validationPath = String(result.details.validationPath);
+    assert.ok(existsSync(validationPath), "validation file should be written to disk");
+
+    const db = _getAdapter();
+    const gates = db!.prepare(
+      "SELECT gate_id, verdict FROM quality_gates WHERE milestone_id = ? ORDER BY gate_id",
+    ).all("M002") as Array<Record<string, unknown>>;
+    assert.ok(gates.length > 0, "validation should seed milestone quality gates");
+    assert.equal(gates[0]["verdict"], "pass");
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executeCompleteMilestone sanitizes raw params and writes milestone summary", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    seedMilestone("M003", "Milestone Three");
+    seedSlice("M003", "S03", "complete");
+    writeRoadmap(base, "M003", ["S03"]);
+    const db = _getAdapter();
+    db!.prepare(
+      "INSERT OR REPLACE INTO tasks (milestone_id, slice_id, id, title, status) VALUES (?, ?, ?, ?, ?)",
+    ).run("M003", "S03", "T03", "Task T03", "complete");
+
+    const result = await inProjectDir(base, () => executeCompleteMilestone({
+      milestoneId: "M003",
+      title: "Milestone Three",
+      oneLiner: "Completed milestone",
+      narrative: "Everything shipped.",
+      verificationPassed: "true",
+      keyDecisions: ["shared executor path"],
+      lessonsLearned: ["MCP transport stays generic"],
+    }, base));
+
+    assert.equal(result.details.operation, "complete_milestone");
+    const summaryPath = String(result.details.summaryPath);
+    assert.ok(existsSync(summaryPath), "milestone summary should be written to disk");
+    assert.match(readFileSync(summaryPath, "utf-8"), /shared executor path/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executeReassessRoadmap writes assessment and updates roadmap projection", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    await inProjectDir(base, () => executePlanMilestone({
+      milestoneId: "M004",
+      title: "Milestone Four",
+      vision: "Exercise roadmap reassessment.",
+      slices: [
+        {
+          sliceId: "S04",
+          title: "Completed slice",
+          risk: "medium",
+          depends: [],
+          demo: "Completed slice works",
+          goal: "Complete the first slice.",
+          successCriteria: "S04 is complete.",
+          proofLevel: "integration",
+          integrationClosure: "Baseline flow is wired.",
+          observabilityImpact: "Executor test covers reassessment.",
+        },
+        {
+          sliceId: "S05",
+          title: "Follow-up slice",
+          risk: "medium",
+          depends: ["S04"],
+          demo: "Follow-up slice is adjusted",
+          goal: "Handle the follow-up work.",
+          successCriteria: "Roadmap gets updated.",
+          proofLevel: "integration",
+          integrationClosure: "Downstream work stays aligned.",
+          observabilityImpact: "Assessment artifact is rendered.",
+        },
+      ],
+    }, base));
+    await inProjectDir(base, () => executePlanSlice({
+      milestoneId: "M004",
+      sliceId: "S04",
+      goal: "Complete the first slice.",
+      tasks: [
+        {
+          taskId: "T04",
+          title: "Finish slice",
+          description: "Close the completed slice.",
+          estimate: "5m",
+          files: ["src/file.ts"],
+          verify: "node --test",
+          inputs: ["M004-ROADMAP.md"],
+          expectedOutput: ["S04-SUMMARY.md", "S04-UAT.md"],
+        },
+      ],
+    }, base));
+    await inProjectDir(base, () => executeTaskComplete({
+      milestoneId: "M004",
+      sliceId: "S04",
+      taskId: "T04",
+      oneLiner: "Completed task",
+      narrative: "Task finished.",
+      verification: "node --test",
+    }, base));
+    await inProjectDir(base, () => executeSliceComplete({
+      milestoneId: "M004",
+      sliceId: "S04",
+      sliceTitle: "Completed slice",
+      oneLiner: "Completed slice",
+      narrative: "Slice finished.",
+      verification: "node --test",
+      uatContent: "## UAT\n\nPASS",
+    }, base));
+
+    const result = await inProjectDir(base, () => executeReassessRoadmap({
+      milestoneId: "M004",
+      completedSliceId: "S04",
+      verdict: "roadmap-adjusted",
+      assessment: "Added a remediation slice.",
+      sliceChanges: {
+        modified: [
+          {
+            sliceId: "S05",
+            title: "Adjusted follow-up slice",
+            risk: "high",
+            depends: ["S04"],
+            demo: "Adjusted follow-up demo",
+          },
+        ],
+        added: [
+          {
+            sliceId: "S06",
+            title: "Remediation slice",
+            risk: "medium",
+            depends: ["S05"],
+            demo: "Remediation slice demo",
+          },
+        ],
+        removed: [],
+      },
+    }, base));
+
+    assert.equal(result.details.operation, "reassess_roadmap");
+    const assessmentPath = String(result.details.assessmentPath);
+    const roadmapPath = String(result.details.roadmapPath);
+    assert.ok(existsSync(assessmentPath), "assessment file should be written");
+    assert.ok(existsSync(roadmapPath), "roadmap should be re-rendered");
+    assert.match(readFileSync(roadmapPath, "utf-8"), /S06/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executeSaveGateResult validates inputs and persists verdicts", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    seedMilestone("M005", "Milestone Five");
+    seedSlice("M005", "S05", "pending");
+    insertGateRow({
+      milestoneId: "M005",
+      sliceId: "S05",
+      gateId: "Q3",
+      scope: "slice",
+    });
+
+    const result = await inProjectDir(base, () => executeSaveGateResult({
+      milestoneId: "M005",
+      sliceId: "S05",
+      gateId: "Q3",
+      verdict: "pass",
+      rationale: "Looks good.",
+      findings: "No issues found.",
+    }));
+
+    assert.equal(result.details.operation, "save_gate_result");
+    const db = _getAdapter();
+    const row = db!.prepare(
+      "SELECT status, verdict, rationale FROM quality_gates WHERE milestone_id = ? AND slice_id = ? AND gate_id = ? AND task_id = ''",
+    ).get("M005", "S05", "Q3") as Record<string, unknown> | undefined;
+    assert.equal(row?.status, "complete");
+    assert.equal(row?.verdict, "pass");
+    assert.equal(row?.rationale, "Looks good.");
   } finally {
     closeDatabase();
     cleanup(base);

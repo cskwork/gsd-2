@@ -1,12 +1,16 @@
 import { ensureDbOpen } from "../bootstrap/dynamic-tools.js";
+import { sanitizeCompleteMilestoneParams } from "../bootstrap/sanitize-complete-milestone.js";
 import { shouldBlockContextArtifactSave } from "../bootstrap/write-gate.js";
 import {
   getMilestone,
   getSliceStatusSummary,
   getSliceTaskCounts,
   _getAdapter,
+  saveGateResult,
 } from "../gsd-db.js";
 import { saveArtifactToDb } from "../db-writer.js";
+import type { CompleteMilestoneParams } from "./complete-milestone.js";
+import { handleCompleteMilestone } from "./complete-milestone.js";
 import { handleCompleteTask } from "./complete-task.js";
 import type { CompleteSliceParams } from "../types.js";
 import { handleCompleteSlice } from "./complete-slice.js";
@@ -14,7 +18,12 @@ import type { PlanMilestoneParams } from "./plan-milestone.js";
 import { handlePlanMilestone } from "./plan-milestone.js";
 import type { PlanSliceParams } from "./plan-slice.js";
 import { handlePlanSlice } from "./plan-slice.js";
+import type { ReassessRoadmapParams } from "./reassess-roadmap.js";
+import { handleReassessRoadmap } from "./reassess-roadmap.js";
+import type { ValidateMilestoneParams } from "./validate-milestone.js";
+import { handleValidateMilestone } from "./validate-milestone.js";
 import { logError, logWarning } from "../workflow-logger.js";
+import { invalidateStateCache } from "../state.js";
 
 export const SUPPORTED_SUMMARY_ARTIFACT_TYPES = ["SUMMARY", "RESEARCH", "CONTEXT", "ASSESSMENT", "CONTEXT-DRAFT"] as const;
 
@@ -124,9 +133,22 @@ export interface TaskCompleteParams {
   verificationEvidence?: VerificationEvidenceInput[];
 }
 
+export type CompleteMilestoneExecutorParams = Partial<CompleteMilestoneParams> & Record<string, unknown>;
 export type SliceCompleteExecutorParams = CompleteSliceParams;
 export type PlanMilestoneExecutorParams = PlanMilestoneParams;
 export type PlanSliceExecutorParams = PlanSliceParams;
+export type ValidateMilestoneExecutorParams = ValidateMilestoneParams;
+export type ReassessRoadmapExecutorParams = ReassessRoadmapParams;
+
+export interface SaveGateResultParams {
+  milestoneId: string;
+  sliceId: string;
+  gateId: string;
+  taskId?: string;
+  verdict: "pass" | "flag" | "omitted";
+  rationale: string;
+  findings?: string;
+}
 
 export async function executeTaskComplete(
   params: TaskCompleteParams,
@@ -249,6 +271,173 @@ export async function executeSliceComplete(
     return {
       content: [{ type: "text", text: `Error completing slice: ${msg}` }],
       details: { operation: "complete_slice", error: msg },
+    };
+  }
+}
+
+export async function executeCompleteMilestone(
+  params: CompleteMilestoneExecutorParams,
+  basePath: string = process.cwd(),
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available. Cannot complete milestone." }],
+      details: { operation: "complete_milestone", error: "db_unavailable" },
+    };
+  }
+  try {
+    const sanitized = sanitizeCompleteMilestoneParams(params);
+    const result = await handleCompleteMilestone(sanitized, basePath);
+    if ("error" in result) {
+      return {
+        content: [{ type: "text", text: `Error completing milestone: ${result.error}` }],
+        details: { operation: "complete_milestone", error: result.error },
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Completed milestone ${result.milestoneId}. Summary written to ${result.summaryPath}` }],
+      details: {
+        operation: "complete_milestone",
+        milestoneId: result.milestoneId,
+        summaryPath: result.summaryPath,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `complete_milestone tool failed: ${msg}`, { tool: "gsd_complete_milestone", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error completing milestone: ${msg}` }],
+      details: { operation: "complete_milestone", error: msg },
+    };
+  }
+}
+
+export async function executeValidateMilestone(
+  params: ValidateMilestoneExecutorParams,
+  basePath: string = process.cwd(),
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available. Cannot validate milestone." }],
+      details: { operation: "validate_milestone", error: "db_unavailable" },
+    };
+  }
+  try {
+    const result = await handleValidateMilestone(params, basePath);
+    if ("error" in result) {
+      return {
+        content: [{ type: "text", text: `Error validating milestone: ${result.error}` }],
+        details: { operation: "validate_milestone", error: result.error },
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Validated milestone ${result.milestoneId} — verdict: ${result.verdict}. Written to ${result.validationPath}` }],
+      details: {
+        operation: "validate_milestone",
+        milestoneId: result.milestoneId,
+        verdict: result.verdict,
+        validationPath: result.validationPath,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `validate_milestone tool failed: ${msg}`, { tool: "gsd_validate_milestone", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error validating milestone: ${msg}` }],
+      details: { operation: "validate_milestone", error: msg },
+    };
+  }
+}
+
+export async function executeReassessRoadmap(
+  params: ReassessRoadmapExecutorParams,
+  basePath: string = process.cwd(),
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available. Cannot reassess roadmap." }],
+      details: { operation: "reassess_roadmap", error: "db_unavailable" },
+    };
+  }
+  try {
+    const result = await handleReassessRoadmap(params, basePath);
+    if ("error" in result) {
+      return {
+        content: [{ type: "text", text: `Error reassessing roadmap: ${result.error}` }],
+        details: { operation: "reassess_roadmap", error: result.error },
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Reassessed roadmap for milestone ${result.milestoneId} after ${result.completedSliceId}` }],
+      details: {
+        operation: "reassess_roadmap",
+        milestoneId: result.milestoneId,
+        completedSliceId: result.completedSliceId,
+        assessmentPath: result.assessmentPath,
+        roadmapPath: result.roadmapPath,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `reassess_roadmap tool failed: ${msg}`, { tool: "gsd_reassess_roadmap", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error reassessing roadmap: ${msg}` }],
+      details: { operation: "reassess_roadmap", error: msg },
+    };
+  }
+}
+
+export async function executeSaveGateResult(
+  params: SaveGateResultParams,
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available." }],
+      details: { operation: "save_gate_result", error: "db_unavailable" },
+    };
+  }
+
+  const validGates = ["Q3", "Q4", "Q5", "Q6", "Q7", "Q8"];
+  if (!validGates.includes(params.gateId)) {
+    return {
+      content: [{ type: "text", text: `Error: Invalid gateId "${params.gateId}". Must be one of: ${validGates.join(", ")}` }],
+      details: { operation: "save_gate_result", error: "invalid_gate_id" },
+    };
+  }
+
+  const validVerdicts = ["pass", "flag", "omitted"];
+  if (!validVerdicts.includes(params.verdict)) {
+    return {
+      content: [{ type: "text", text: `Error: Invalid verdict "${params.verdict}". Must be one of: ${validVerdicts.join(", ")}` }],
+      details: { operation: "save_gate_result", error: "invalid_verdict" },
+    };
+  }
+
+  try {
+    saveGateResult({
+      milestoneId: params.milestoneId,
+      sliceId: params.sliceId,
+      gateId: params.gateId,
+      taskId: params.taskId ?? "",
+      verdict: params.verdict,
+      rationale: params.rationale,
+      findings: params.findings ?? "",
+    });
+    invalidateStateCache();
+    return {
+      content: [{ type: "text", text: `Gate ${params.gateId} result saved: verdict=${params.verdict}` }],
+      details: { operation: "save_gate_result", gateId: params.gateId, verdict: params.verdict },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `gsd_save_gate_result failed: ${msg}`, { tool: "gsd_save_gate_result", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error saving gate result: ${msg}` }],
+      details: { operation: "save_gate_result", error: msg },
     };
   }
 }

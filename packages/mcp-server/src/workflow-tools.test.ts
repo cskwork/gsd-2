@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
+import { _getAdapter, closeDatabase } from "../../../src/resources/extensions/gsd/gsd-db.ts";
 import { registerWorkflowTools } from "./workflow-tools.ts";
 
 function makeTmpBase(): string {
@@ -14,6 +15,11 @@ function makeTmpBase(): string {
 }
 
 function cleanup(base: string): void {
+  try {
+    closeDatabase();
+  } catch {
+    // swallow
+  }
   try {
     rmSync(base, { recursive: true, force: true });
   } catch {
@@ -42,11 +48,11 @@ function makeMockServer() {
 }
 
 describe("workflow MCP tools", () => {
-  it("registers the eight workflow tools", () => {
+  it("registers the fifteen workflow tools", () => {
     const server = makeMockServer();
     registerWorkflowTools(server as any);
 
-    assert.equal(server.tools.length, 8);
+    assert.equal(server.tools.length, 15);
     assert.deepEqual(
       server.tools.map((t) => t.name),
       [
@@ -54,6 +60,13 @@ describe("workflow MCP tools", () => {
         "gsd_plan_slice",
         "gsd_slice_complete",
         "gsd_complete_slice",
+        "gsd_complete_milestone",
+        "gsd_milestone_complete",
+        "gsd_validate_milestone",
+        "gsd_milestone_validate",
+        "gsd_reassess_roadmap",
+        "gsd_roadmap_reassess",
+        "gsd_save_gate_result",
         "gsd_summary_save",
         "gsd_task_complete",
         "gsd_complete_task",
@@ -307,6 +320,7 @@ describe("workflow MCP tools", () => {
         uatContent: "## UAT\n\nPASS",
       });
       assert.match((canonicalResult as any).content[0].text as string, /Completed slice S03/);
+
       await milestoneTool!.handler({
         projectDir: base,
         milestoneId: "M004",
@@ -373,6 +387,281 @@ describe("workflow MCP tools", () => {
       assert.ok(
         existsSync(join(base, ".gsd", "milestones", "M004", "slices", "S04", "S04-UAT.md")),
         "alias should write slice UAT to disk",
+      );
+    } finally {
+      cleanup(base);
+    }
+  });
+
+  it("gsd_validate_milestone and gsd_milestone_complete work end-to-end", async () => {
+    const base = makeTmpBase();
+    try {
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const milestoneTool = server.tools.find((t) => t.name === "gsd_plan_milestone");
+      const sliceTool = server.tools.find((t) => t.name === "gsd_plan_slice");
+      const taskTool = server.tools.find((t) => t.name === "gsd_task_complete");
+      const completeSliceTool = server.tools.find((t) => t.name === "gsd_slice_complete");
+      const validateTool = server.tools.find((t) => t.name === "gsd_validate_milestone");
+      const completeMilestoneAlias = server.tools.find((t) => t.name === "gsd_milestone_complete");
+      assert.ok(milestoneTool, "milestone planning tool should be registered");
+      assert.ok(sliceTool, "slice planning tool should be registered");
+      assert.ok(taskTool, "task completion tool should be registered");
+      assert.ok(completeSliceTool, "slice completion tool should be registered");
+      assert.ok(validateTool, "milestone validation tool should be registered");
+      assert.ok(completeMilestoneAlias, "milestone completion alias should be registered");
+
+      await milestoneTool!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        title: "Milestone lifecycle",
+        vision: "Drive validation and completion over MCP.",
+        slices: [
+          {
+            sliceId: "S05",
+            title: "Lifecycle slice",
+            risk: "medium",
+            depends: [],
+            demo: "Milestone can validate and complete.",
+            goal: "Seed milestone completion state.",
+            successCriteria: "Summary and validation artifacts are written.",
+            proofLevel: "integration",
+            integrationClosure: "Lifecycle tools share the MCP bridge.",
+            observabilityImpact: "Tests cover milestone end-to-end behavior.",
+          },
+        ],
+      });
+      await sliceTool!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        sliceId: "S05",
+        goal: "Prepare a complete milestone.",
+        tasks: [
+          {
+            taskId: "T05",
+            title: "Lifecycle task",
+            description: "Seed a fully completed slice.",
+            estimate: "10m",
+            files: ["packages/mcp-server/src/workflow-tools.ts"],
+            verify: "node --test",
+            inputs: ["M005-ROADMAP.md"],
+            expectedOutput: ["M005-VALIDATION.md", "M005-SUMMARY.md"],
+          },
+        ],
+      });
+      await taskTool!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        sliceId: "S05",
+        taskId: "T05",
+        oneLiner: "Completed lifecycle task",
+        narrative: "Prepared the milestone for closure.",
+        verification: "node --test",
+      });
+      await completeSliceTool!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        sliceId: "S05",
+        sliceTitle: "Lifecycle Slice",
+        oneLiner: "Completed lifecycle slice",
+        narrative: "Closed the milestone slice.",
+        verification: "node --test",
+        uatContent: "## UAT\n\nPASS",
+      });
+
+      const validationResult = await validateTool!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        verdict: "pass",
+        remediationRound: 0,
+        successCriteriaChecklist: "- [x] Lifecycle verified",
+        sliceDeliveryAudit: "| Slice | Verdict |\n| --- | --- |\n| S05 | pass |",
+        crossSliceIntegration: "No cross-slice mismatches found.",
+        requirementCoverage: "No requirement gaps remain.",
+        verdictRationale: "The milestone delivered its scope.",
+      });
+      assert.match((validationResult as any).content[0].text as string, /Validated milestone M005/);
+
+      const completionResult = await completeMilestoneAlias!.handler({
+        projectDir: base,
+        milestoneId: "M005",
+        title: "Milestone lifecycle",
+        oneLiner: "Milestone closed successfully",
+        narrative: "Validation passed and all slices were complete.",
+        verificationPassed: true,
+      });
+      assert.match((completionResult as any).content[0].text as string, /Completed milestone M005/);
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M005", "M005-VALIDATION.md")),
+        "validation artifact should exist on disk",
+      );
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M005", "M005-SUMMARY.md")),
+        "milestone summary should exist on disk",
+      );
+    } finally {
+      cleanup(base);
+    }
+  });
+
+  it("gsd_reassess_roadmap, gsd_roadmap_reassess, and gsd_save_gate_result work end-to-end", async () => {
+    const base = makeTmpBase();
+    try {
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const milestoneTool = server.tools.find((t) => t.name === "gsd_plan_milestone");
+      const sliceTool = server.tools.find((t) => t.name === "gsd_plan_slice");
+      const taskTool = server.tools.find((t) => t.name === "gsd_task_complete");
+      const completeSliceTool = server.tools.find((t) => t.name === "gsd_slice_complete");
+      const reassessTool = server.tools.find((t) => t.name === "gsd_reassess_roadmap");
+      const reassessAlias = server.tools.find((t) => t.name === "gsd_roadmap_reassess");
+      const gateTool = server.tools.find((t) => t.name === "gsd_save_gate_result");
+      assert.ok(milestoneTool, "milestone planning tool should be registered");
+      assert.ok(sliceTool, "slice planning tool should be registered");
+      assert.ok(taskTool, "task completion tool should be registered");
+      assert.ok(completeSliceTool, "slice completion tool should be registered");
+      assert.ok(reassessTool, "roadmap reassessment tool should be registered");
+      assert.ok(reassessAlias, "roadmap reassessment alias should be registered");
+      assert.ok(gateTool, "gate result tool should be registered");
+
+      await milestoneTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        title: "Roadmap reassessment",
+        vision: "Drive gate results and reassessment over MCP.",
+        slices: [
+          {
+            sliceId: "S06",
+            title: "Completed slice",
+            risk: "medium",
+            depends: [],
+            demo: "Completed slice triggers reassessment.",
+            goal: "Seed reassessment state.",
+            successCriteria: "Assessment and roadmap artifacts are written.",
+            proofLevel: "integration",
+            integrationClosure: "Roadmap updates share the MCP bridge.",
+            observabilityImpact: "Tests cover reassessment behavior.",
+          },
+          {
+            sliceId: "S07",
+            title: "Follow-up slice",
+            risk: "low",
+            depends: ["S06"],
+            demo: "Follow-up slice remains pending.",
+            goal: "Leave room for roadmap edits.",
+            successCriteria: "Roadmap mutation succeeds.",
+            proofLevel: "integration",
+            integrationClosure: "Pending slice can be modified after reassessment.",
+            observabilityImpact: "Tests observe roadmap mutation output.",
+          },
+        ],
+      });
+      await sliceTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        sliceId: "S06",
+        goal: "Complete the first slice.",
+        tasks: [
+          {
+            taskId: "T06",
+            title: "Seed completed slice",
+            description: "Prepare gate and reassessment state.",
+            estimate: "10m",
+            files: ["packages/mcp-server/src/workflow-tools.ts"],
+            verify: "node --test",
+            inputs: ["M006-ROADMAP.md"],
+            expectedOutput: ["S06-ASSESSMENT.md", "M006-ROADMAP.md"],
+          },
+        ],
+      });
+
+      const gateResult = await gateTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        sliceId: "S06",
+        gateId: "Q3",
+        verdict: "pass",
+        rationale: "Threat surface is covered.",
+        findings: "No new attack surface was introduced.",
+      });
+      assert.match((gateResult as any).content[0].text as string, /Gate Q3 result saved/);
+      const gateRows = _getAdapter()!.prepare(
+        "SELECT status, verdict, rationale FROM quality_gates WHERE milestone_id = ? AND slice_id = ? AND gate_id = ?",
+      ).all("M006", "S06", "Q3") as Array<Record<string, unknown>>;
+      assert.equal(gateRows.length, 1);
+      assert.equal(gateRows[0]["status"], "complete");
+      assert.equal(gateRows[0]["verdict"], "pass");
+
+      await taskTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        sliceId: "S06",
+        taskId: "T06",
+        oneLiner: "Completed reassessment task",
+        narrative: "Prepared the slice for reassessment.",
+        verification: "node --test",
+      });
+      await completeSliceTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        sliceId: "S06",
+        sliceTitle: "Completed slice",
+        oneLiner: "Completed reassessment slice",
+        narrative: "Closed the completed slice before reassessment.",
+        verification: "node --test",
+        uatContent: "## UAT\n\nPASS",
+      });
+
+      const reassessResult = await reassessTool!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        completedSliceId: "S06",
+        verdict: "roadmap-adjusted",
+        assessment: "Insert remediation work after the completed slice.",
+        sliceChanges: {
+          modified: [
+            {
+              sliceId: "S07",
+              title: "Follow-up slice (adjusted)",
+              risk: "medium",
+              depends: ["S06"],
+              demo: "Adjusted demo",
+            },
+          ],
+          added: [
+            {
+              sliceId: "S08",
+              title: "Remediation slice",
+              risk: "high",
+              depends: ["S07"],
+              demo: "Remediation demo",
+            },
+          ],
+          removed: [],
+        },
+      });
+      assert.match((reassessResult as any).content[0].text as string, /Reassessed roadmap for milestone M006 after S06/);
+
+      const reassessAliasResult = await reassessAlias!.handler({
+        projectDir: base,
+        milestoneId: "M006",
+        completedSliceId: "S06",
+        verdict: "roadmap-confirmed",
+        assessment: "No further changes needed after the first reassessment.",
+        sliceChanges: {
+          modified: [],
+          added: [],
+          removed: [],
+        },
+      });
+      assert.match((reassessAliasResult as any).content[0].text as string, /Reassessed roadmap for milestone M006 after S06/);
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M006", "slices", "S06", "S06-ASSESSMENT.md")),
+        "assessment artifact should exist on disk",
+      );
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M006", "M006-ROADMAP.md")),
+        "roadmap artifact should exist on disk",
       );
     } finally {
       cleanup(base);

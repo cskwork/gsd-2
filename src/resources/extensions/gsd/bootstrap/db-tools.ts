@@ -9,11 +9,15 @@ import { StringEnum } from "@gsd/pi-ai";
 import { logError } from "../workflow-logger.js";
 import { getErrorMessage } from "../error-utils.js";
 import {
+  executeCompleteMilestone,
   executePlanMilestone,
   executePlanSlice,
+  executeReassessRoadmap,
+  executeSaveGateResult,
   executeSliceComplete,
   executeSummarySave,
   executeTaskComplete,
+  executeValidateMilestone,
 } from "../tools/workflow-tool-executors.js";
 
 /**
@@ -833,42 +837,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_complete_milestone ────────────────────────────────────────────
 
   const milestoneCompleteExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot complete milestone." }],
-        details: { operation: "complete_milestone", error: "db_unavailable" } as any,
-      };
-    }
-    try {
-      // ── Input sanitization: normalize markdown parameters (#3013) ──────
-      const { sanitizeCompleteMilestoneParams } = await import("./sanitize-complete-milestone.js");
-      const sanitized = sanitizeCompleteMilestoneParams(params);
-
-      const { handleCompleteMilestone } = await import("../tools/complete-milestone.js");
-      const result = await handleCompleteMilestone(sanitized, process.cwd());
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: `Error completing milestone: ${result.error}` }],
-          details: { operation: "complete_milestone", error: result.error } as any,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Completed milestone ${result.milestoneId}. Summary written to ${result.summaryPath}` }],
-        details: {
-          operation: "complete_milestone",
-          milestoneId: result.milestoneId,
-          summaryPath: result.summaryPath,
-        } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `complete_milestone tool failed: ${msg}`, { tool: "gsd_complete_milestone", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error completing milestone: ${msg}` }],
-        details: { operation: "complete_milestone", error: msg } as any,
-      };
-    }
+    return executeCompleteMilestone(params, process.cwd());
   };
 
   const milestoneCompleteTool = {
@@ -910,39 +879,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_validate_milestone (gsd_milestone_validate alias) ─────────────
 
   const milestoneValidateExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot validate milestone." }],
-        details: { operation: "validate_milestone", error: "db_unavailable" } as any,
-      };
-    }
-    try {
-      const { handleValidateMilestone } = await import("../tools/validate-milestone.js");
-      const result = await handleValidateMilestone(params, process.cwd());
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: `Error validating milestone: ${result.error}` }],
-          details: { operation: "validate_milestone", error: result.error } as any,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Validated milestone ${result.milestoneId} — verdict: ${result.verdict}. Written to ${result.validationPath}` }],
-        details: {
-          operation: "validate_milestone",
-          milestoneId: result.milestoneId,
-          verdict: result.verdict,
-          validationPath: result.validationPath,
-        } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `validate_milestone tool failed: ${msg}`, { tool: "gsd_validate_milestone", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error validating milestone: ${msg}` }],
-        details: { operation: "validate_milestone", error: msg } as any,
-      };
-    }
+    return executeValidateMilestone(params, process.cwd());
   };
 
   const milestoneValidateTool = {
@@ -1059,40 +996,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_reassess_roadmap (gsd_roadmap_reassess alias) ─────────────────
 
   const reassessRoadmapExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot reassess roadmap." }],
-        details: { operation: "reassess_roadmap", error: "db_unavailable" } as any,
-      };
-    }
-    try {
-      const { handleReassessRoadmap } = await import("../tools/reassess-roadmap.js");
-      const result = await handleReassessRoadmap(params, process.cwd());
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: `Error reassessing roadmap: ${result.error}` }],
-          details: { operation: "reassess_roadmap", error: result.error } as any,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Reassessed roadmap for milestone ${result.milestoneId} after ${result.completedSliceId}` }],
-        details: {
-          operation: "reassess_roadmap",
-          milestoneId: result.milestoneId,
-          completedSliceId: result.completedSliceId,
-          assessmentPath: result.assessmentPath,
-          roadmapPath: result.roadmapPath,
-        } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `reassess_roadmap tool failed: ${msg}`, { tool: "gsd_reassess_roadmap", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error reassessing roadmap: ${msg}` }],
-        details: { operation: "reassess_roadmap", error: msg } as any,
-      };
-    }
+    return executeReassessRoadmap(params, process.cwd());
   };
 
   const reassessRoadmapTool = {
@@ -1147,52 +1051,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_save_gate_result ──────────────────────────────────────────────
 
   const saveGateResultExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available." }],
-        details: { operation: "save_gate_result", error: "db_unavailable" } as any,
-      };
-    }
-    const validGates = ["Q3", "Q4", "Q5", "Q6", "Q7", "Q8"];
-    if (!validGates.includes(params.gateId)) {
-      return {
-        content: [{ type: "text" as const, text: `Error: Invalid gateId "${params.gateId}". Must be one of: ${validGates.join(", ")}` }],
-        details: { operation: "save_gate_result", error: "invalid_gate_id" } as any,
-      };
-    }
-    const validVerdicts = ["pass", "flag", "omitted"];
-    if (!validVerdicts.includes(params.verdict)) {
-      return {
-        content: [{ type: "text" as const, text: `Error: Invalid verdict "${params.verdict}". Must be one of: ${validVerdicts.join(", ")}` }],
-        details: { operation: "save_gate_result", error: "invalid_verdict" } as any,
-      };
-    }
-    try {
-      const { saveGateResult } = await import("../gsd-db.js");
-      const { invalidateStateCache } = await import("../state.js");
-      saveGateResult({
-        milestoneId: params.milestoneId,
-        sliceId: params.sliceId,
-        gateId: params.gateId,
-        taskId: params.taskId ?? "",
-        verdict: params.verdict,
-        rationale: params.rationale,
-        findings: params.findings ?? "",
-      });
-      invalidateStateCache();
-      return {
-        content: [{ type: "text" as const, text: `Gate ${params.gateId} result saved: verdict=${params.verdict}` }],
-        details: { operation: "save_gate_result", gateId: params.gateId, verdict: params.verdict } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `gsd_save_gate_result failed: ${msg}`, { tool: "gsd_save_gate_result", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error saving gate result: ${msg}` }],
-        details: { operation: "save_gate_result", error: msg } as any,
-      };
-    }
+    return executeSaveGateResult(params);
   };
 
   const saveGateResultTool = {
