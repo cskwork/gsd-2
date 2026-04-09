@@ -1,6 +1,6 @@
 import { ensureDbOpen } from "../bootstrap/dynamic-tools.js";
 import { sanitizeCompleteMilestoneParams } from "../bootstrap/sanitize-complete-milestone.js";
-import { shouldBlockContextArtifactSave } from "../bootstrap/write-gate.js";
+import { loadWriteGateSnapshot, shouldBlockContextArtifactSaveInSnapshot } from "../bootstrap/write-gate.js";
 import {
   getMilestone,
   getSliceStatusSummary,
@@ -65,7 +65,8 @@ export async function executeSummarySave(
       details: { operation: "save_summary", error: "invalid_artifact_type" },
     };
   }
-  const contextGuard = shouldBlockContextArtifactSave(
+  const contextGuard = shouldBlockContextArtifactSaveInSnapshot(
+    loadWriteGateSnapshot(basePath),
     params.artifact_type,
     params.milestone_id ?? null,
     params.slice_id ?? null,

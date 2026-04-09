@@ -216,8 +216,37 @@ type WorkflowToolExecutors = {
   ) => Promise<unknown>;
 };
 
+type WorkflowWriteGateModule = {
+  loadWriteGateSnapshot: (basePath?: string) => {
+    verifiedDepthMilestones: string[];
+    activeQueuePhase: boolean;
+    pendingGateId: string | null;
+  };
+  shouldBlockPendingGateInSnapshot: (
+    snapshot: {
+      verifiedDepthMilestones: string[];
+      activeQueuePhase: boolean;
+      pendingGateId: string | null;
+    },
+    toolName: string,
+    milestoneId: string | null,
+    queuePhaseActive?: boolean,
+  ) => { block: boolean; reason?: string };
+  shouldBlockQueueExecutionInSnapshot: (
+    snapshot: {
+      verifiedDepthMilestones: string[];
+      activeQueuePhase: boolean;
+      pendingGateId: string | null;
+    },
+    toolName: string,
+    input: string,
+    queuePhaseActive?: boolean,
+  ) => { block: boolean; reason?: string };
+};
+
 let workflowToolExecutorsPromise: Promise<WorkflowToolExecutors> | null = null;
 let workflowExecutionQueue: Promise<void> = Promise.resolve();
+let workflowWriteGatePromise: Promise<WorkflowWriteGateModule> | null = null;
 
 function getAllowedProjectRoot(env: NodeJS.ProcessEnv = process.env): string | null {
   const configuredRoot = env.GSD_WORKFLOW_PROJECT_ROOT?.trim();
@@ -285,6 +314,13 @@ function getSupportedSummaryArtifactTypes(executors: WorkflowToolExecutors): rea
   return executors.SUPPORTED_SUMMARY_ARTIFACT_TYPES;
 }
 
+function getWriteGateModuleCandidates(): string[] {
+  return [
+    new URL("../../../src/resources/extensions/gsd/bootstrap/write-gate.js", import.meta.url).href,
+    new URL("../../../src/resources/extensions/gsd/bootstrap/write-gate.ts", import.meta.url).href,
+  ];
+}
+
 function toFileUrl(modulePath: string): string {
   return pathToFileURL(resolve(modulePath)).href;
 }
@@ -334,6 +370,36 @@ async function getWorkflowToolExecutors(): Promise<WorkflowToolExecutors> {
   return workflowToolExecutorsPromise;
 }
 
+async function getWorkflowWriteGateModule(): Promise<WorkflowWriteGateModule> {
+  if (!workflowWriteGatePromise) {
+    workflowWriteGatePromise = (async () => {
+      const attempts: string[] = [];
+      for (const candidate of getWriteGateModuleCandidates()) {
+        try {
+          const loaded = await import(candidate);
+          if (
+            loaded &&
+            typeof loaded.loadWriteGateSnapshot === "function" &&
+            typeof loaded.shouldBlockPendingGateInSnapshot === "function" &&
+            typeof loaded.shouldBlockQueueExecutionInSnapshot === "function"
+          ) {
+            return loaded as WorkflowWriteGateModule;
+          }
+          attempts.push(`${candidate} (module shape mismatch)`);
+        } catch (err) {
+          attempts.push(`${candidate} (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }
+
+      throw new Error(
+        "Unable to load GSD write-gate bridge for workflow MCP tools. " +
+        `Attempts: ${attempts.join("; ")}`,
+      );
+    })();
+  }
+  return workflowWriteGatePromise;
+}
+
 interface McpToolServer {
   tool(
     name: string,
@@ -360,10 +426,39 @@ async function runSerializedWorkflowOperation<T>(fn: () => Promise<T>): Promise<
   }
 }
 
+async function enforceWorkflowWriteGate(
+  toolName: string,
+  projectDir: string,
+  milestoneId: string | null = null,
+): Promise<void> {
+  const writeGate = await getWorkflowWriteGateModule();
+  const snapshot = writeGate.loadWriteGateSnapshot(projectDir);
+  const pendingGate = writeGate.shouldBlockPendingGateInSnapshot(
+    snapshot,
+    toolName,
+    milestoneId,
+    snapshot.activeQueuePhase,
+  );
+  if (pendingGate.block) {
+    throw new Error(pendingGate.reason ?? "workflow tool blocked by pending discussion gate");
+  }
+
+  const queueGuard = writeGate.shouldBlockQueueExecutionInSnapshot(
+    snapshot,
+    toolName,
+    "",
+    snapshot.activeQueuePhase,
+  );
+  if (queueGuard.block) {
+    throw new Error(queueGuard.reason ?? "workflow tool blocked during queue mode");
+  }
+}
+
 async function handleTaskComplete(
   projectDir: string,
   args: Omit<z.infer<typeof taskCompleteSchema>, "projectDir">,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_task_complete", projectDir, args.milestoneId);
   const {
     taskId,
     sliceId,
@@ -404,6 +499,7 @@ async function handleSliceComplete(
   projectDir: string,
   args: z.infer<typeof sliceCompleteSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_slice_complete", projectDir, args.milestoneId);
   const { executeSliceComplete } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeSliceComplete(params, projectDir));
@@ -413,6 +509,7 @@ async function handleReplanSlice(
   projectDir: string,
   args: z.infer<typeof replanSliceSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_replan_slice", projectDir, args.milestoneId);
   const { executeReplanSlice } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeReplanSlice(params, projectDir));
@@ -422,6 +519,7 @@ async function handleCompleteMilestone(
   projectDir: string,
   args: z.infer<typeof completeMilestoneSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_complete_milestone", projectDir, args.milestoneId);
   const { executeCompleteMilestone } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeCompleteMilestone(params, projectDir));
@@ -431,6 +529,7 @@ async function handleValidateMilestone(
   projectDir: string,
   args: z.infer<typeof validateMilestoneSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_validate_milestone", projectDir, args.milestoneId);
   const { executeValidateMilestone } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeValidateMilestone(params, projectDir));
@@ -440,6 +539,7 @@ async function handleReassessRoadmap(
   projectDir: string,
   args: z.infer<typeof reassessRoadmapSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_reassess_roadmap", projectDir, args.milestoneId);
   const { executeReassessRoadmap } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeReassessRoadmap(params, projectDir));
@@ -449,6 +549,7 @@ async function handleSaveGateResult(
   projectDir: string,
   args: z.infer<typeof saveGateResultSchema>,
 ): Promise<unknown> {
+  await enforceWorkflowWriteGate("gsd_save_gate_result", projectDir, args.milestoneId);
   const { executeSaveGateResult } = await getWorkflowToolExecutors();
   const { projectDir: _projectDir, ...params } = args;
   return runSerializedWorkflowOperation(() => executeSaveGateResult(params, projectDir));
@@ -699,6 +800,7 @@ export function registerWorkflowTools(server: McpToolServer): void {
     async (args: Record<string, unknown>) => {
       const parsed = parseWorkflowArgs(planMilestoneSchema, args);
       const { projectDir, ...params } = parsed;
+      await enforceWorkflowWriteGate("gsd_plan_milestone", projectDir, params.milestoneId);
       const { executePlanMilestone } = await getWorkflowToolExecutors();
       return runSerializedWorkflowOperation(() => executePlanMilestone(params, projectDir));
     },
@@ -711,6 +813,7 @@ export function registerWorkflowTools(server: McpToolServer): void {
     async (args: Record<string, unknown>) => {
       const parsed = parseWorkflowArgs(planSliceSchema, args);
       const { projectDir, ...params } = parsed;
+      await enforceWorkflowWriteGate("gsd_plan_slice", projectDir, params.milestoneId);
       const { executePlanSlice } = await getWorkflowToolExecutors();
       return runSerializedWorkflowOperation(() => executePlanSlice(params, projectDir));
     },
@@ -833,6 +936,7 @@ export function registerWorkflowTools(server: McpToolServer): void {
     async (args: Record<string, unknown>) => {
       const parsed = parseWorkflowArgs(summarySaveSchema, args);
       const { projectDir, milestone_id, slice_id, task_id, artifact_type, content } = parsed;
+      await enforceWorkflowWriteGate("gsd_summary_save", projectDir, milestone_id);
       const executors = await getWorkflowToolExecutors();
       const supportedArtifactTypes = getSupportedSummaryArtifactTypes(executors);
       if (!supportedArtifactTypes.includes(artifact_type)) {
@@ -874,6 +978,7 @@ export function registerWorkflowTools(server: McpToolServer): void {
     milestoneStatusParams,
     async (args: Record<string, unknown>) => {
       const { projectDir, milestoneId } = parseWorkflowArgs(milestoneStatusSchema, args);
+      await enforceWorkflowWriteGate("gsd_milestone_status", projectDir, milestoneId);
       const { executeMilestoneStatus } = await getWorkflowToolExecutors();
       return runSerializedWorkflowOperation(() => executeMilestoneStatus({ milestoneId }, projectDir));
     },

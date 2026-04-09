@@ -46,6 +46,7 @@ test("detectWorkflowMcpLaunchConfig prefers explicit env override", () => {
     env: {
       FOO: "bar",
       GSD_CLI_PATH: "/tmp/gsd",
+      GSD_PERSIST_WRITE_GATE_STATE: "1",
       GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
     },
   });
@@ -62,6 +63,7 @@ test("buildWorkflowMcpServers mirrors explicit launch config", () => {
       command: "node",
       args: ["dist/cli.js"],
       env: {
+        GSD_PERSIST_WRITE_GATE_STATE: "1",
         GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
       },
     },

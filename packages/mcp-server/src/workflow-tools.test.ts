@@ -27,6 +27,26 @@ function cleanup(base: string): void {
   }
 }
 
+function writeWriteGateSnapshot(
+  base: string,
+  snapshot: { verifiedDepthMilestones?: string[]; activeQueuePhase?: boolean; pendingGateId?: string | null },
+): void {
+  mkdirSync(join(base, ".gsd", "runtime"), { recursive: true });
+  writeFileSync(
+    join(base, ".gsd", "runtime", "write-gate-state.json"),
+    JSON.stringify(
+      {
+        verifiedDepthMilestones: snapshot.verifiedDepthMilestones ?? [],
+        activeQueuePhase: snapshot.activeQueuePhase ?? false,
+        pendingGateId: snapshot.pendingGateId ?? null,
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+}
+
 function makeMockServer() {
   const tools: Array<{
     name: string;
@@ -172,6 +192,72 @@ describe("workflow MCP tools", () => {
       } else {
         process.env.GSD_WORKFLOW_PROJECT_ROOT = prevRoot;
       }
+      cleanup(base);
+    }
+  });
+
+  it("blocks workflow mutation tools while a discussion gate is pending", async () => {
+    const base = makeTmpBase();
+    try {
+      mkdirSync(join(base, ".gsd", "milestones", "M001", "slices", "S01"), { recursive: true });
+      writeFileSync(
+        join(base, ".gsd", "milestones", "M001", "slices", "S01", "S01-PLAN.md"),
+        "# S01\n\n- [ ] **T01: Demo** `est:5m`\n",
+      );
+      writeWriteGateSnapshot(base, { pendingGateId: "depth_verification_M001_confirm" });
+
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const taskTool = server.tools.find((t) => t.name === "gsd_task_complete");
+      assert.ok(taskTool, "task tool should be registered");
+
+      await assert.rejects(
+        () =>
+          taskTool!.handler({
+            projectDir: base,
+            taskId: "T01",
+            sliceId: "S01",
+            milestoneId: "M001",
+            oneLiner: "Completed task",
+            narrative: "Did the work",
+            verification: "npm test",
+          }),
+        /Discussion gate .* has not been confirmed/,
+      );
+    } finally {
+      cleanup(base);
+    }
+  });
+
+  it("blocks workflow mutation tools during queue mode", async () => {
+    const base = makeTmpBase();
+    try {
+      mkdirSync(join(base, ".gsd", "milestones", "M001", "slices", "S01"), { recursive: true });
+      writeFileSync(
+        join(base, ".gsd", "milestones", "M001", "slices", "S01", "S01-PLAN.md"),
+        "# S01\n\n- [ ] **T01: Demo** `est:5m`\n",
+      );
+      writeWriteGateSnapshot(base, { activeQueuePhase: true });
+
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const taskTool = server.tools.find((t) => t.name === "gsd_task_complete");
+      assert.ok(taskTool, "task tool should be registered");
+
+      await assert.rejects(
+        () =>
+          taskTool!.handler({
+            projectDir: base,
+            taskId: "T01",
+            sliceId: "S01",
+            milestoneId: "M001",
+            oneLiner: "Completed task",
+            narrative: "Did the work",
+            verification: "npm test",
+          }),
+        /planning tool .* not executes work|Cannot gsd_task_complete|Unknown tools are not permitted during queue mode/,
+      );
+    } finally {
       cleanup(base);
     }
   });

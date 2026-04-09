@@ -153,6 +153,7 @@ describe("stream-adapter — session persistence (#2859)", () => {
 					args: ["packages/mcp-server/dist/cli.js"],
 					env: {
 						GSD_CLI_PATH: "/tmp/gsd",
+						GSD_PERSIST_WRITE_GATE_STATE: "1",
 						GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
 					},
 					cwd: "/tmp/project",
@@ -230,6 +231,7 @@ describe("stream-adapter — session persistence (#2859)", () => {
 					args: [realpathSync(resolve(repoDir, "packages", "mcp-server", "dist", "cli.js"))],
 					env: {
 						GSD_CLI_PATH: "/tmp/gsd",
+						GSD_PERSIST_WRITE_GATE_STATE: "1",
 						GSD_WORKFLOW_PROJECT_ROOT: resolvedRepoDir,
 					},
 					cwd: resolvedRepoDir,

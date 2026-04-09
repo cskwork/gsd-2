@@ -85,6 +85,7 @@ export function detectWorkflowMcpLaunchConfig(
     const launchEnv = {
       ...(explicitEnv ?? {}),
       ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+      GSD_PERSIST_WRITE_GATE_STATE: "1",
       GSD_WORKFLOW_PROJECT_ROOT: resolve(workflowProjectRoot),
     };
     return {
@@ -105,6 +106,7 @@ export function detectWorkflowMcpLaunchConfig(
       cwd: projectRoot,
       env: {
         ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+        GSD_PERSIST_WRITE_GATE_STATE: "1",
         GSD_WORKFLOW_PROJECT_ROOT: resolve(projectRoot),
       },
     };
@@ -117,6 +119,7 @@ export function detectWorkflowMcpLaunchConfig(
       command: binPath,
       env: {
         ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+        GSD_PERSIST_WRITE_GATE_STATE: "1",
         GSD_WORKFLOW_PROJECT_ROOT: resolve(projectRoot),
       },
     };
