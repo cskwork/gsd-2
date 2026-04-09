@@ -238,11 +238,15 @@ export async function showProjectInit(
   // Initialize SQLite database so GSD starts in full-capability mode (#3880).
   // Without this, isDbAvailable() returns false and GSD enters degraded
   // markdown-only mode until a tool handler happens to call ensureDbOpen().
+  let dbReady = false;
   try {
     const { ensureDbOpen } = await import("./bootstrap/dynamic-tools.js");
-    await ensureDbOpen(basePath);
+    dbReady = await ensureDbOpen(basePath);
   } catch {
-    // Non-fatal — DB creation failure should not block project init
+    // Swallowed — warning surfaced below
+  }
+  if (!dbReady) {
+    ctx.ui.notify("Warning: database initialization failed — GSD will run in degraded mode until the next /gsd invocation.", "warning");
   }
 
   // Ensure .gitignore
@@ -263,6 +267,7 @@ export async function showProjectInit(
   // Write initial STATE.md so it exists before the first /gsd invocation.
   // The explicit /gsd init path (ops.ts) returns without entering showSmartEntry(),
   // which would otherwise generate STATE.md at guided-flow.ts:1358.
+  let stateReady = false;
   try {
     const { deriveState } = await import("./state.js");
     const { buildStateMarkdown } = await import("./doctor.js");
@@ -270,8 +275,12 @@ export async function showProjectInit(
     const { resolveGsdRootFile } = await import("./paths.js");
     const state = await deriveState(basePath);
     await saveFile(resolveGsdRootFile(basePath, "STATE"), buildStateMarkdown(state));
+    stateReady = true;
   } catch {
-    // Non-fatal — STATE.md will be regenerated on next /gsd invocation
+    // Swallowed — warning surfaced below
+  }
+  if (!stateReady) {
+    ctx.ui.notify("Warning: initial STATE.md generation failed — it will be created on the next /gsd invocation.", "warning");
   }
 
   ctx.ui.notify("GSD initialized. Starting your first milestone...", "info");

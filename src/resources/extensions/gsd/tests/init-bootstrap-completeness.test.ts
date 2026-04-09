@@ -94,4 +94,28 @@ describe("init-wizard bootstrap completeness (#3880)", () => {
       "ensureDbOpen must appear before deriveState so DB is ready for state derivation",
     );
   });
+
+  // ── Failure visibility: user must be warned on partial bootstrap ───────
+
+  test("ensureDbOpen failure surfaces a warning to the user", () => {
+    assert.match(
+      wizardSrc,
+      /if\s*\(\s*!dbReady\s*\)/,
+      "init-wizard should check dbReady and warn the user on failure",
+    );
+    // The warning must reference degraded mode so the user knows what happened
+    assert.match(
+      wizardSrc,
+      /degraded mode/,
+      "DB failure warning should mention degraded mode",
+    );
+  });
+
+  test("STATE.md failure surfaces a warning to the user", () => {
+    assert.match(
+      wizardSrc,
+      /if\s*\(\s*!stateReady\s*\)/,
+      "init-wizard should check stateReady and warn the user on failure",
+    );
+  });
 });
