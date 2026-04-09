@@ -1314,8 +1314,8 @@ export async function showSmartEntry(
     if (interrupted.pausedSession) {
       try {
         unlinkSync(join(gsdRoot(basePath), "runtime", "paused-session.json"));
-      } catch {
-        // Non-fatal stale metadata cleanup.
+      } catch (e) {
+        logWarning("guided", `stale pause file cleanup failed: ${(e as Error).message}`, { file: "guided-flow.ts" });
       }
     }
   } else if (interrupted.classification === "recoverable") {

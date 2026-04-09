@@ -1164,8 +1164,9 @@ export async function startAuto(
         s.activeRunDir = meta.activeRunDir ?? null;
         s.originalBasePath = meta.originalBasePath || base;
         s.stepMode = meta.stepMode ?? requestedStepMode;
+        s.autoStartTime = meta.autoStartTime || Date.now();
         s.paused = true;
-        try { unlinkSync(pausedPath); } catch { /* non-fatal */ }
+        try { unlinkSync(pausedPath); } catch (e) { logWarning("session", `pause file cleanup failed: ${e instanceof Error ? e.message : String(e)}`, { file: "auto.ts" }); }
         ctx.ui.notify(
           `Resuming paused custom workflow${meta.activeRunDir ? ` (${meta.activeRunDir})` : ""}.`,
           "info",
@@ -1197,21 +1198,24 @@ export async function startAuto(
             s.pausedSessionFile = meta.sessionFile ?? null;
             s.pausedUnitType = meta.unitType ?? null;
             s.pausedUnitId = meta.unitId ?? null;
+            s.autoStartTime = meta.autoStartTime || Date.now();
             s.paused = true;
-            try { unlinkSync(pausedPath); } catch { /* non-fatal */ }
+            try { unlinkSync(pausedPath); } catch (e) { logWarning("session", `pause file cleanup failed: ${e instanceof Error ? e.message : String(e)}`, { file: "auto.ts" }); }
             ctx.ui.notify(
               `Resuming paused session for ${meta.milestoneId}${meta.worktreePath && existsSync(meta.worktreePath) ? ` (worktree)` : ""}.`,
               "info",
             );
           }
         } else if (existsSync(pausedPath)) {
-          try { unlinkSync(pausedPath); } catch { /* non-fatal */ }
+          try { unlinkSync(pausedPath); } catch (e) { logWarning("session", `stale pause file cleanup failed: ${e instanceof Error ? e.message : String(e)}`, { file: "auto.ts" }); }
         }
       }
     } catch (err) {
       // Malformed or missing — proceed with fresh bootstrap
       logWarning("session", `paused-session restore failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
     }
+    // Guard against zero/missing autoStartTime after resume (#3585)
+    if (!s.autoStartTime || s.autoStartTime <= 0) s.autoStartTime = Date.now();
   }
 
   if (!s.paused) {
