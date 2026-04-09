@@ -97,6 +97,7 @@ if (require.main === module) {
     'pi-ai',
     'pi-agent-core',
     'pi-coding-agent',
+    'mcp-server',
   ]
 
   const stale = detectStalePackages(root, WORKSPACE_PACKAGES)

@@ -65,6 +65,7 @@ try {
   const requiredFiles = [
     'dist/loader.js',
     'packages/pi-coding-agent/dist/index.js',
+    'packages/mcp-server/dist/cli.js',
     'scripts/link-workspace-packages.cjs',
     'dist/web/standalone/server.js',
   ];
@@ -133,6 +134,12 @@ try {
   // --- Run the binary to confirm end-to-end resolution ---
   console.log('==> Running installed binary (gsd -v)...');
   const loaderPath = join(installedRoot, 'dist', 'loader.js');
+  const bundledWorkflowMcpCliPath = join(installedRoot, 'packages', 'mcp-server', 'dist', 'cli.js');
+  if (!existsSync(bundledWorkflowMcpCliPath)) {
+    console.log('ERROR: Bundled workflow MCP CLI missing after install.');
+    console.log(`    Expected: ${bundledWorkflowMcpCliPath}`);
+    process.exit(1);
+  }
   try {
     const versionOutput = execSync(`node "${loaderPath}" -v`, {
       cwd: installDir,
