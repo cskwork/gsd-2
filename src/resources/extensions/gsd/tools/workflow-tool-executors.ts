@@ -8,6 +8,10 @@ import {
 } from "../gsd-db.js";
 import { saveArtifactToDb } from "../db-writer.js";
 import { handleCompleteTask } from "./complete-task.js";
+import type { PlanMilestoneParams } from "./plan-milestone.js";
+import { handlePlanMilestone } from "./plan-milestone.js";
+import type { PlanSliceParams } from "./plan-slice.js";
+import { handlePlanSlice } from "./plan-slice.js";
 import { logError, logWarning } from "../workflow-logger.js";
 
 export const SUPPORTED_SUMMARY_ARTIFACT_TYPES = ["SUMMARY", "RESEARCH", "CONTEXT", "ASSESSMENT", "CONTEXT-DRAFT"] as const;
@@ -118,6 +122,9 @@ export interface TaskCompleteParams {
   verificationEvidence?: VerificationEvidenceInput[];
 }
 
+export type PlanMilestoneExecutorParams = PlanMilestoneParams;
+export type PlanSliceExecutorParams = PlanSliceParams;
+
 export async function executeTaskComplete(
   params: TaskCompleteParams,
   basePath: string = process.cwd(),
@@ -158,6 +165,82 @@ export async function executeTaskComplete(
     return {
       content: [{ type: "text", text: `Error completing task: ${msg}` }],
       details: { operation: "complete_task", error: msg },
+    };
+  }
+}
+
+export async function executePlanMilestone(
+  params: PlanMilestoneExecutorParams,
+  basePath: string = process.cwd(),
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available. Cannot plan milestone." }],
+      details: { operation: "plan_milestone", error: "db_unavailable" },
+    };
+  }
+  try {
+    const result = await handlePlanMilestone(params, basePath);
+    if ("error" in result) {
+      return {
+        content: [{ type: "text", text: `Error planning milestone: ${result.error}` }],
+        details: { operation: "plan_milestone", error: result.error },
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Planned milestone ${result.milestoneId}` }],
+      details: {
+        operation: "plan_milestone",
+        milestoneId: result.milestoneId,
+        roadmapPath: result.roadmapPath,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `plan_milestone tool failed: ${msg}`, { tool: "gsd_plan_milestone", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error planning milestone: ${msg}` }],
+      details: { operation: "plan_milestone", error: msg },
+    };
+  }
+}
+
+export async function executePlanSlice(
+  params: PlanSliceExecutorParams,
+  basePath: string = process.cwd(),
+): Promise<ToolExecutionResult> {
+  const dbAvailable = await ensureDbOpen();
+  if (!dbAvailable) {
+    return {
+      content: [{ type: "text", text: "Error: GSD database is not available. Cannot plan slice." }],
+      details: { operation: "plan_slice", error: "db_unavailable" },
+    };
+  }
+  try {
+    const result = await handlePlanSlice(params, basePath);
+    if ("error" in result) {
+      return {
+        content: [{ type: "text", text: `Error planning slice: ${result.error}` }],
+        details: { operation: "plan_slice", error: result.error },
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Planned slice ${result.sliceId} (${result.milestoneId})` }],
+      details: {
+        operation: "plan_slice",
+        milestoneId: result.milestoneId,
+        sliceId: result.sliceId,
+        planPath: result.planPath,
+        taskPlanPaths: result.taskPlanPaths,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError("tool", `plan_slice tool failed: ${msg}`, { tool: "gsd_plan_slice", error: String(err) });
+    return {
+      content: [{ type: "text", text: `Error planning slice: ${msg}` }],
+      details: { operation: "plan_slice", error: msg },
     };
   }
 }

@@ -107,18 +107,18 @@ test("transport compatibility fails cleanly when MCP server is unavailable", () 
 test("transport compatibility fails cleanly when unit requires unsupported tools", () => {
   const error = getWorkflowTransportSupportError(
     "claude-code",
-    ["gsd_plan_slice"],
+    ["gsd_complete_task"],
     {
       projectRoot: "/tmp/project",
       env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
       surface: "auto-mode",
-      unitType: "plan-slice",
+      unitType: "execute-task",
       authMode: "externalCli",
       baseUrl: "local://claude-code",
     },
   );
 
-  assert.match(error ?? "", /requires gsd_plan_slice/);
+  assert.match(error ?? "", /requires gsd_complete_task/);
   assert.match(error ?? "", /currently exposes only/);
 });
 
@@ -133,6 +133,23 @@ test("transport compatibility ignores API-backed providers", () => {
       unitType: "plan-slice",
       authMode: "oauth",
       baseUrl: "https://api.openai.com",
+    },
+  );
+
+  assert.equal(error, null);
+});
+
+test("transport compatibility now allows plan-slice over workflow MCP surface", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_plan_slice"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "plan-slice",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
     },
   );
 

@@ -9,6 +9,8 @@ import { StringEnum } from "@gsd/pi-ai";
 import { logError } from "../workflow-logger.js";
 import { getErrorMessage } from "../error-utils.js";
 import {
+  executePlanMilestone,
+  executePlanSlice,
   executeSummarySave,
   executeTaskComplete,
 } from "../tools/workflow-tool-executors.js";
@@ -414,38 +416,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_plan_milestone (gsd_milestone_plan alias) ─────────────────────
 
   const planMilestoneExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot plan milestone." }],
-        details: { operation: "plan_milestone", error: "db_unavailable" } as any,
-      };
-    }
-    try {
-      const { handlePlanMilestone } = await import("../tools/plan-milestone.js");
-      const result = await handlePlanMilestone(params, process.cwd());
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: `Error planning milestone: ${result.error}` }],
-          details: { operation: "plan_milestone", error: result.error } as any,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Planned milestone ${result.milestoneId}` }],
-        details: {
-          operation: "plan_milestone",
-          milestoneId: result.milestoneId,
-          roadmapPath: result.roadmapPath,
-        } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `plan_milestone tool failed: ${msg}`, { tool: "gsd_plan_milestone", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error planning milestone: ${msg}` }],
-        details: { operation: "plan_milestone", error: msg } as any,
-      };
-    }
+    return executePlanMilestone(params, process.cwd());
   };
 
   const planMilestoneTool = {
@@ -507,40 +478,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_plan_slice (gsd_slice_plan alias) ─────────────────────────────
 
   const planSliceExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    const dbAvailable = await ensureDbOpen();
-    if (!dbAvailable) {
-      return {
-        content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot plan slice." }],
-        details: { operation: "plan_slice", error: "db_unavailable" } as any,
-      };
-    }
-    try {
-      const { handlePlanSlice } = await import("../tools/plan-slice.js");
-      const result = await handlePlanSlice(params, process.cwd());
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: `Error planning slice: ${result.error}` }],
-          details: { operation: "plan_slice", error: result.error } as any,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Planned slice ${result.sliceId} (${result.milestoneId})` }],
-        details: {
-          operation: "plan_slice",
-          milestoneId: result.milestoneId,
-          sliceId: result.sliceId,
-          planPath: result.planPath,
-          taskPlanPaths: result.taskPlanPaths,
-        } as any,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logError("tool", `plan_slice tool failed: ${msg}`, { tool: "gsd_plan_slice", error: String(err) });
-      return {
-        content: [{ type: "text" as const, text: `Error planning slice: ${msg}` }],
-        details: { operation: "plan_slice", error: msg } as any,
-      };
-    }
+    return executePlanSlice(params, process.cwd());
   };
 
   const planSliceTool = {

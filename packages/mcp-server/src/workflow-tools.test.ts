@@ -42,14 +42,14 @@ function makeMockServer() {
 }
 
 describe("workflow MCP tools", () => {
-  it("registers the three workflow tools", () => {
+  it("registers the five workflow tools", () => {
     const server = makeMockServer();
     registerWorkflowTools(server as any);
 
-    assert.equal(server.tools.length, 3);
+    assert.equal(server.tools.length, 5);
     assert.deepEqual(
       server.tools.map((t) => t.name),
-      ["gsd_summary_save", "gsd_task_complete", "gsd_milestone_status"],
+      ["gsd_plan_milestone", "gsd_plan_slice", "gsd_summary_save", "gsd_task_complete", "gsd_milestone_status"],
     );
   });
 
@@ -120,6 +120,70 @@ describe("workflow MCP tools", () => {
       assert.equal(parsed.milestoneId, "M001");
       assert.equal(parsed.sliceCount, 1);
       assert.equal(parsed.slices[0].id, "S01");
+    } finally {
+      cleanup(base);
+    }
+  });
+
+  it("gsd_plan_milestone and gsd_plan_slice work end-to-end", async () => {
+    const base = makeTmpBase();
+    try {
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const milestoneTool = server.tools.find((t) => t.name === "gsd_plan_milestone");
+      const sliceTool = server.tools.find((t) => t.name === "gsd_plan_slice");
+      assert.ok(milestoneTool, "milestone planning tool should be registered");
+      assert.ok(sliceTool, "slice planning tool should be registered");
+
+      const milestoneResult = await milestoneTool!.handler({
+        projectDir: base,
+        milestoneId: "M001",
+        title: "Workflow MCP planning",
+        vision: "Plan milestone over MCP.",
+        slices: [
+          {
+            sliceId: "S01",
+            title: "Bridge planning",
+            risk: "medium",
+            depends: [],
+            demo: "Milestone plan persists through MCP.",
+            goal: "Persist roadmap state.",
+            successCriteria: "ROADMAP.md renders from DB.",
+            proofLevel: "integration",
+            integrationClosure: "Prompts and MCP call the same handler.",
+            observabilityImpact: "Executor tests cover output paths.",
+          },
+        ],
+      });
+      assert.match((milestoneResult as any).content[0].text as string, /Planned milestone M001/);
+
+      const sliceResult = await sliceTool!.handler({
+        projectDir: base,
+        milestoneId: "M001",
+        sliceId: "S01",
+        goal: "Persist slice plan over MCP.",
+        tasks: [
+          {
+            taskId: "T01",
+            title: "Add planning bridge",
+            description: "Implement the shared executor path.",
+            estimate: "15m",
+            files: ["src/resources/extensions/gsd/tools/workflow-tool-executors.ts"],
+            verify: "node --test",
+            inputs: ["ROADMAP.md"],
+            expectedOutput: ["S01-PLAN.md", "T01-PLAN.md"],
+          },
+        ],
+      });
+      assert.match((sliceResult as any).content[0].text as string, /Planned slice S01/);
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M001", "slices", "S01", "S01-PLAN.md")),
+        "slice plan should exist on disk",
+      );
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M001", "slices", "S01", "tasks", "T01-PLAN.md")),
+        "task plan should exist on disk",
+      );
     } finally {
       cleanup(base);
     }

@@ -9,6 +9,61 @@ const SUMMARY_ARTIFACT_TYPES = ["SUMMARY", "RESEARCH", "CONTEXT", "ASSESSMENT", 
 type WorkflowToolExecutors = {
   SUPPORTED_SUMMARY_ARTIFACT_TYPES: readonly string[];
   executeMilestoneStatus: (params: { milestoneId: string }) => Promise<unknown>;
+  executePlanMilestone: (
+    params: {
+      milestoneId: string;
+      title: string;
+      vision: string;
+      slices: Array<{
+        sliceId: string;
+        title: string;
+        risk: string;
+        depends: string[];
+        demo: string;
+        goal: string;
+        successCriteria: string;
+        proofLevel: string;
+        integrationClosure: string;
+        observabilityImpact: string;
+      }>;
+      status?: string;
+      dependsOn?: string[];
+      successCriteria?: string[];
+      keyRisks?: Array<{ risk: string; whyItMatters: string }>;
+      proofStrategy?: Array<{ riskOrUnknown: string; retireIn: string; whatWillBeProven: string }>;
+      verificationContract?: string;
+      verificationIntegration?: string;
+      verificationOperational?: string;
+      verificationUat?: string;
+      definitionOfDone?: string[];
+      requirementCoverage?: string;
+      boundaryMapMarkdown?: string;
+    },
+    basePath?: string,
+  ) => Promise<unknown>;
+  executePlanSlice: (
+    params: {
+      milestoneId: string;
+      sliceId: string;
+      goal: string;
+      tasks: Array<{
+        taskId: string;
+        title: string;
+        description: string;
+        estimate: string;
+        files: string[];
+        verify: string;
+        inputs: string[];
+        expectedOutput: string[];
+        observabilityImpact?: string;
+      }>;
+      successCriteria?: string;
+      proofLevel?: string;
+      integrationClosure?: string;
+      observabilityImpact?: string;
+    },
+    basePath?: string,
+  ) => Promise<unknown>;
   executeSummarySave: (
     params: {
       milestone_id: string;
@@ -72,6 +127,84 @@ async function withProjectDir<T>(projectDir: string, fn: () => Promise<T>): Prom
 }
 
 export function registerWorkflowTools(server: McpToolServer): void {
+  server.tool(
+    "gsd_plan_milestone",
+    "Write milestone planning state to the GSD database and render ROADMAP.md from DB.",
+    {
+      projectDir: z.string().describe("Absolute path to the project directory"),
+      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+      title: z.string().describe("Milestone title"),
+      vision: z.string().describe("Milestone vision"),
+      slices: z.array(z.object({
+        sliceId: z.string(),
+        title: z.string(),
+        risk: z.string(),
+        depends: z.array(z.string()),
+        demo: z.string(),
+        goal: z.string(),
+        successCriteria: z.string(),
+        proofLevel: z.string(),
+        integrationClosure: z.string(),
+        observabilityImpact: z.string(),
+      })).describe("Planned slices for the milestone"),
+      status: z.string().optional().describe("Milestone status"),
+      dependsOn: z.array(z.string()).optional().describe("Milestone dependencies"),
+      successCriteria: z.array(z.string()).optional().describe("Top-level success criteria bullets"),
+      keyRisks: z.array(z.object({
+        risk: z.string(),
+        whyItMatters: z.string(),
+      })).optional().describe("Structured risk entries"),
+      proofStrategy: z.array(z.object({
+        riskOrUnknown: z.string(),
+        retireIn: z.string(),
+        whatWillBeProven: z.string(),
+      })).optional().describe("Structured proof strategy entries"),
+      verificationContract: z.string().optional(),
+      verificationIntegration: z.string().optional(),
+      verificationOperational: z.string().optional(),
+      verificationUat: z.string().optional(),
+      definitionOfDone: z.array(z.string()).optional(),
+      requirementCoverage: z.string().optional(),
+      boundaryMapMarkdown: z.string().optional(),
+    },
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...params } = args as { projectDir: string } & Record<string, unknown>;
+      const { executePlanMilestone } = await getWorkflowToolExecutors();
+      return withProjectDir(projectDir, () => executePlanMilestone(params as any, projectDir));
+    },
+  );
+
+  server.tool(
+    "gsd_plan_slice",
+    "Write slice/task planning state to the GSD database and render plan artifacts from DB.",
+    {
+      projectDir: z.string().describe("Absolute path to the project directory"),
+      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+      sliceId: z.string().describe("Slice ID (e.g. S01)"),
+      goal: z.string().describe("Slice goal"),
+      tasks: z.array(z.object({
+        taskId: z.string(),
+        title: z.string(),
+        description: z.string(),
+        estimate: z.string(),
+        files: z.array(z.string()),
+        verify: z.string(),
+        inputs: z.array(z.string()),
+        expectedOutput: z.array(z.string()),
+        observabilityImpact: z.string().optional(),
+      })).describe("Planned tasks for the slice"),
+      successCriteria: z.string().optional(),
+      proofLevel: z.string().optional(),
+      integrationClosure: z.string().optional(),
+      observabilityImpact: z.string().optional(),
+    },
+    async (args: Record<string, unknown>) => {
+      const { projectDir, ...params } = args as { projectDir: string } & Record<string, unknown>;
+      const { executePlanSlice } = await getWorkflowToolExecutors();
+      return withProjectDir(projectDir, () => executePlanSlice(params as any, projectDir));
+    },
+  );
+
   server.tool(
     "gsd_summary_save",
     "Save a GSD summary/research/context/assessment artifact to the database and disk.",

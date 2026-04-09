@@ -14,6 +14,8 @@ import {
   executeSummarySave,
   executeTaskComplete,
   executeMilestoneStatus,
+  executePlanMilestone,
+  executePlanSlice,
 } from "../tools/workflow-tool-executors.ts";
 
 function makeTmpBase(): string {
@@ -138,6 +140,95 @@ test("executeMilestoneStatus returns milestone metadata and slice counts", async
     assert.equal(parsed.sliceCount, 1);
     assert.equal(parsed.slices[0].id, "S01");
     assert.equal(parsed.slices[0].taskCounts.pending, 1);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executePlanMilestone writes roadmap state and rendered roadmap path", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+
+    const result = await inProjectDir(base, () => executePlanMilestone({
+      milestoneId: "M001",
+      title: "Workflow MCP planning",
+      vision: "Plan milestone over shared executors.",
+      slices: [
+        {
+          sliceId: "S01",
+          title: "Bridge planning",
+          risk: "medium",
+          depends: [],
+          demo: "Milestone plan persists through MCP.",
+          goal: "Persist roadmap state.",
+          successCriteria: "ROADMAP.md renders from DB.",
+          proofLevel: "integration",
+          integrationClosure: "Prompts and MCP call the same handler.",
+          observabilityImpact: "Executor tests cover output paths.",
+        },
+      ],
+    }, base));
+
+    assert.equal(result.details.operation, "plan_milestone");
+    assert.equal(result.details.milestoneId, "M001");
+    const roadmapPath = String(result.details.roadmapPath);
+    assert.ok(existsSync(roadmapPath), "roadmap should be rendered to disk");
+    assert.match(readFileSync(roadmapPath, "utf-8"), /Workflow MCP planning/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executePlanSlice writes task planning state and rendered plan artifacts", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    await inProjectDir(base, () => executePlanMilestone({
+      milestoneId: "M001",
+      title: "Workflow MCP planning",
+      vision: "Plan milestone over shared executors.",
+      slices: [
+        {
+          sliceId: "S01",
+          title: "Bridge planning",
+          risk: "medium",
+          depends: [],
+          demo: "Milestone plan persists through MCP.",
+          goal: "Persist roadmap state.",
+          successCriteria: "ROADMAP.md renders from DB.",
+          proofLevel: "integration",
+          integrationClosure: "Prompts and MCP call the same handler.",
+          observabilityImpact: "Executor tests cover output paths.",
+        },
+      ],
+    }, base));
+
+    const result = await inProjectDir(base, () => executePlanSlice({
+      milestoneId: "M001",
+      sliceId: "S01",
+      goal: "Persist slice plan over MCP.",
+      tasks: [
+        {
+          taskId: "T01",
+          title: "Add planning bridge",
+          description: "Implement the shared executor path.",
+          estimate: "15m",
+          files: ["src/resources/extensions/gsd/tools/workflow-tool-executors.ts"],
+          verify: "node --test",
+          inputs: ["ROADMAP.md"],
+          expectedOutput: ["S01-PLAN.md", "T01-PLAN.md"],
+        },
+      ],
+    }, base));
+
+    assert.equal(result.details.operation, "plan_slice");
+    assert.equal(result.details.sliceId, "S01");
+    const planPath = String(result.details.planPath);
+    assert.ok(existsSync(planPath), "slice plan should be rendered to disk");
+    assert.match(readFileSync(planPath, "utf-8"), /Persist slice plan over MCP/);
   } finally {
     closeDatabase();
     cleanup(base);
