@@ -151,7 +151,10 @@ describe("stream-adapter — session persistence (#2859)", () => {
 				"gsd-workflow": {
 					command: "node",
 					args: ["packages/mcp-server/dist/cli.js"],
-					env: { GSD_CLI_PATH: "/tmp/gsd" },
+					env: {
+						GSD_CLI_PATH: "/tmp/gsd",
+						GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
+					},
 					cwd: "/tmp/project",
 				},
 			});
@@ -225,7 +228,10 @@ describe("stream-adapter — session persistence (#2859)", () => {
 				"gsd-workflow": {
 					command: process.execPath,
 					args: [realpathSync(resolve(repoDir, "packages", "mcp-server", "dist", "cli.js"))],
-					env: { GSD_CLI_PATH: "/tmp/gsd" },
+					env: {
+						GSD_CLI_PATH: "/tmp/gsd",
+						GSD_WORKFLOW_PROJECT_ROOT: resolvedRepoDir,
+					},
 					cwd: resolvedRepoDir,
 				},
 			});

@@ -1019,7 +1019,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
   // ─── gsd_save_gate_result ──────────────────────────────────────────────
 
   const saveGateResultExecute = async (_toolCallId: string, params: any, _signal: AbortSignal | undefined, _onUpdate: unknown, _ctx: unknown) => {
-    return executeSaveGateResult(params);
+    return executeSaveGateResult(params, process.cwd());
   };
 
   const saveGateResultTool = {

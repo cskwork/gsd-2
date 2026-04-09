@@ -46,6 +46,7 @@ test("detectWorkflowMcpLaunchConfig prefers explicit env override", () => {
     env: {
       FOO: "bar",
       GSD_CLI_PATH: "/tmp/gsd",
+      GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
     },
   });
 });
@@ -60,6 +61,9 @@ test("buildWorkflowMcpServers mirrors explicit launch config", () => {
     "gsd-workflow": {
       command: "node",
       args: ["dist/cli.js"],
+      env: {
+        GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
+      },
     },
   });
 });

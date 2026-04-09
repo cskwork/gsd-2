@@ -106,6 +106,76 @@ describe("workflow MCP tools", () => {
     }
   });
 
+  it("rejects workflow tool calls outside the configured project root", async () => {
+    const base = makeTmpBase();
+    const otherBase = makeTmpBase();
+    const prevRoot = process.env.GSD_WORKFLOW_PROJECT_ROOT;
+    try {
+      process.env.GSD_WORKFLOW_PROJECT_ROOT = base;
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const tool = server.tools.find((t) => t.name === "gsd_summary_save");
+      assert.ok(tool, "summary tool should be registered");
+
+      await assert.rejects(
+        () =>
+          tool!.handler({
+            projectDir: otherBase,
+            milestone_id: "M001",
+            artifact_type: "SUMMARY",
+            content: "# Summary",
+          }),
+        /configured workflow project root/,
+      );
+    } finally {
+      if (prevRoot === undefined) {
+        delete process.env.GSD_WORKFLOW_PROJECT_ROOT;
+      } else {
+        process.env.GSD_WORKFLOW_PROJECT_ROOT = prevRoot;
+      }
+      cleanup(base);
+      cleanup(otherBase);
+    }
+  });
+
+  it("rejects non-file executor module URLs", async () => {
+    const base = makeTmpBase();
+    const prevModule = process.env.GSD_WORKFLOW_EXECUTORS_MODULE;
+    const prevRoot = process.env.GSD_WORKFLOW_PROJECT_ROOT;
+    try {
+      process.env.GSD_WORKFLOW_PROJECT_ROOT = base;
+      process.env.GSD_WORKFLOW_EXECUTORS_MODULE = "data:text/javascript,export default {}";
+      const { registerWorkflowTools: freshRegisterWorkflowTools } = await import(`./workflow-tools.ts?bad-module=${randomUUID()}`);
+      const server = makeMockServer();
+      freshRegisterWorkflowTools(server as any);
+      const tool = server.tools.find((t) => t.name === "gsd_summary_save");
+      assert.ok(tool, "summary tool should be registered");
+
+      await assert.rejects(
+        () =>
+          tool!.handler({
+            projectDir: base,
+            milestone_id: "M001",
+            artifact_type: "SUMMARY",
+            content: "# Summary",
+          }),
+        /only supports file: URLs or filesystem paths/,
+      );
+    } finally {
+      if (prevModule === undefined) {
+        delete process.env.GSD_WORKFLOW_EXECUTORS_MODULE;
+      } else {
+        process.env.GSD_WORKFLOW_EXECUTORS_MODULE = prevModule;
+      }
+      if (prevRoot === undefined) {
+        delete process.env.GSD_WORKFLOW_PROJECT_ROOT;
+      } else {
+        process.env.GSD_WORKFLOW_PROJECT_ROOT = prevRoot;
+      }
+      cleanup(base);
+    }
+  });
+
   it("gsd_task_complete and gsd_milestone_status work end-to-end", async () => {
     const base = makeTmpBase();
     try {

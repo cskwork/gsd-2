@@ -2,11 +2,9 @@
  * Workflow MCP tools — exposes the core GSD mutation/read handlers over MCP.
  */
 
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-
-const SUMMARY_ARTIFACT_TYPES = ["SUMMARY", "RESEARCH", "CONTEXT", "ASSESSMENT", "CONTEXT-DRAFT"] as const;
 
 type WorkflowToolExecutors = {
   SUPPORTED_SUMMARY_ARTIFACT_TYPES: readonly string[];
@@ -221,6 +219,72 @@ type WorkflowToolExecutors = {
 let workflowToolExecutorsPromise: Promise<WorkflowToolExecutors> | null = null;
 let workflowExecutionQueue: Promise<void> = Promise.resolve();
 
+function getAllowedProjectRoot(env: NodeJS.ProcessEnv = process.env): string | null {
+  const configuredRoot = env.GSD_WORKFLOW_PROJECT_ROOT?.trim();
+  return configuredRoot ? resolve(configuredRoot) : null;
+}
+
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  const rel = relative(rootPath, candidatePath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function validateProjectDir(projectDir: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!isAbsolute(projectDir)) {
+    throw new Error(`projectDir must be an absolute path. Received: ${projectDir}`);
+  }
+
+  const resolvedProjectDir = resolve(projectDir);
+  const allowedRoot = getAllowedProjectRoot(env);
+  if (allowedRoot && !isWithinRoot(resolvedProjectDir, allowedRoot)) {
+    throw new Error(
+      `projectDir must stay within the configured workflow project root. Received: ${resolvedProjectDir}; allowed root: ${allowedRoot}`,
+    );
+  }
+
+  return resolvedProjectDir;
+}
+
+function parseToolArgs<T>(schema: z.ZodType<T>, args: Record<string, unknown>): T {
+  return schema.parse(args);
+}
+
+function parseWorkflowArgs<T extends { projectDir: string }>(
+  schema: z.ZodType<T>,
+  args: Record<string, unknown>,
+): T {
+  const parsed = parseToolArgs(schema, args);
+  return {
+    ...parsed,
+    projectDir: validateProjectDir(parsed.projectDir),
+  };
+}
+
+function isWorkflowToolExecutors(value: unknown): value is WorkflowToolExecutors {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const functionExports = [
+    "executeMilestoneStatus",
+    "executePlanMilestone",
+    "executePlanSlice",
+    "executeReplanSlice",
+    "executeSliceComplete",
+    "executeCompleteMilestone",
+    "executeValidateMilestone",
+    "executeReassessRoadmap",
+    "executeSaveGateResult",
+    "executeSummarySave",
+    "executeTaskComplete",
+  ];
+
+  return Array.isArray(record.SUPPORTED_SUMMARY_ARTIFACT_TYPES) &&
+    functionExports.every((key) => typeof record[key] === "function");
+}
+
+function getSupportedSummaryArtifactTypes(executors: WorkflowToolExecutors): readonly string[] {
+  return executors.SUPPORTED_SUMMARY_ARTIFACT_TYPES;
+}
+
 function toFileUrl(modulePath: string): string {
   return pathToFileURL(resolve(modulePath)).href;
 }
@@ -229,9 +293,10 @@ function getWorkflowExecutorModuleCandidates(env: NodeJS.ProcessEnv = process.en
   const candidates: string[] = [];
   const explicitModule = env.GSD_WORKFLOW_EXECUTORS_MODULE?.trim();
   if (explicitModule) {
-    candidates.push(
-      explicitModule.startsWith("file:") || explicitModule.startsWith("data:") ? explicitModule : toFileUrl(explicitModule),
-    );
+    if (/^[a-z]+:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
+      throw new Error("GSD_WORKFLOW_EXECUTORS_MODULE only supports file: URLs or filesystem paths.");
+    }
+    candidates.push(explicitModule.startsWith("file:") ? explicitModule : toFileUrl(explicitModule));
   }
 
   candidates.push(
@@ -248,7 +313,11 @@ async function getWorkflowToolExecutors(): Promise<WorkflowToolExecutors> {
       const attempts: string[] = [];
       for (const candidate of getWorkflowExecutorModuleCandidates()) {
         try {
-          return await import(candidate) as WorkflowToolExecutors;
+          const loaded = await import(candidate);
+          if (isWorkflowToolExecutors(loaded)) {
+            return loaded;
+          }
+          attempts.push(`${candidate} (module shape mismatch)`);
         } catch (err) {
           attempts.push(`${candidate} (${err instanceof Error ? err.message : String(err)})`);
         }
@@ -293,7 +362,7 @@ async function runSerializedWorkflowOperation<T>(fn: () => Promise<T>): Promise<
 
 async function handleTaskComplete(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: Omit<z.infer<typeof taskCompleteSchema>, "projectDir">,
 ): Promise<unknown> {
   const {
     taskId,
@@ -308,22 +377,7 @@ async function handleTaskComplete(
     keyDecisions,
     blockerDiscovered,
     verificationEvidence,
-  } = args as {
-    taskId: string;
-    sliceId: string;
-    milestoneId: string;
-    oneLiner: string;
-    narrative: string;
-    verification: string;
-    deviations?: string;
-    knownIssues?: string;
-    keyFiles?: string[];
-    keyDecisions?: string[];
-    blockerDiscovered?: boolean;
-    verificationEvidence?: Array<
-      { command: string; exitCode: number; verdict: string; durationMs: number } | string
-    >;
-  };
+  } = args;
   const { executeTaskComplete } = await getWorkflowToolExecutors();
   return runSerializedWorkflowOperation(() =>
     executeTaskComplete(
@@ -348,54 +402,124 @@ async function handleTaskComplete(
 
 async function handleSliceComplete(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof sliceCompleteSchema>,
 ): Promise<unknown> {
   const { executeSliceComplete } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeSliceComplete(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeSliceComplete(params, projectDir));
 }
 
 async function handleReplanSlice(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof replanSliceSchema>,
 ): Promise<unknown> {
   const { executeReplanSlice } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeReplanSlice(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeReplanSlice(params, projectDir));
 }
 
 async function handleCompleteMilestone(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof completeMilestoneSchema>,
 ): Promise<unknown> {
   const { executeCompleteMilestone } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeCompleteMilestone(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeCompleteMilestone(params, projectDir));
 }
 
 async function handleValidateMilestone(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof validateMilestoneSchema>,
 ): Promise<unknown> {
   const { executeValidateMilestone } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeValidateMilestone(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeValidateMilestone(params, projectDir));
 }
 
 async function handleReassessRoadmap(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof reassessRoadmapSchema>,
 ): Promise<unknown> {
   const { executeReassessRoadmap } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeReassessRoadmap(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeReassessRoadmap(params, projectDir));
 }
 
 async function handleSaveGateResult(
   projectDir: string,
-  args: Record<string, unknown>,
+  args: z.infer<typeof saveGateResultSchema>,
 ): Promise<unknown> {
   const { executeSaveGateResult } = await getWorkflowToolExecutors();
-  return runSerializedWorkflowOperation(() => executeSaveGateResult(args as any, projectDir));
+  const { projectDir: _projectDir, ...params } = args;
+  return runSerializedWorkflowOperation(() => executeSaveGateResult(params, projectDir));
 }
 
-const completeMilestoneSchema = {
-  projectDir: z.string().describe("Absolute path to the project directory"),
+const projectDirParam = z.string().describe("Absolute path to the project directory within the configured workflow root");
+
+const planMilestoneParams = {
+  projectDir: projectDirParam,
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  title: z.string().describe("Milestone title"),
+  vision: z.string().describe("Milestone vision"),
+  slices: z.array(z.object({
+    sliceId: z.string(),
+    title: z.string(),
+    risk: z.string(),
+    depends: z.array(z.string()),
+    demo: z.string(),
+    goal: z.string(),
+    successCriteria: z.string(),
+    proofLevel: z.string(),
+    integrationClosure: z.string(),
+    observabilityImpact: z.string(),
+  })).describe("Planned slices for the milestone"),
+  status: z.string().optional().describe("Milestone status"),
+  dependsOn: z.array(z.string()).optional().describe("Milestone dependencies"),
+  successCriteria: z.array(z.string()).optional().describe("Top-level success criteria bullets"),
+  keyRisks: z.array(z.object({
+    risk: z.string(),
+    whyItMatters: z.string(),
+  })).optional().describe("Structured risk entries"),
+  proofStrategy: z.array(z.object({
+    riskOrUnknown: z.string(),
+    retireIn: z.string(),
+    whatWillBeProven: z.string(),
+  })).optional().describe("Structured proof strategy entries"),
+  verificationContract: z.string().optional(),
+  verificationIntegration: z.string().optional(),
+  verificationOperational: z.string().optional(),
+  verificationUat: z.string().optional(),
+  definitionOfDone: z.array(z.string()).optional(),
+  requirementCoverage: z.string().optional(),
+  boundaryMapMarkdown: z.string().optional(),
+};
+const planMilestoneSchema = z.object(planMilestoneParams);
+
+const planSliceParams = {
+  projectDir: projectDirParam,
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  sliceId: z.string().describe("Slice ID (e.g. S01)"),
+  goal: z.string().describe("Slice goal"),
+  tasks: z.array(z.object({
+    taskId: z.string(),
+    title: z.string(),
+    description: z.string(),
+    estimate: z.string(),
+    files: z.array(z.string()),
+    verify: z.string(),
+    inputs: z.array(z.string()),
+    expectedOutput: z.array(z.string()),
+    observabilityImpact: z.string().optional(),
+  })).describe("Planned tasks for the slice"),
+  successCriteria: z.string().optional(),
+  proofLevel: z.string().optional(),
+  integrationClosure: z.string().optional(),
+  observabilityImpact: z.string().optional(),
+};
+const planSliceSchema = z.object(planSliceParams);
+
+const completeMilestoneParams = {
+  projectDir: projectDirParam,
   milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
   title: z.string().describe("Milestone title"),
   oneLiner: z.string().describe("One-sentence summary of what the milestone achieved"),
@@ -410,9 +534,10 @@ const completeMilestoneSchema = {
   followUps: z.string().optional(),
   deviations: z.string().optional(),
 };
+const completeMilestoneSchema = z.object(completeMilestoneParams);
 
-const validateMilestoneSchema = {
-  projectDir: z.string().describe("Absolute path to the project directory"),
+const validateMilestoneParams = {
+  projectDir: projectDirParam,
   milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
   verdict: z.enum(["pass", "needs-attention", "needs-remediation"]).describe("Validation verdict"),
   remediationRound: z.number().describe("Remediation round (0 for first validation)"),
@@ -424,6 +549,7 @@ const validateMilestoneSchema = {
   verdictRationale: z.string().describe("Why this verdict was chosen"),
   remediationPlan: z.string().optional(),
 };
+const validateMilestoneSchema = z.object(validateMilestoneParams);
 
 const roadmapSliceChangeSchema = z.object({
   sliceId: z.string(),
@@ -433,8 +559,8 @@ const roadmapSliceChangeSchema = z.object({
   demo: z.string().optional(),
 });
 
-const reassessRoadmapSchema = {
-  projectDir: z.string().describe("Absolute path to the project directory"),
+const reassessRoadmapParams = {
+  projectDir: projectDirParam,
   milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
   completedSliceId: z.string().describe("Slice ID that just completed"),
   verdict: z.string().describe("Assessment verdict such as roadmap-confirmed or roadmap-adjusted"),
@@ -445,9 +571,10 @@ const reassessRoadmapSchema = {
     removed: z.array(z.string()),
   }).describe("Slice changes to apply"),
 };
+const reassessRoadmapSchema = z.object(reassessRoadmapParams);
 
-const saveGateResultSchema = {
-  projectDir: z.string().describe("Absolute path to the project directory"),
+const saveGateResultParams = {
+  projectDir: projectDirParam,
   milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
   sliceId: z.string().describe("Slice ID (e.g. S01)"),
   gateId: z.enum(["Q3", "Q4", "Q5", "Q6", "Q7", "Q8"]).describe("Gate ID"),
@@ -456,9 +583,10 @@ const saveGateResultSchema = {
   rationale: z.string().describe("One-sentence justification"),
   findings: z.string().optional().describe("Detailed markdown findings"),
 };
+const saveGateResultSchema = z.object(saveGateResultParams);
 
-const replanSliceSchema = {
-  projectDir: z.string().describe("Absolute path to the project directory"),
+const replanSliceParams = {
+  projectDir: projectDirParam,
   milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
   sliceId: z.string().describe("Slice ID (e.g. S01)"),
   blockerTaskId: z.string().describe("Task ID that discovered the blocker"),
@@ -477,299 +605,243 @@ const replanSliceSchema = {
   })).describe("Tasks to upsert into the replanned slice"),
   removedTaskIds: z.array(z.string()).describe("Task IDs to remove from the slice"),
 };
+const replanSliceSchema = z.object(replanSliceParams);
+
+const sliceCompleteParams = {
+  projectDir: projectDirParam,
+  sliceId: z.string().describe("Slice ID (e.g. S01)"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  sliceTitle: z.string().describe("Title of the slice"),
+  oneLiner: z.string().describe("One-line summary of what the slice accomplished"),
+  narrative: z.string().describe("Detailed narrative of what happened across all tasks"),
+  verification: z.string().describe("What was verified across all tasks"),
+  uatContent: z.string().describe("UAT test content (markdown body)"),
+  deviations: z.string().optional(),
+  knownLimitations: z.string().optional(),
+  followUps: z.string().optional(),
+  keyFiles: z.union([z.array(z.string()), z.string()]).optional(),
+  keyDecisions: z.union([z.array(z.string()), z.string()]).optional(),
+  patternsEstablished: z.union([z.array(z.string()), z.string()]).optional(),
+  observabilitySurfaces: z.union([z.array(z.string()), z.string()]).optional(),
+  provides: z.union([z.array(z.string()), z.string()]).optional(),
+  requirementsSurfaced: z.union([z.array(z.string()), z.string()]).optional(),
+  drillDownPaths: z.union([z.array(z.string()), z.string()]).optional(),
+  affects: z.union([z.array(z.string()), z.string()]).optional(),
+  requirementsAdvanced: z.array(z.union([
+    z.object({ id: z.string(), how: z.string() }),
+    z.string(),
+  ])).optional(),
+  requirementsValidated: z.array(z.union([
+    z.object({ id: z.string(), proof: z.string() }),
+    z.string(),
+  ])).optional(),
+  requirementsInvalidated: z.array(z.union([
+    z.object({ id: z.string(), what: z.string() }),
+    z.string(),
+  ])).optional(),
+  filesModified: z.array(z.union([
+    z.object({ path: z.string(), description: z.string() }),
+    z.string(),
+  ])).optional(),
+  requires: z.array(z.union([
+    z.object({ slice: z.string(), provides: z.string() }),
+    z.string(),
+  ])).optional(),
+};
+const sliceCompleteSchema = z.object(sliceCompleteParams);
+
+const summarySaveParams = {
+  projectDir: projectDirParam,
+  milestone_id: z.string().describe("Milestone ID (e.g. M001)"),
+  slice_id: z.string().optional().describe("Slice ID (e.g. S01)"),
+  task_id: z.string().optional().describe("Task ID (e.g. T01)"),
+  artifact_type: z.string().describe("Artifact type to save (SUMMARY, RESEARCH, CONTEXT, ASSESSMENT, CONTEXT-DRAFT)"),
+  content: z.string().describe("The full markdown content of the artifact"),
+};
+const summarySaveSchema = z.object(summarySaveParams);
+
+const taskCompleteParams = {
+  projectDir: projectDirParam,
+  taskId: z.string().describe("Task ID (e.g. T01)"),
+  sliceId: z.string().describe("Slice ID (e.g. S01)"),
+  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
+  oneLiner: z.string().describe("One-line summary of what was accomplished"),
+  narrative: z.string().describe("Detailed narrative of what happened during the task"),
+  verification: z.string().describe("What was verified and how"),
+  deviations: z.string().optional().describe("Deviations from the task plan"),
+  knownIssues: z.string().optional().describe("Known issues discovered but not fixed"),
+  keyFiles: z.array(z.string()).optional().describe("List of key files created or modified"),
+  keyDecisions: z.array(z.string()).optional().describe("List of key decisions made during this task"),
+  blockerDiscovered: z.boolean().optional().describe("Whether a plan-invalidating blocker was discovered"),
+  verificationEvidence: z.array(z.union([
+    z.object({
+      command: z.string(),
+      exitCode: z.number(),
+      verdict: z.string(),
+      durationMs: z.number(),
+    }),
+    z.string(),
+  ])).optional().describe("Verification evidence entries"),
+};
+const taskCompleteSchema = z.object(taskCompleteParams);
+
+const milestoneStatusParams = {
+  projectDir: projectDirParam,
+  milestoneId: z.string().describe("Milestone ID to query (e.g. M001)"),
+};
+const milestoneStatusSchema = z.object(milestoneStatusParams);
 
 export function registerWorkflowTools(server: McpToolServer): void {
   server.tool(
     "gsd_plan_milestone",
     "Write milestone planning state to the GSD database and render ROADMAP.md from DB.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      title: z.string().describe("Milestone title"),
-      vision: z.string().describe("Milestone vision"),
-      slices: z.array(z.object({
-        sliceId: z.string(),
-        title: z.string(),
-        risk: z.string(),
-        depends: z.array(z.string()),
-        demo: z.string(),
-        goal: z.string(),
-        successCriteria: z.string(),
-        proofLevel: z.string(),
-        integrationClosure: z.string(),
-        observabilityImpact: z.string(),
-      })).describe("Planned slices for the milestone"),
-      status: z.string().optional().describe("Milestone status"),
-      dependsOn: z.array(z.string()).optional().describe("Milestone dependencies"),
-      successCriteria: z.array(z.string()).optional().describe("Top-level success criteria bullets"),
-      keyRisks: z.array(z.object({
-        risk: z.string(),
-        whyItMatters: z.string(),
-      })).optional().describe("Structured risk entries"),
-      proofStrategy: z.array(z.object({
-        riskOrUnknown: z.string(),
-        retireIn: z.string(),
-        whatWillBeProven: z.string(),
-      })).optional().describe("Structured proof strategy entries"),
-      verificationContract: z.string().optional(),
-      verificationIntegration: z.string().optional(),
-      verificationOperational: z.string().optional(),
-      verificationUat: z.string().optional(),
-      definitionOfDone: z.array(z.string()).optional(),
-      requirementCoverage: z.string().optional(),
-      boundaryMapMarkdown: z.string().optional(),
-    },
+    planMilestoneParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...params } = args as { projectDir: string } & Record<string, unknown>;
+      const parsed = parseWorkflowArgs(planMilestoneSchema, args);
+      const { projectDir, ...params } = parsed;
       const { executePlanMilestone } = await getWorkflowToolExecutors();
-      return runSerializedWorkflowOperation(() => executePlanMilestone(params as any, projectDir));
+      return runSerializedWorkflowOperation(() => executePlanMilestone(params, projectDir));
     },
   );
 
   server.tool(
     "gsd_plan_slice",
     "Write slice/task planning state to the GSD database and render plan artifacts from DB.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      sliceId: z.string().describe("Slice ID (e.g. S01)"),
-      goal: z.string().describe("Slice goal"),
-      tasks: z.array(z.object({
-        taskId: z.string(),
-        title: z.string(),
-        description: z.string(),
-        estimate: z.string(),
-        files: z.array(z.string()),
-        verify: z.string(),
-        inputs: z.array(z.string()),
-        expectedOutput: z.array(z.string()),
-        observabilityImpact: z.string().optional(),
-      })).describe("Planned tasks for the slice"),
-      successCriteria: z.string().optional(),
-      proofLevel: z.string().optional(),
-      integrationClosure: z.string().optional(),
-      observabilityImpact: z.string().optional(),
-    },
+    planSliceParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...params } = args as { projectDir: string } & Record<string, unknown>;
+      const parsed = parseWorkflowArgs(planSliceSchema, args);
+      const { projectDir, ...params } = parsed;
       const { executePlanSlice } = await getWorkflowToolExecutors();
-      return runSerializedWorkflowOperation(() => executePlanSlice(params as any, projectDir));
+      return runSerializedWorkflowOperation(() => executePlanSlice(params, projectDir));
     },
   );
 
   server.tool(
     "gsd_replan_slice",
     "Replan a slice after a blocker is discovered, preserving completed tasks and re-rendering PLAN.md + REPLAN.md.",
-    replanSliceSchema,
+    replanSliceParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...replanArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleReplanSlice(projectDir, replanArgs);
+      const parsed = parseWorkflowArgs(replanSliceSchema, args);
+      return handleReplanSlice(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_slice_replan",
     "Alias for gsd_replan_slice. Replan a slice after a blocker is discovered.",
-    replanSliceSchema,
+    replanSliceParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...replanArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleReplanSlice(projectDir, replanArgs);
+      const parsed = parseWorkflowArgs(replanSliceSchema, args);
+      return handleReplanSlice(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_slice_complete",
     "Record a completed slice to the GSD database, render SUMMARY.md + UAT.md, and update roadmap projection.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      sliceId: z.string().describe("Slice ID (e.g. S01)"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      sliceTitle: z.string().describe("Title of the slice"),
-      oneLiner: z.string().describe("One-line summary of what the slice accomplished"),
-      narrative: z.string().describe("Detailed narrative of what happened across all tasks"),
-      verification: z.string().describe("What was verified across all tasks"),
-      uatContent: z.string().describe("UAT test content (markdown body)"),
-      deviations: z.string().optional(),
-      knownLimitations: z.string().optional(),
-      followUps: z.string().optional(),
-      keyFiles: z.union([z.array(z.string()), z.string()]).optional(),
-      keyDecisions: z.union([z.array(z.string()), z.string()]).optional(),
-      patternsEstablished: z.union([z.array(z.string()), z.string()]).optional(),
-      observabilitySurfaces: z.union([z.array(z.string()), z.string()]).optional(),
-      provides: z.union([z.array(z.string()), z.string()]).optional(),
-      requirementsSurfaced: z.union([z.array(z.string()), z.string()]).optional(),
-      drillDownPaths: z.union([z.array(z.string()), z.string()]).optional(),
-      affects: z.union([z.array(z.string()), z.string()]).optional(),
-      requirementsAdvanced: z.array(z.union([
-        z.object({ id: z.string(), how: z.string() }),
-        z.string(),
-      ])).optional(),
-      requirementsValidated: z.array(z.union([
-        z.object({ id: z.string(), proof: z.string() }),
-        z.string(),
-      ])).optional(),
-      requirementsInvalidated: z.array(z.union([
-        z.object({ id: z.string(), what: z.string() }),
-        z.string(),
-      ])).optional(),
-      filesModified: z.array(z.union([
-        z.object({ path: z.string(), description: z.string() }),
-        z.string(),
-      ])).optional(),
-      requires: z.array(z.union([
-        z.object({ slice: z.string(), provides: z.string() }),
-        z.string(),
-      ])).optional(),
-    },
+    sliceCompleteParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...sliceArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleSliceComplete(projectDir, sliceArgs);
+      const parsed = parseWorkflowArgs(sliceCompleteSchema, args);
+      return handleSliceComplete(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_complete_slice",
     "Alias for gsd_slice_complete. Record a completed slice to the GSD database and render summary/UAT artifacts.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      sliceId: z.string().describe("Slice ID (e.g. S01)"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      sliceTitle: z.string().describe("Title of the slice"),
-      oneLiner: z.string().describe("One-line summary of what the slice accomplished"),
-      narrative: z.string().describe("Detailed narrative of what happened across all tasks"),
-      verification: z.string().describe("What was verified across all tasks"),
-      uatContent: z.string().describe("UAT test content (markdown body)"),
-      deviations: z.string().optional(),
-      knownLimitations: z.string().optional(),
-      followUps: z.string().optional(),
-      keyFiles: z.union([z.array(z.string()), z.string()]).optional(),
-      keyDecisions: z.union([z.array(z.string()), z.string()]).optional(),
-      patternsEstablished: z.union([z.array(z.string()), z.string()]).optional(),
-      observabilitySurfaces: z.union([z.array(z.string()), z.string()]).optional(),
-      provides: z.union([z.array(z.string()), z.string()]).optional(),
-      requirementsSurfaced: z.union([z.array(z.string()), z.string()]).optional(),
-      drillDownPaths: z.union([z.array(z.string()), z.string()]).optional(),
-      affects: z.union([z.array(z.string()), z.string()]).optional(),
-      requirementsAdvanced: z.array(z.union([
-        z.object({ id: z.string(), how: z.string() }),
-        z.string(),
-      ])).optional(),
-      requirementsValidated: z.array(z.union([
-        z.object({ id: z.string(), proof: z.string() }),
-        z.string(),
-      ])).optional(),
-      requirementsInvalidated: z.array(z.union([
-        z.object({ id: z.string(), what: z.string() }),
-        z.string(),
-      ])).optional(),
-      filesModified: z.array(z.union([
-        z.object({ path: z.string(), description: z.string() }),
-        z.string(),
-      ])).optional(),
-      requires: z.array(z.union([
-        z.object({ slice: z.string(), provides: z.string() }),
-        z.string(),
-      ])).optional(),
-    },
+    sliceCompleteParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...sliceArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleSliceComplete(projectDir, sliceArgs);
+      const parsed = parseWorkflowArgs(sliceCompleteSchema, args);
+      return handleSliceComplete(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_complete_milestone",
     "Record a completed milestone to the GSD database and render its SUMMARY.md.",
-    completeMilestoneSchema,
+    completeMilestoneParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...milestoneArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleCompleteMilestone(projectDir, milestoneArgs);
+      const parsed = parseWorkflowArgs(completeMilestoneSchema, args);
+      return handleCompleteMilestone(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_milestone_complete",
     "Alias for gsd_complete_milestone. Record a completed milestone to the GSD database and render its SUMMARY.md.",
-    completeMilestoneSchema,
+    completeMilestoneParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...milestoneArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleCompleteMilestone(projectDir, milestoneArgs);
+      const parsed = parseWorkflowArgs(completeMilestoneSchema, args);
+      return handleCompleteMilestone(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_validate_milestone",
     "Validate a milestone, persist validation results to the GSD database, and render VALIDATION.md.",
-    validateMilestoneSchema,
+    validateMilestoneParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...validationArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleValidateMilestone(projectDir, validationArgs);
+      const parsed = parseWorkflowArgs(validateMilestoneSchema, args);
+      return handleValidateMilestone(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_milestone_validate",
     "Alias for gsd_validate_milestone. Validate a milestone and render VALIDATION.md.",
-    validateMilestoneSchema,
+    validateMilestoneParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...validationArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleValidateMilestone(projectDir, validationArgs);
+      const parsed = parseWorkflowArgs(validateMilestoneSchema, args);
+      return handleValidateMilestone(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_reassess_roadmap",
     "Reassess a milestone roadmap after a slice completes, writing ASSESSMENT.md and re-rendering ROADMAP.md.",
-    reassessRoadmapSchema,
+    reassessRoadmapParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...reassessArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleReassessRoadmap(projectDir, reassessArgs);
+      const parsed = parseWorkflowArgs(reassessRoadmapSchema, args);
+      return handleReassessRoadmap(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_roadmap_reassess",
     "Alias for gsd_reassess_roadmap. Reassess a roadmap after slice completion.",
-    reassessRoadmapSchema,
+    reassessRoadmapParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...reassessArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleReassessRoadmap(projectDir, reassessArgs);
+      const parsed = parseWorkflowArgs(reassessRoadmapSchema, args);
+      return handleReassessRoadmap(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_save_gate_result",
     "Save a quality gate result to the GSD database.",
-    saveGateResultSchema,
+    saveGateResultParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...gateArgs } = args as { projectDir: string } & Record<string, unknown>;
-      return handleSaveGateResult(projectDir, gateArgs);
+      const parsed = parseWorkflowArgs(saveGateResultSchema, args);
+      return handleSaveGateResult(parsed.projectDir, parsed);
     },
   );
 
   server.tool(
     "gsd_summary_save",
     "Save a GSD summary/research/context/assessment artifact to the database and disk.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      milestone_id: z.string().describe("Milestone ID (e.g. M001)"),
-      slice_id: z.string().optional().describe("Slice ID (e.g. S01)"),
-      task_id: z.string().optional().describe("Task ID (e.g. T01)"),
-      artifact_type: z.enum(SUMMARY_ARTIFACT_TYPES).describe("Artifact type to save"),
-      content: z.string().describe("The full markdown content of the artifact"),
-    },
+    summarySaveParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, milestone_id, slice_id, task_id, artifact_type, content } = args as {
-        projectDir: string;
-        milestone_id: string;
-        slice_id?: string;
-        task_id?: string;
-        artifact_type: string;
-        content: string;
-      };
-      const { executeSummarySave } = await getWorkflowToolExecutors();
+      const parsed = parseWorkflowArgs(summarySaveSchema, args);
+      const { projectDir, milestone_id, slice_id, task_id, artifact_type, content } = parsed;
+      const executors = await getWorkflowToolExecutors();
+      const supportedArtifactTypes = getSupportedSummaryArtifactTypes(executors);
+      if (!supportedArtifactTypes.includes(artifact_type)) {
+        throw new Error(
+          `artifact_type must be one of: ${supportedArtifactTypes.join(", ")}`,
+        );
+      }
       return runSerializedWorkflowOperation(() =>
-        executeSummarySave({ milestone_id, slice_id, task_id, artifact_type, content }, projectDir),
+        executors.executeSummarySave({ milestone_id, slice_id, task_id, artifact_type, content }, projectDir),
       );
     },
   );
@@ -777,31 +849,10 @@ export function registerWorkflowTools(server: McpToolServer): void {
   server.tool(
     "gsd_task_complete",
     "Record a completed task to the GSD database and render its SUMMARY.md.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      taskId: z.string().describe("Task ID (e.g. T01)"),
-      sliceId: z.string().describe("Slice ID (e.g. S01)"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      oneLiner: z.string().describe("One-line summary of what was accomplished"),
-      narrative: z.string().describe("Detailed narrative of what happened during the task"),
-      verification: z.string().describe("What was verified and how"),
-      deviations: z.string().optional().describe("Deviations from the task plan"),
-      knownIssues: z.string().optional().describe("Known issues discovered but not fixed"),
-      keyFiles: z.array(z.string()).optional().describe("List of key files created or modified"),
-      keyDecisions: z.array(z.string()).optional().describe("List of key decisions made during this task"),
-      blockerDiscovered: z.boolean().optional().describe("Whether a plan-invalidating blocker was discovered"),
-      verificationEvidence: z.array(z.union([
-        z.object({
-          command: z.string(),
-          exitCode: z.number(),
-          verdict: z.string(),
-          durationMs: z.number(),
-        }),
-        z.string(),
-      ])).optional().describe("Verification evidence entries"),
-    },
+    taskCompleteParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...taskArgs } = args as { projectDir: string } & Record<string, unknown>;
+      const parsed = parseWorkflowArgs(taskCompleteSchema, args);
+      const { projectDir, ...taskArgs } = parsed;
       return handleTaskComplete(projectDir, taskArgs);
     },
   );
@@ -809,31 +860,10 @@ export function registerWorkflowTools(server: McpToolServer): void {
   server.tool(
     "gsd_complete_task",
     "Alias for gsd_task_complete. Record a completed task to the GSD database and render its SUMMARY.md.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      taskId: z.string().describe("Task ID (e.g. T01)"),
-      sliceId: z.string().describe("Slice ID (e.g. S01)"),
-      milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-      oneLiner: z.string().describe("One-line summary of what was accomplished"),
-      narrative: z.string().describe("Detailed narrative of what happened during the task"),
-      verification: z.string().describe("What was verified and how"),
-      deviations: z.string().optional().describe("Deviations from the task plan"),
-      knownIssues: z.string().optional().describe("Known issues discovered but not fixed"),
-      keyFiles: z.array(z.string()).optional().describe("List of key files created or modified"),
-      keyDecisions: z.array(z.string()).optional().describe("List of key decisions made during this task"),
-      blockerDiscovered: z.boolean().optional().describe("Whether a plan-invalidating blocker was discovered"),
-      verificationEvidence: z.array(z.union([
-        z.object({
-          command: z.string(),
-          exitCode: z.number(),
-          verdict: z.string(),
-          durationMs: z.number(),
-        }),
-        z.string(),
-      ])).optional().describe("Verification evidence entries"),
-    },
+    taskCompleteParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, ...taskArgs } = args as { projectDir: string } & Record<string, unknown>;
+      const parsed = parseWorkflowArgs(taskCompleteSchema, args);
+      const { projectDir, ...taskArgs } = parsed;
       return handleTaskComplete(projectDir, taskArgs);
     },
   );
@@ -841,12 +871,9 @@ export function registerWorkflowTools(server: McpToolServer): void {
   server.tool(
     "gsd_milestone_status",
     "Read the current status of a milestone and all its slices from the GSD database.",
-    {
-      projectDir: z.string().describe("Absolute path to the project directory"),
-      milestoneId: z.string().describe("Milestone ID to query (e.g. M001)"),
-    },
+    milestoneStatusParams,
     async (args: Record<string, unknown>) => {
-      const { projectDir, milestoneId } = args as { projectDir: string; milestoneId: string };
+      const { projectDir, milestoneId } = parseWorkflowArgs(milestoneStatusSchema, args);
       const { executeMilestoneStatus } = await getWorkflowToolExecutors();
       return runSerializedWorkflowOperation(() => executeMilestoneStatus({ milestoneId }, projectDir));
     },

@@ -75,11 +75,17 @@ export function detectWorkflowMcpLaunchConfig(
   const explicitArgs = parseJsonEnv<unknown>(env, "GSD_WORKFLOW_MCP_ARGS");
   const explicitEnv = parseJsonEnv<Record<string, string>>(env, "GSD_WORKFLOW_MCP_ENV");
   const explicitCwd = env.GSD_WORKFLOW_MCP_CWD?.trim();
+  const workflowProjectRoot =
+    explicitEnv?.GSD_WORKFLOW_PROJECT_ROOT?.trim() ||
+    env.GSD_WORKFLOW_PROJECT_ROOT?.trim() ||
+    explicitCwd ||
+    projectRoot;
 
   if (explicitCommand) {
     const launchEnv = {
-      ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
       ...(explicitEnv ?? {}),
+      ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+      GSD_WORKFLOW_PROJECT_ROOT: resolve(workflowProjectRoot),
     };
     return {
       name,
@@ -97,7 +103,10 @@ export function detectWorkflowMcpLaunchConfig(
       command: process.execPath,
       args: [distCli],
       cwd: projectRoot,
-      env: env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : undefined,
+      env: {
+        ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+        GSD_WORKFLOW_PROJECT_ROOT: resolve(projectRoot),
+      },
     };
   }
 
@@ -106,7 +115,10 @@ export function detectWorkflowMcpLaunchConfig(
     return {
       name,
       command: binPath,
-      env: env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : undefined,
+      env: {
+        ...(env.GSD_CLI_PATH ? { GSD_CLI_PATH: env.GSD_CLI_PATH } : {}),
+        GSD_WORKFLOW_PROJECT_ROOT: resolve(projectRoot),
+      },
     };
   }
 
