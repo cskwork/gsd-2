@@ -2013,8 +2013,8 @@ export function mergeMilestoneToMain(
     let preTeardownBranch: string | null = null;
     try {
       preTeardownBranch = nativeGetCurrentBranch(worktreeCwd);
-    } catch {
-      // Branch detection failure is non-fatal — skip the auto-commit to be safe
+    } catch (err) {
+      debugLog("mergeMilestoneToMain", { phase: "pre-teardown-branch-detect-failed", error: String(err) });
     }
     const isOnMilestoneBranch = preTeardownBranch === milestoneBranch;
 
