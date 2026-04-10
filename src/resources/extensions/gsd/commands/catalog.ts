@@ -70,7 +70,7 @@ export const TOP_LEVEL_SUBCOMMANDS: readonly GsdCommandDefinition[] = [
   { cmd: "templates", desc: "List available workflow templates" },
   { cmd: "extensions", desc: "Manage extensions (list, enable, disable, info)" },
   { cmd: "fast", desc: "Toggle OpenAI service tier (on/off/flex/status)" },
-  { cmd: "mcp", desc: "MCP server status and connectivity check (status, check <server>)" },
+  { cmd: "mcp", desc: "MCP server status, connectivity, and local config bootstrap (status, check, init)" },
   { cmd: "rethink", desc: "Conversational project reorganization — reorder, park, discard, add milestones" },
   { cmd: "workflow", desc: "Custom workflow lifecycle (new, run, list, validate, pause, resume)" },
   { cmd: "codebase", desc: "Generate, refresh, and inspect the codebase map cache (.gsd/CODEBASE.md)" },
@@ -201,6 +201,7 @@ const NESTED_COMPLETIONS: CompletionMap = {
   mcp: [
     { cmd: "status", desc: "Show all MCP server statuses (default)" },
     { cmd: "check", desc: "Detailed status for a specific server" },
+    { cmd: "init", desc: "Write .mcp.json for the local GSD workflow MCP server" },
   ],
   doctor: [
     { cmd: "fix", desc: "Auto-fix detected issues" },

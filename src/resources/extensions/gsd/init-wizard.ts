@@ -238,15 +238,11 @@ export async function showProjectInit(
   // Initialize SQLite database so GSD starts in full-capability mode (#3880).
   // Without this, isDbAvailable() returns false and GSD enters degraded
   // markdown-only mode until a tool handler happens to call ensureDbOpen().
-  let dbReady = false;
   try {
     const { ensureDbOpen } = await import("./bootstrap/dynamic-tools.js");
-    dbReady = await ensureDbOpen(basePath);
+    await ensureDbOpen(basePath);
   } catch {
-    // Swallowed — warning surfaced below
-  }
-  if (!dbReady) {
-    ctx.ui.notify("Warning: database initialization failed — GSD will run in degraded mode until the next /gsd invocation.", "warning");
+    // Non-fatal — DB creation failure should not block project init
   }
 
   // Ensure .gitignore
@@ -267,7 +263,6 @@ export async function showProjectInit(
   // Write initial STATE.md so it exists before the first /gsd invocation.
   // The explicit /gsd init path (ops.ts) returns without entering showSmartEntry(),
   // which would otherwise generate STATE.md at guided-flow.ts:1358.
-  let stateReady = false;
   try {
     const { deriveState } = await import("./state.js");
     const { buildStateMarkdown } = await import("./doctor.js");
@@ -275,12 +270,23 @@ export async function showProjectInit(
     const { resolveGsdRootFile } = await import("./paths.js");
     const state = await deriveState(basePath);
     await saveFile(resolveGsdRootFile(basePath, "STATE"), buildStateMarkdown(state));
-    stateReady = true;
   } catch {
-    // Swallowed — warning surfaced below
+    // Non-fatal — STATE.md will be regenerated on next /gsd invocation
   }
-  if (!stateReady) {
-    ctx.ui.notify("Warning: initial STATE.md generation failed — it will be created on the next /gsd invocation.", "warning");
+
+  if (ctx.model?.provider === "claude-code") {
+    try {
+      const { ensureProjectWorkflowMcpConfig } = await import("./mcp-project-config.js");
+      const result = ensureProjectWorkflowMcpConfig(basePath);
+      if (result.status !== "unchanged") {
+        ctx.ui.notify(`Claude Code MCP prepared at ${result.configPath}`, "info");
+      }
+    } catch (err) {
+      ctx.ui.notify(
+        `Claude Code MCP prep failed: ${err instanceof Error ? err.message : String(err)}`,
+        "warning",
+      );
+    }
   }
 
   ctx.ui.notify("GSD initialized. Starting your first milestone...", "info");

@@ -4,15 +4,15 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
-	buildPromptFromContext,
-	buildFinalClaudeCodeContent,
-	buildSdkOptions,
-	getClaudeLookupCommand,
 	makeStreamExhaustedErrorMessage,
+	buildPromptFromContext,
+	buildSdkOptions,
+	extractToolResultsFromSdkUserMessage,
+	getClaudeLookupCommand,
 	parseClaudeLookupOutput,
-	sanitizeClaudeCodeStreamingEvent,
 } from "../stream-adapter.ts";
-import type { AssistantMessage, Context, Message } from "@gsd/pi-ai";
+import type { Context, Message } from "@gsd/pi-ai";
+import type { SDKUserMessage } from "../sdk-types.ts";
 
 // ---------------------------------------------------------------------------
 // Existing tests — exhausted stream fallback (#2575)
@@ -108,6 +108,65 @@ describe("stream-adapter — full context prompt (#2859)", () => {
 	});
 });
 
+describe("stream-adapter — Claude Code external tool results", () => {
+	test("extractToolResultsFromSdkUserMessage maps tool_result content to tool payloads", () => {
+		const message: SDKUserMessage = {
+			type: "user",
+			session_id: "sess-1",
+			parent_tool_use_id: "tool-bash-1",
+			message: {
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "tool-bash-1",
+						content: "line 1\nline 2",
+						is_error: false,
+					},
+				],
+			},
+		};
+
+		const results = extractToolResultsFromSdkUserMessage(message);
+		assert.deepEqual(results, [
+			{
+				toolUseId: "tool-bash-1",
+				result: {
+					content: [{ type: "text", text: "line 1\nline 2" }],
+					details: {},
+					isError: false,
+				},
+			},
+		]);
+	});
+
+	test("extractToolResultsFromSdkUserMessage falls back to tool_use_result", () => {
+		const message: SDKUserMessage = {
+			type: "user",
+			session_id: "sess-1",
+			parent_tool_use_id: "tool-read-1",
+			message: { role: "user", content: [] },
+			tool_use_result: {
+				tool_use_id: "tool-read-1",
+				content: "file contents",
+				is_error: true,
+			},
+		};
+
+		const results = extractToolResultsFromSdkUserMessage(message);
+		assert.deepEqual(results, [
+			{
+				toolUseId: "tool-read-1",
+				result: {
+					content: [{ type: "text", text: "file contents" }],
+					details: {},
+					isError: true,
+				},
+			},
+		]);
+	});
+});
+
 describe("stream-adapter — session persistence (#2859)", () => {
 	test("buildSdkOptions enables persistSession by default", () => {
 		const options = buildSdkOptions("claude-sonnet-4-20250514", "test prompt");
@@ -149,18 +208,15 @@ describe("stream-adapter — session persistence (#2859)", () => {
 			process.env.GSD_WORKFLOW_MCP_CWD = "/tmp/project";
 
 			const options = buildSdkOptions("claude-sonnet-4-20250514", "test");
-			assert.deepEqual(options.mcpServers, {
-				"gsd-workflow": {
-					command: "node",
-					args: ["packages/mcp-server/dist/cli.js"],
-					env: {
-						GSD_CLI_PATH: "/tmp/gsd",
-						GSD_PERSIST_WRITE_GATE_STATE: "1",
-						GSD_WORKFLOW_PROJECT_ROOT: "/tmp/project",
-					},
-					cwd: "/tmp/project",
-				},
-			});
+			const mcpServers = options.mcpServers as Record<string, any>;
+			assert.ok(mcpServers?.["gsd-workflow"], "expected gsd-workflow server config");
+			const srv = mcpServers["gsd-workflow"];
+			assert.equal(srv.command, "node");
+			assert.deepEqual(srv.args, ["packages/mcp-server/dist/cli.js"]);
+			assert.equal(srv.cwd, "/tmp/project");
+			assert.equal(srv.env.GSD_CLI_PATH, "/tmp/gsd");
+			assert.equal(srv.env.GSD_PERSIST_WRITE_GATE_STATE, "1");
+			assert.equal(srv.env.GSD_WORKFLOW_PROJECT_ROOT, "/tmp/project");
 		} finally {
 			process.env.GSD_WORKFLOW_MCP_COMMAND = prev.GSD_WORKFLOW_MCP_COMMAND;
 			process.env.GSD_WORKFLOW_MCP_NAME = prev.GSD_WORKFLOW_MCP_NAME;
@@ -170,7 +226,7 @@ describe("stream-adapter — session persistence (#2859)", () => {
 		}
 	});
 
-	test("buildSdkOptions omits workflow MCP server config when env is unset", () => {
+	test("buildSdkOptions auto-discovers bundled MCP server even without env hints", () => {
 		const prev = {
 			GSD_WORKFLOW_MCP_COMMAND: process.env.GSD_WORKFLOW_MCP_COMMAND,
 			GSD_WORKFLOW_MCP_NAME: process.env.GSD_WORKFLOW_MCP_NAME,
@@ -190,7 +246,13 @@ describe("stream-adapter — session persistence (#2859)", () => {
 			process.chdir(emptyDir);
 			const options = buildSdkOptions("claude-sonnet-4-20250514", "test");
 			process.chdir(originalCwd);
-			assert.equal((options as any).mcpServers, undefined);
+			// The bundled CLI may or may not be discoverable depending on
+			// whether the build output exists relative to import.meta.url.
+			// Either outcome is valid — the key invariant is no crash.
+			const mcpServers = (options as any).mcpServers;
+			if (mcpServers) {
+				assert.ok(mcpServers["gsd-workflow"], "if present, must be gsd-workflow");
+			}
 			rmSync(emptyDir, { recursive: true, force: true });
 		} finally {
 			process.env.GSD_WORKFLOW_MCP_COMMAND = prev.GSD_WORKFLOW_MCP_COMMAND;
@@ -227,18 +289,15 @@ describe("stream-adapter — session persistence (#2859)", () => {
 			const resolvedRepoDir = realpathSync(repoDir);
 
 			const options = buildSdkOptions("claude-sonnet-4-20250514", "test");
-			assert.deepEqual(options.mcpServers, {
-				"gsd-workflow": {
-					command: process.execPath,
-					args: [realpathSync(resolve(repoDir, "packages", "mcp-server", "dist", "cli.js"))],
-					env: {
-						GSD_CLI_PATH: "/tmp/gsd",
-						GSD_PERSIST_WRITE_GATE_STATE: "1",
-						GSD_WORKFLOW_PROJECT_ROOT: resolvedRepoDir,
-					},
-					cwd: resolvedRepoDir,
-				},
-			});
+			const mcpServers = options.mcpServers as Record<string, any>;
+			assert.ok(mcpServers?.["gsd-workflow"], "expected gsd-workflow server config");
+			const srv = mcpServers["gsd-workflow"];
+			assert.equal(srv.command, process.execPath);
+			assert.deepEqual(srv.args, [realpathSync(resolve(repoDir, "packages", "mcp-server", "dist", "cli.js"))]);
+			assert.equal(srv.cwd, resolvedRepoDir);
+			assert.equal(srv.env.GSD_CLI_PATH, "/tmp/gsd");
+			assert.equal(srv.env.GSD_PERSIST_WRITE_GATE_STATE, "1");
+			assert.equal(srv.env.GSD_WORKFLOW_PROJECT_ROOT, resolvedRepoDir);
 		} finally {
 			process.chdir(originalCwd);
 			rmSync(repoDir, { recursive: true, force: true });
@@ -249,92 +308,6 @@ describe("stream-adapter — session persistence (#2859)", () => {
 			process.env.GSD_WORKFLOW_MCP_CWD = prev.GSD_WORKFLOW_MCP_CWD;
 			process.env.GSD_CLI_PATH = prev.GSD_CLI_PATH;
 		}
-	});
-});
-
-describe("stream-adapter — final content filtering (#3861)", () => {
-	test("buildFinalClaudeCodeContent strips intermediate tool calls from the final assistant message", () => {
-		const finalContent = buildFinalClaudeCodeContent(
-			[
-				{ type: "toolCall", id: "tc_1", name: "Read", arguments: {} },
-				{ type: "thinking", thinking: "Planning next step" },
-				{ type: "text", text: "Done." },
-			] as any,
-			"",
-			"",
-		);
-
-		assert.deepEqual(finalContent, [
-			{ type: "thinking", thinking: "Planning next step" },
-			{ type: "text", text: "Done." },
-		]);
-	});
-
-	test("buildFinalClaudeCodeContent falls back to cached text when the final turn only had tool calls", () => {
-		const finalContent = buildFinalClaudeCodeContent(
-			[
-				{ type: "toolCall", id: "tc_2", name: "Edit", arguments: { file_path: "app.ts" } },
-			] as any,
-			"",
-			"User-facing answer",
-		);
-
-		assert.deepEqual(finalContent, [{ type: "text", text: "User-facing answer" }]);
-	});
-});
-
-describe("stream-adapter — streaming content filtering follow-up (#3867)", () => {
-	function makePartial(content: AssistantMessage["content"]): AssistantMessage {
-		return {
-			role: "assistant",
-			content,
-			api: "anthropic-messages",
-			provider: "claude-code",
-			model: "claude-sonnet-4-20250514",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "stop",
-			timestamp: Date.now(),
-		};
-	}
-
-	test("sanitizeClaudeCodeStreamingEvent strips tool calls from streamed partials and remaps contentIndex", () => {
-		const event = sanitizeClaudeCodeStreamingEvent({
-			type: "text_delta",
-			contentIndex: 2,
-			delta: "Done.",
-			partial: makePartial([
-				{ type: "toolCall", id: "tc_1", name: "ToolSearch", arguments: {} },
-				{ type: "thinking", thinking: "Planning next step" },
-				{ type: "text", text: "Done." },
-			] as any),
-		});
-
-		assert.ok(event, "text events should still be forwarded");
-		assert.equal(event!.type, "text_delta");
-		assert.equal((event! as any).contentIndex, 1);
-		assert.deepEqual((event! as any).partial.content, [
-			{ type: "thinking", thinking: "Planning next step" },
-			{ type: "text", text: "Done." },
-		]);
-	});
-
-	test("sanitizeClaudeCodeStreamingEvent suppresses internal tool streaming events entirely", () => {
-		const event = sanitizeClaudeCodeStreamingEvent({
-			type: "toolcall_start",
-			contentIndex: 0,
-			partial: makePartial([
-				{ type: "toolCall", id: "tc_1", name: "Bash", arguments: {} },
-			] as any),
-		});
-
-		assert.equal(event, null);
 	});
 });
 

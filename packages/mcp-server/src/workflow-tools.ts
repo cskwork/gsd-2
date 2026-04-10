@@ -315,10 +315,21 @@ function getSupportedSummaryArtifactTypes(executors: WorkflowToolExecutors): rea
 }
 
 function getWriteGateModuleCandidates(): string[] {
-  return [
+  const candidates: string[] = [];
+  const explicitModule = process.env.GSD_WORKFLOW_WRITE_GATE_MODULE?.trim();
+  if (explicitModule) {
+    if (/^[a-z]+:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
+      throw new Error("GSD_WORKFLOW_WRITE_GATE_MODULE only supports file: URLs or filesystem paths.");
+    }
+    candidates.push(explicitModule.startsWith("file:") ? explicitModule : toFileUrl(explicitModule));
+  }
+
+  candidates.push(
     new URL("../../../src/resources/extensions/gsd/bootstrap/write-gate.js", import.meta.url).href,
     new URL("../../../src/resources/extensions/gsd/bootstrap/write-gate.ts", import.meta.url).href,
-  ];
+  );
+
+  return [...new Set(candidates)];
 }
 
 function toFileUrl(modulePath: string): string {
