@@ -119,6 +119,8 @@ export class AutoSession {
   pendingVerificationRetry: PendingVerificationRetry | null = null;
   readonly verificationRetryCount = new Map<string, number>();
   pausedSessionFile: string | null = null;
+  pausedUnitType: string | null = null;
+  pausedUnitId: string | null = null;
   resourceVersionOnStart: string | null = null;
   lastStateRebuildAt = 0;
 
@@ -223,6 +225,8 @@ export class AutoSession {
     this.pendingVerificationRetry = null;
     this.verificationRetryCount.clear();
     this.pausedSessionFile = null;
+    this.pausedUnitType = null;
+    this.pausedUnitId = null;
     this.resourceVersionOnStart = null;
     this.lastStateRebuildAt = 0;
 
