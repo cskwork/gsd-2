@@ -60,6 +60,8 @@ interface SdkElicitationFieldSchema {
 	type?: string;
 	title?: string;
 	description?: string;
+	format?: string;
+	writeOnly?: boolean;
 	oneOf?: SdkElicitationRequestOption[];
 	items?: {
 		anyOf?: SdkElicitationRequestOption[];
@@ -73,6 +75,7 @@ interface SdkElicitationRequest {
 	requestedSchema?: {
 		type?: string;
 		properties?: Record<string, SdkElicitationFieldSchema>;
+		required?: string[];
 	};
 }
 
@@ -85,7 +88,16 @@ interface ParsedElicitationQuestion extends Question {
 	noteFieldId?: string;
 }
 
+interface ParsedTextInputField {
+	id: string;
+	title: string;
+	description: string;
+	required: boolean;
+	secure: boolean;
+}
+
 const OTHER_OPTION_LABEL = "None of the above";
+const SENSITIVE_FIELD_PATTERN = /(password|passphrase|secret|token|api[_\s-]*key|private[_\s-]*key|credential)/i;
 
 // ---------------------------------------------------------------------------
 // Stream factory
@@ -274,6 +286,60 @@ export function parseAskUserQuestionsElicitation(
 	return questions.length > 0 ? questions : null;
 }
 
+function isSecureElicitationField(
+	requestMessage: string,
+	fieldId: string,
+	field: SdkElicitationFieldSchema,
+): boolean {
+	if (field.format === "password") return true;
+	if (field.writeOnly === true) return true;
+
+	const rawField = field as Record<string, unknown>;
+	if (rawField.sensitive === true || rawField["x-sensitive"] === true) return true;
+
+	const haystack = [
+		requestMessage,
+		fieldId.replace(/[_-]+/g, " "),
+		typeof field.title === "string" ? field.title : "",
+		typeof field.description === "string" ? field.description : "",
+	]
+		.join(" ")
+		.toLowerCase();
+
+	return SENSITIVE_FIELD_PATTERN.test(haystack);
+}
+
+export function parseTextInputElicitation(
+	request: Pick<SdkElicitationRequest, "message" | "mode" | "requestedSchema">,
+): ParsedTextInputField[] | null {
+	if (request.mode && request.mode !== "form") return null;
+	const properties = request.requestedSchema?.properties;
+	if (!properties || typeof properties !== "object") return null;
+
+	const requiredSet = new Set(
+		Array.isArray(request.requestedSchema?.required)
+			? request.requestedSchema.required.filter((value): value is string => typeof value === "string")
+			: [],
+	);
+
+	const fields: ParsedTextInputField[] = [];
+	for (const [fieldId, field] of Object.entries(properties)) {
+		if (!field || typeof field !== "object") return null;
+		if (field.type !== "string") return null;
+		if (Array.isArray(field.oneOf) && field.oneOf.length > 0) return null;
+
+		fields.push({
+			id: fieldId,
+			title: typeof field.title === "string" && field.title.length > 0 ? field.title : fieldId,
+			description: typeof field.description === "string" ? field.description : "",
+			required: requiredSet.has(fieldId),
+			secure: isSecureElicitationField(request.message, fieldId, field),
+		});
+	}
+
+	return fields.length > 0 ? fields : null;
+}
+
 export function roundResultToElicitationContent(
 	questions: ParsedElicitationQuestion[],
 	result: RoundResult,
@@ -355,6 +421,52 @@ async function promptElicitationWithDialogs(
 	return { action: "accept", content };
 }
 
+function buildTextInputPromptTitle(request: SdkElicitationRequest, field: ParsedTextInputField): string {
+	const parts = [
+		request.serverName ? `[${request.serverName}]` : "",
+		field.title,
+		field.description,
+	].filter((part) => typeof part === "string" && part.trim().length > 0);
+	return parts.join("\n\n");
+}
+
+function buildTextInputPlaceholder(field: ParsedTextInputField): string | undefined {
+	const desc = field.description.trim();
+	if (!desc) return field.required ? "Required" : "Leave empty to skip";
+
+	const formatLine = desc
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find((line) => /^format:/i.test(line));
+
+	if (!formatLine) return field.required ? "Required" : "Leave empty to skip";
+	const hint = formatLine.replace(/^format:\s*/i, "").trim();
+	return hint.length > 0 ? hint : field.required ? "Required" : "Leave empty to skip";
+}
+
+async function promptTextInputElicitation(
+	request: SdkElicitationRequest,
+	fields: ParsedTextInputField[],
+	ui: ExtensionUIContext,
+	signal: AbortSignal,
+): Promise<SdkElicitationResult> {
+	const content: Record<string, string | string[]> = {};
+
+	for (const field of fields) {
+		const value = await ui.input(
+			buildTextInputPromptTitle(request, field),
+			buildTextInputPlaceholder(field),
+			{ signal, ...(field.secure ? { secure: true } : {}) },
+		);
+		if (value === undefined) {
+			return { action: "cancel" };
+		}
+		content[field.id] = value;
+	}
+
+	return { action: "accept", content };
+}
+
 export function createClaudeCodeElicitationHandler(
 	ui: ExtensionUIContext | undefined,
 ): ((request: SdkElicitationRequest, options: { signal: AbortSignal }) => Promise<SdkElicitationResult>) | undefined {
@@ -366,19 +478,24 @@ export function createClaudeCodeElicitationHandler(
 		}
 
 		const questions = parseAskUserQuestionsElicitation(request);
-		if (!questions) {
-			return { action: "decline" };
+		if (questions) {
+			const interviewResult = await showInterviewRound(questions, { signal }, { ui } as any).catch(() => undefined);
+			if (interviewResult && Object.keys(interviewResult.answers).length > 0) {
+				return {
+					action: "accept",
+					content: roundResultToElicitationContent(questions, interviewResult),
+				};
+			}
+
+			return promptElicitationWithDialogs(request, questions, ui, signal);
 		}
 
-		const interviewResult = await showInterviewRound(questions, { signal }, { ui } as any).catch(() => undefined);
-		if (interviewResult && Object.keys(interviewResult.answers).length > 0) {
-			return {
-				action: "accept",
-				content: roundResultToElicitationContent(questions, interviewResult),
-			};
+		const textFields = parseTextInputElicitation(request);
+		if (textFields) {
+			return promptTextInputElicitation(request, textFields, ui, signal);
 		}
 
-		return promptElicitationWithDialogs(request, questions, ui, signal);
+		return { action: "decline" };
 	};
 }
 
