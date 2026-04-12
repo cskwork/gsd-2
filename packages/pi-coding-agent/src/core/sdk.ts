@@ -1,4 +1,24 @@
 import { join } from "node:path";
+
+/**
+ * Structured error thrown when all credentials for a provider are in a
+ * backoff window.  Carries typed metadata so callers (e.g. the auto-loop)
+ * can make informed retry decisions instead of string-matching the message.
+ */
+export class CredentialCooldownError extends Error {
+	readonly code = "AUTH_COOLDOWN" as const;
+	/** Milliseconds until the earliest credential becomes available, or undefined if unknown. */
+	readonly retryAfterMs: number | undefined;
+
+	constructor(provider: string, retryAfterMs?: number) {
+		super(
+			`All credentials for "${provider}" are in a cooldown window. ` +
+				`Please wait a moment and try again, or switch to a different provider.`,
+		);
+		this.name = "CredentialCooldownError";
+		this.retryAfterMs = retryAfterMs;
+	}
+}
 import { Agent, type AgentMessage, type ThinkingLevel } from "@gsd/pi-agent-core";
 import type { Message, Model } from "@gsd/pi-ai";
 import { getAgentDir, getDocsPath } from "../config.js";
@@ -408,10 +428,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// the retry handler and creating cascading error entries (#3429).
 			const hasAuth = modelRegistry.authStorage.hasAuth(resolvedProvider);
 			if (hasAuth) {
-				throw new Error(
-					`All credentials for "${resolvedProvider}" are in a cooldown window. ` +
-						`Please wait a moment and try again, or switch to a different provider.`,
-				);
+				const expiry = modelRegistry.authStorage.getEarliestBackoffExpiry(resolvedProvider);
+				const retryAfterMs = expiry !== undefined ? Math.max(0, expiry - Date.now()) : undefined;
+				throw new CredentialCooldownError(resolvedProvider, retryAfterMs);
 			}
 			const model = agent.state.model;
 			const isOAuth = model && modelRegistry.isUsingOAuth(model);
@@ -419,10 +438,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				// If credentials exist but are all in a backoff window (quota / rate-limit),
 				// surface a specific message instead of the misleading "Authentication failed".
 				if (modelRegistry.authStorage.areAllCredentialsBackedOff(resolvedProvider)) {
-					throw new Error(
-						`All credentials for "${resolvedProvider}" are in a cooldown window. ` +
-							`Please wait a moment and try again, or switch to a different provider.`,
-					);
+					const expiry = modelRegistry.authStorage.getEarliestBackoffExpiry(resolvedProvider);
+					const retryAfterMs = expiry !== undefined ? Math.max(0, expiry - Date.now()) : undefined;
+					throw new CredentialCooldownError(resolvedProvider, retryAfterMs);
 				}
 				throw new Error(
 					`Authentication failed for "${resolvedProvider}". ` +
