@@ -286,9 +286,20 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				if (hasTools) hasToolsInTurn = true;
 
 				if (hasToolsInTurn) {
-					// Collect the latest text block(s) from the assistant message
-					let latestText = "";
+					// Mirror the latest text block that precedes the most recent tool
+					// call. Text blocks that come *after* the last tool call are still
+					// streaming live into the chat container, so mirroring them would
+					// duplicate the same tokens in two places at once.
+					let lastToolIdx = -1;
 					for (let i = contentBlocks.length - 1; i >= 0; i--) {
+						const c = contentBlocks[i] as any;
+						if (c.type === "toolCall" || c.type === "serverToolUse") {
+							lastToolIdx = i;
+							break;
+						}
+					}
+					let latestText = "";
+					for (let i = lastToolIdx - 1; i >= 0; i--) {
 						const c = contentBlocks[i] as any;
 						if (c.type === "text" && c.text?.trim()) {
 							latestText = c.text.trim();
