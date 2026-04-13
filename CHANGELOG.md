@@ -6,6 +6,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.73.1] - 2026-04-13
+
+### Fixed
+- **gsd**: address 3 silent-crash secondary issues from #3348 post-#3696 (#4133)
+- **gsd**: tolerate corrupt task arrays (#4056)
+- **gsd**: discard milestone DB and worktree state (#4065)
+- **model-resolver**: gate saved default restore on provider readiness
+- **tui**: stop pinned latest-output mirror from duplicating streaming text
+- **gsd**: wire subagent_model preference through to dispatch prompt builders
+- **ci**: address 5 pipeline integrity issues from release audit (#4119)
+- **ci**: regenerate package-lock.json during version bump (#4116)
+- **pi-coding-agent**: skip localhost dummy key when fallback resolver provides a configured key
+
+### Changed
+- **gsd**: delete 3 unreferenced dead files and orphaned test (#3728)
+
 ## [2.73.0] - 2026-04-13
 
 ### Added
@@ -2846,7 +2862,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.73.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.73.1...HEAD
+[2.73.1]: https://github.com/gsd-build/gsd-2/compare/v2.73.0...v2.73.1
 [2.73.0]: https://github.com/gsd-build/gsd-2/compare/v2.72.0...v2.73.0
 [2.72.0]: https://github.com/gsd-build/gsd-2/compare/v2.71.0...v2.72.0
 [2.71.0]: https://github.com/gsd-build/gsd-2/compare/v2.70.1...v2.71.0
