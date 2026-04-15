@@ -40,6 +40,8 @@ const ROUTES: Route[] = [
   { keywords: ["backlog", "parking lot", "later", "someday"], command: "backlog" },
   { keywords: ["add tests", "write tests", "generate tests", "test coverage"], command: "add-tests" },
   { keywords: ["next", "step", "next step", "what's next"], command: "next" },
+  { keywords: ["logs", "debug logs", "log files"], command: "logs" },
+  { keywords: ["debug", "debug session", "investigate", "troubleshoot", "diagnose issue"], command: "debug" },
 ];
 
 interface MatchResult {
@@ -118,6 +120,18 @@ test("/gsd do: prefers longer keyword match", () => {
   assert.ok(match);
   assert.equal(match.command, "doctor");
   assert.ok(match.score >= 12);
+});
+
+test("/gsd do: routes debug troubleshooting intent to debug", () => {
+  const match = matchRoute("debug this flaky oauth callback");
+  assert.ok(match);
+  assert.equal(match.command, "debug");
+});
+
+test("/gsd do: keeps 'debug logs' routed to logs (longer keyword wins)", () => {
+  const match = matchRoute("show me debug logs for today");
+  assert.ok(match);
+  assert.equal(match.command, "logs");
 });
 
 test("/gsd do: routes 'session report' to session-report", () => {

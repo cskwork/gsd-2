@@ -86,6 +86,25 @@ test("/gsd widget completions include full|small|min|off", () => {
   }
 });
 
+test("/gsd logs completions still include debug after adding /gsd debug", () => {
+  const pi = createMockPi();
+  registerGSDCommand(pi as any);
+
+  const gsd = pi.commands.get("gsd");
+  const completions = gsd.getArgumentCompletions("logs ");
+  const values = completions.map((c: any) => c.value);
+  assert.ok(values.includes("logs debug"), "logs debug completion should remain available");
+});
+
+test("/gsd help full includes /gsd debug command", async () => {
+  const ctx = createMockCtx();
+
+  await handleGSDCommand("help full", ctx as any, {} as any);
+
+  const helpText = ctx.notifications.map((n) => n.message).join("\n");
+  assert.match(helpText, /\/gsd debug\s+Create\/list\/continue persistent debug sessions/);
+});
+
 test("bare /gsd skip shows usage and does not fall through to unknown-command warning", async () => {
   const ctx = createMockCtx();
 
