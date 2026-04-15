@@ -952,6 +952,223 @@ test("/gsd debug S05: TDD full cycle — pending → red → green with disk-rel
   }
 });
 
+test("/gsd debug S05: combined checkpoint + specialist review + TDD gate — all three sections present in dispatch payload", async () => {
+  const base = makeBase();
+  const saved = process.cwd();
+  process.chdir(base);
+
+  try {
+    const ctx = createMockCtx();
+    const { calls, pi } = createMockPiWithDispatch();
+
+    const created = createDebugSession(base, { issue: "Widget render loop detected" });
+    const slug = created.session.slug;
+
+    // Set all three enrichment fields simultaneously
+    updateDebugSession(base, slug, {
+      checkpoint: {
+        type: "root-cause-found",
+        summary: "Confirmed infinite re-render due to unstable reference",
+        awaitingResponse: true,
+      },
+      specialistReview: {
+        hint: "typescript",
+        skill: "typescript-expert",
+        verdict: "SUGGEST_CHANGE",
+        detail: "Use useMemo to stabilize the reference",
+        reviewedAt: 1700000002000,
+      },
+      tddGate: {
+        enabled: true,
+        phase: "red",
+        testFile: "widget.test.ts",
+        testName: "does not loop on stable props",
+      },
+    });
+
+    await handleDebug(`continue ${slug}`, ctx as any, pi as any);
+
+    const n = lastNotification(ctx);
+    assert.equal(n.level, "info");
+    assert.match(n.message, new RegExp(`Resumed debug session: ${slug}`));
+    assert.match(n.message, /phase=continued/);
+    // Notification must carry both tddPhase and specialistHint labels
+    assert.match(n.message, /specialistHint=typescript/);
+    assert.match(n.message, /tddPhase=red/);
+
+    assert.equal(calls.length, 1, "should dispatch exactly one message");
+    const call = calls[0];
+    assert.equal(call.payload.customType, "gsd-debug-continue");
+    // debug-session-manager template marker
+    assert.match(call.payload.content, /Structured Return Protocol/);
+    // Active Checkpoint section
+    assert.match(call.payload.content, /## Active Checkpoint/);
+    assert.match(call.payload.content, /type: root-cause-found/);
+    // Prior Specialist Review section (heading, not content values)
+    assert.match(call.payload.content, /Prior Specialist Review/);
+    assert.match(call.payload.content, /hint: typescript/);
+    // TDD Gate section
+    assert.match(call.payload.content, /## TDD Gate/);
+    assert.match(call.payload.content, /phase: red/);
+    assert.match(call.payload.content, /testFile: widget\.test\.ts/);
+    assert.equal(call.options.triggerTurn, true);
+
+    // Disk-reload: tddGate.phase must advance red→green
+    const reloaded = loadDebugSession(base, slug);
+    assert.ok(reloaded, "session must exist after combined continue");
+    assert.equal(reloaded!.session.tddGate?.phase, "green", "tddGate.phase must advance red→green on disk");
+    assert.equal(reloaded!.session.phase, "continued");
+    // specialistReview must be preserved
+    assert.ok(reloaded!.session.specialistReview != null, "specialistReview must be preserved after continue");
+    assert.equal(reloaded!.session.specialistReview!.hint, "typescript");
+  } finally {
+    process.chdir(saved);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("/gsd debug S05: multi-session concurrent lifecycle — 3 sessions continue independently and list shows all as continued", async () => {
+  const base = makeBase();
+  const saved = process.cwd();
+  process.chdir(base);
+
+  try {
+    const ctx = createMockCtx();
+
+    // Start 3 sessions via handleGSDCommand
+    await handleGSDCommand("debug Auth token expires silently", ctx as any, {} as any);
+    assert.match(lastNotification(ctx).message, /Debug session started: auth-token-expires-silently/);
+
+    await handleGSDCommand("debug Cache misses on cold start", ctx as any, {} as any);
+    assert.match(lastNotification(ctx).message, /Debug session started: cache-misses-on-cold-start/);
+
+    await handleGSDCommand("debug Payment webhook drops under load", ctx as any, {} as any);
+    assert.match(lastNotification(ctx).message, /Debug session started: payment-webhook-drops-under-load/);
+
+    // Continue each session separately with its own dispatch mock
+    const { calls: calls1, pi: pi1 } = createMockPiWithDispatch();
+    await handleDebug("continue auth-token-expires-silently", ctx as any, pi1 as any);
+    assert.equal(calls1.length, 1, "session 1 should dispatch exactly one message");
+    // Content must reference session 1's slug, not the others
+    assert.match(calls1[0].payload.content, /auth-token-expires-silently/);
+    assert.doesNotMatch(calls1[0].payload.content, /cache-misses-on-cold-start/);
+    assert.doesNotMatch(calls1[0].payload.content, /payment-webhook-drops-under-load/);
+
+    const { calls: calls2, pi: pi2 } = createMockPiWithDispatch();
+    await handleDebug("continue cache-misses-on-cold-start", ctx as any, pi2 as any);
+    assert.equal(calls2.length, 1, "session 2 should dispatch exactly one message");
+    assert.match(calls2[0].payload.content, /cache-misses-on-cold-start/);
+    assert.doesNotMatch(calls2[0].payload.content, /auth-token-expires-silently/);
+
+    const { calls: calls3, pi: pi3 } = createMockPiWithDispatch();
+    await handleDebug("continue payment-webhook-drops-under-load", ctx as any, pi3 as any);
+    assert.equal(calls3.length, 1, "session 3 should dispatch exactly one message");
+    assert.match(calls3[0].payload.content, /payment-webhook-drops-under-load/);
+    assert.doesNotMatch(calls3[0].payload.content, /auth-token-expires-silently/);
+
+    // debug list must show all 3 as phase=continued
+    await handleGSDCommand("debug list", ctx as any, {} as any);
+    const listed = lastNotification(ctx);
+    assert.equal(listed.level, "info");
+    assert.match(listed.message, /auth-token-expires-silently/);
+    assert.match(listed.message, /cache-misses-on-cold-start/);
+    assert.match(listed.message, /payment-webhook-drops-under-load/);
+    assert.match(listed.message, /phase=continued/);
+  } finally {
+    process.chdir(saved);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("/gsd debug S05: resolved session blocks continue via dispatcher route — warning emitted, zero dispatches", async () => {
+  const base = makeBase();
+  const saved = process.cwd();
+  process.chdir(base);
+
+  try {
+    const ctx = createMockCtx();
+    const { calls, pi } = createMockPiWithDispatch();
+
+    // Start session via handleGSDCommand (dispatcher route)
+    await handleGSDCommand("debug Stale lock file blocks deploy", ctx as any, {} as any);
+    const started = lastNotification(ctx);
+    assert.equal(started.level, "info");
+    assert.match(started.message, /Debug session started: stale-lock-file-blocks-deploy/);
+    const slug = "stale-lock-file-blocks-deploy";
+
+    // Mark as resolved via store API
+    updateDebugSession(base, slug, { status: "resolved" });
+
+    // Attempt continue via dispatcher route (handleGSDCommand, not handleDebug directly)
+    await handleGSDCommand(`debug continue ${slug}`, ctx as any, pi as any);
+
+    const warned = lastNotification(ctx);
+    assert.equal(warned.level, "warning");
+    assert.match(warned.message, new RegExp(`Session '${slug}' is resolved`));
+    // Zero dispatch calls — guard must fire before sendMessage
+    assert.equal(calls.length, 0, "no dispatch for resolved session via dispatcher route");
+  } finally {
+    process.chdir(saved);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("/gsd debug S05: TDD gate green-phase continue dispatches find_and_fix with green context and 'test is now passing' text", async () => {
+  const base = makeBase();
+  const saved = process.cwd();
+  process.chdir(base);
+
+  try {
+    const ctx = createMockCtx();
+    const { calls, pi } = createMockPiWithDispatch();
+
+    const created = createDebugSession(base, { issue: "Button click handler fires twice" });
+    const slug = created.session.slug;
+
+    // Set tddGate directly to green (simulating that red phase was already completed)
+    updateDebugSession(base, slug, {
+      tddGate: {
+        enabled: true,
+        phase: "green",
+        testFile: "button.test.ts",
+        testName: "fires handler once per click",
+      },
+    });
+
+    await handleDebug(`continue ${slug}`, ctx as any, pi as any);
+
+    const n = lastNotification(ctx);
+    assert.equal(n.level, "info");
+    assert.match(n.message, new RegExp(`Resumed debug session: ${slug}`));
+    assert.match(n.message, /phase=continued/);
+    assert.match(n.message, /dispatchMode=tddPhase=green/);
+
+    assert.equal(calls.length, 1, "should dispatch exactly one message");
+    const call = calls[0];
+    assert.equal(call.payload.customType, "gsd-debug-continue");
+    // find_and_fix goal for green phase
+    assert.match(call.payload.content, /## Goal\s+`find_and_fix`/);
+    // TDD Gate section with green phase
+    assert.match(call.payload.content, /## TDD Gate/);
+    assert.match(call.payload.content, /phase: green/);
+    // "The test is now passing" text emitted by the handler for green phase
+    assert.match(call.payload.content, /The test is now passing/);
+    // test metadata present
+    assert.match(call.payload.content, /testFile: button\.test\.ts/);
+    assert.match(call.payload.content, /testName: fires handler once per click/);
+    assert.equal(call.options.triggerTurn, true);
+
+    // Disk-reload: session persisted correctly
+    const reloaded = loadDebugSession(base, slug);
+    assert.ok(reloaded, "session must exist after green continue");
+    assert.equal(reloaded!.session.phase, "continued");
+    assert.equal(reloaded!.session.tddGate?.phase, "green", "green phase must remain green (no further advance)");
+  } finally {
+    process.chdir(saved);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("/gsd debug S05: dispatch failure resilience — sendMessage throws, session remains resumable and retry succeeds", async () => {
   const base = makeBase();
   const saved = process.cwd();
