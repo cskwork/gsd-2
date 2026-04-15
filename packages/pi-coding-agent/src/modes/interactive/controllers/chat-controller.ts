@@ -348,7 +348,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				let runStart = -1;
 				let runEnd = -1;
 				let runType: "text" | "thinking" | undefined;
-				const QUESTION_PROSE_MAX_LEN = 120;
 				const closeRun = () => {
 					if (runStart !== -1 && runType) {
 						desired.push({ kind: "text-run", startIndex: runStart, endIndex: runEnd, contentType: runType });
@@ -365,13 +364,11 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					// For Claude Code MCP turns, prune only pre-tool prose, never thinking.
 					const textValue = blockType === "text" && typeof b?.text === "string" ? b.text : "";
 					const isLikelyQuestion = blockType === "text" && typeof textValue === "string" && /\?\s*$/.test(textValue.trim());
-					const isShortProse = blockType === "text" && typeof textValue === "string" && textValue.trim().length > 0 && textValue.trim().length <= QUESTION_PROSE_MAX_LEN;
 					const shouldSkipProse = shouldDropPreToolProse
 						&& firstToolIdx >= 0
 						&& i < firstToolIdx
 						&& blockType === "text"
-						&& !isLikelyQuestion
-						&& !isShortProse;
+						&& !isLikelyQuestion;
 					if (shouldSkipProse) {
 						closeRun();
 						continue;
