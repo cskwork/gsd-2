@@ -95,6 +95,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	}
 
 	host.footer.invalidate();
+	const timestampFormat = host.settingsManager.getTimestampFormat();
 
 	// Reset content index tracker and pinned state when a new assistant message starts
 	if (event.type === "message_start" && event.message.role === "assistant") {
@@ -468,7 +469,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 									undefined,
 									host.hideThinkingBlock,
 									host.getMarkdownThemeWithSettings(),
-									host.settingsManager.getTimestampFormat(),
+									timestampFormat,
 									{ startIndex: seg.startIndex, endIndex: seg.endIndex },
 								);
 								host.chatContainer.addChild(comp);
@@ -690,7 +691,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								undefined,
 								host.hideThinkingBlock,
 								host.getMarkdownThemeWithSettings(),
-								host.settingsManager.getTimestampFormat(),
+								timestampFormat,
 								{ startIndex: seg.startIndex, endIndex: seg.endIndex },
 							);
 							comp.updateContent(host.streamingMessage);
@@ -710,9 +711,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 						host.streamingComponent = new AssistantMessageComponent(
 							undefined,
 							host.hideThinkingBlock,
-						host.getMarkdownThemeWithSettings(),
-						host.settingsManager.getTimestampFormat(),
-					);
+							host.getMarkdownThemeWithSettings(),
+							timestampFormat,
+						);
 					host.chatContainer.addChild(host.streamingComponent);
 				}
 				if (host.streamingComponent) {
