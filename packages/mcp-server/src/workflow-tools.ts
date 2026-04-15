@@ -309,14 +309,18 @@ function parseToolArgs<T>(schema: z.ZodType<T>, args: Record<string, unknown>): 
   return schema.parse(args);
 }
 
-function parseWorkflowArgs<T extends { projectDir: string }>(
+function parseWorkflowArgs<T extends { projectDir?: string }>(
   schema: z.ZodType<T>,
   args: Record<string, unknown>,
-): T {
+): T & { projectDir: string } {
   const parsed = parseToolArgs(schema, args);
+  // Default to process.cwd() when omitted — the server is already cwd'd into
+  // the right project or worktree root by auto-mode, so we don't need the
+  // agent to guess and pass an absolute path string.
+  const candidate = parsed.projectDir ?? process.cwd();
   return {
     ...parsed,
-    projectDir: validateProjectDir(parsed.projectDir),
+    projectDir: validateProjectDir(candidate),
   };
 }
 
@@ -691,7 +695,14 @@ async function ensureMilestoneDbRow(milestoneId: string): Promise<void> {
   }
 }
 
-const projectDirParam = z.string().describe("Absolute path to the project directory within the configured workflow root");
+// projectDir is optional. When omitted, the server uses process.cwd(). This
+// prevents the agent from burning tokens reasoning about which absolute path
+// to pass (git root vs worktree vs symlink-resolved external state layout) —
+// the server already knows where it is running.
+const projectDirParam = z
+  .string()
+  .optional()
+  .describe("Optional. Omit this field — the server defaults to its current working directory, which is already the correct project or worktree root.");
 
 const planMilestoneParams = {
   projectDir: projectDirParam,
