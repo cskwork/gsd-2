@@ -1,4 +1,4 @@
-# ADR-009: Pi Clean Seam Architecture
+# ADR-010: Pi Clean Seam Architecture
 
 **Status:** Proposed
 **Date:** 2026-04-14

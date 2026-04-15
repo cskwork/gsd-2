@@ -2,7 +2,7 @@
 
 **Author:** Tom Boucher
 **Date:** 2026-04-14
-**ADR:** [ADR-009-pi-clean-seam-architecture.md](./ADR-009-pi-clean-seam-architecture.md)
+**ADR:** [ADR-010-pi-clean-seam-architecture.md](./ADR-010-pi-clean-seam-architecture.md)
 **Priority:** High — blocks safe pi-mono upstream updates
 
 ---
