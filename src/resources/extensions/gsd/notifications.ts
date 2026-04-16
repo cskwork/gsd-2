@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import type { NotificationPreferences } from "./types.js";
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 import { CmuxClient, emitOsc777Notification, resolveCmuxConfig } from "../cmux/index.js";
+import { sendRemoteNotification } from "../remote-questions/notify.js";
 
 export type NotifyLevel = "info" | "success" | "warning" | "error";
 export type NotificationKind = "complete" | "error" | "budget" | "milestone" | "attention";
@@ -32,6 +33,11 @@ export function sendDesktopNotification(
   }
   const loaded = loadEffectiveGSDPreferences()?.preferences;
   if (!shouldSendDesktopNotification(kind, loaded?.notifications)) return;
+
+  // Option A: fire remote notification from here so every call-site in phases.ts
+  // automatically triggers Telegram/Slack/Discord without touching loop-deps or phases.
+  // fire-and-forget — sendRemoteNotification is async, sendDesktopNotification is sync.
+  void sendRemoteNotification(title, message).catch(() => {});
 
   const cmux = resolveCmuxConfig(loaded);
   if (cmux.notifications) {
