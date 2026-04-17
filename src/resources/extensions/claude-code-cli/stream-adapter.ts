@@ -31,6 +31,7 @@ import type {
 	SDKUserMessage,
 } from "./sdk-types.js";
 
+/** A single content block returned by an external (SDK-executed) tool call. */
 export interface ExternalToolResultContentBlock {
 	type: string;
 	text?: string;
@@ -38,6 +39,7 @@ export interface ExternalToolResultContentBlock {
 	mimeType?: string;
 }
 
+/** The full result payload returned by an external tool, including content blocks and error status. */
 export interface ExternalToolResultPayload {
 	content: ExternalToolResultContentBlock[];
 	details?: Record<string, unknown>;
@@ -144,6 +146,7 @@ function createAssistantStream(): AssistantMessageEventStream {
 	) as AssistantMessageEventStream;
 }
 
+/** Extract a human-readable error string from an SDK result message. */
 export function getResultErrorMessage(result: SDKResultMessage): string {
 	if ("errors" in result && Array.isArray(result.errors) && result.errors.length > 0) {
 		return result.errors.join("; ");
@@ -162,10 +165,12 @@ export function getResultErrorMessage(result: SDKResultMessage): string {
 
 let cachedClaudePath: string | null = null;
 
+/** Return the shell command used to locate the `claude` binary on the given platform. */
 export function getClaudeLookupCommand(platform: NodeJS.Platform = process.platform): string {
 	return platform === "win32" ? "where claude" : "which claude";
 }
 
+/** Extract the first line of `which`/`where` output as the resolved binary path. */
 export function parseClaudeLookupOutput(output: Buffer | string): string {
 	return output
 		.toString()
@@ -261,6 +266,7 @@ function inferMimeTypeFromDataUri(value: string): string | null {
 	return match?.[1] ?? null;
 }
 
+/** Collect all base64 image blocks from user messages in the context for inclusion in the SDK prompt. */
 export function extractImageBlocksFromContext(context: Context): SDKInputImageBlock[] {
 	const imageBlocks: SDKInputImageBlock[] = [];
 
@@ -291,6 +297,7 @@ export function extractImageBlocksFromContext(context: Context): SDKInputImageBl
 	return imageBlocks;
 }
 
+/** Build the SDK query prompt, wrapping image blocks into an async iterable user message when present. */
 export function buildSdkQueryPrompt(
 	context: Context,
 	textPrompt: string = buildPromptFromContext(context),
@@ -355,6 +362,7 @@ function readElicitationChoices(options: SdkElicitationRequestOption[] | undefin
 		.filter((option): option is string => option.length > 0);
 }
 
+/** Parse an SDK elicitation request into structured multiple-choice questions, or null if the schema is unsupported. */
 export function parseAskUserQuestionsElicitation(
 	request: Pick<SdkElicitationRequest, "mode" | "requestedSchema">,
 ): ParsedElicitationQuestion[] | null {
@@ -431,6 +439,7 @@ function isSecureElicitationField(
 	return SENSITIVE_FIELD_PATTERN.test(haystack);
 }
 
+/** Parse an SDK elicitation request into free-text input field descriptors, or null if unsupported. */
 export function parseTextInputElicitation(
 	request: Pick<SdkElicitationRequest, "message" | "mode" | "requestedSchema">,
 ): ParsedTextInputField[] | null {
@@ -469,6 +478,7 @@ export function parseTextInputElicitation(
 	return fields.length > 0 ? fields : null;
 }
 
+/** Convert a TUI interview round result into the SDK elicitation content map. */
 export function roundResultToElicitationContent(
 	questions: ParsedElicitationQuestion[],
 	result: RoundResult,
@@ -596,6 +606,7 @@ async function promptTextInputElicitation(
 	return { action: "accept", content };
 }
 
+/** Create an SDK elicitation handler that routes requests through the extension UI dialogs, or undefined if no UI is available. */
 export function createClaudeCodeElicitationHandler(
 	ui: ExtensionUIContext | undefined,
 ): ((request: SdkElicitationRequest, options: { signal: AbortSignal }) => Promise<SdkElicitationResult>) | undefined {
@@ -828,6 +839,7 @@ function normalizeToolResultContent(content: unknown): ExternalToolResultContent
 	return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 }
 
+/** Extract tool result payloads from an SDK synthetic user message, keyed by tool-use ID. */
 export function extractToolResultsFromSdkUserMessage(message: SDKUserMessage): Array<{
 	toolUseId: string;
 	result: ExternalToolResultPayload;

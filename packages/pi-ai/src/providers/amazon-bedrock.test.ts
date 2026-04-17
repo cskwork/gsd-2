@@ -1,8 +1,10 @@
 /**
- * TDD Red Phase — Bug #4392 / Pre-existing Bug #4352
+ * Regression guards for #4392
  *
- * `supportsAdaptiveThinking()` in amazon-bedrock.ts is missing opus-4-7,
- * sonnet-4-7, and haiku-4-5. These tests FAIL until the bug is fixed.
+ * Verifies that `supportsAdaptiveThinking()` in amazon-bedrock.ts correctly
+ * recognises all current adaptive-thinking-capable models: opus-4-7,
+ * sonnet-4-7, and haiku-4-5 (in addition to the previously supported
+ * opus-4-6 / sonnet-4-6 family).
  *
  * Related: #4392 (opus-4-7 adaptive thinking not recognised on Bedrock)
  *          #4352 (pre-existing: only opus-4-6 / sonnet-4-6 whitelisted)

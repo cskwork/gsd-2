@@ -516,6 +516,18 @@ describe("stream-adapter — session persistence (#2859)", () => {
 		assert.equal(options.effort, "high", "haiku-4-5 must support adaptive thinking and map effort");
 	});
 
+	test("buildSdkOptions maps reasoning to effort for sonnet-4.7 dot-form (modelSupportsAdaptiveThinking #4392)", () => {
+		// Dot-form aliases (e.g. claude-sonnet-4.7) must also be recognised
+		const options = buildSdkOptions("claude-sonnet-4.7", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "claude-sonnet-4.7 must support adaptive thinking and map effort");
+	});
+
+	test("buildSdkOptions maps reasoning to effort for haiku-4.5 dot-form (modelSupportsAdaptiveThinking #4392)", () => {
+		// Dot-form aliases (e.g. claude-haiku-4.5) must also be recognised
+		const options = buildSdkOptions("claude-haiku-4.5", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "claude-haiku-4.5 must support adaptive thinking and map effort");
+	});
+
 	test("buildSdkOptions does not set thinking field for non-adaptive model when reasoning is undefined (#4392)", () => {
 		// Non-adaptive models (e.g. claude-sonnet-4-20250514) don't use the thinking API at all;
 		// no thinking field should be set when reasoning is undefined

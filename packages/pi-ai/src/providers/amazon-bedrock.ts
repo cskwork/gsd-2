@@ -59,6 +59,7 @@ export interface BedrockOptions extends StreamOptions {
 
 type Block = (TextContent | ThinkingContent | ToolCall) & { index?: number; partialJson?: string };
 
+/** Stream a conversation turn via Amazon Bedrock's converse-stream API. */
 export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOptions> = (
 	model: Model<"bedrock-converse-stream">,
 	context: Context,
@@ -216,6 +217,7 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 	return stream;
 };
 
+/** Simplified entry point for Bedrock streaming; resolves thinking budgets and adaptive-thinking support. */
 export const streamSimpleBedrock: StreamFunction<"bedrock-converse-stream", SimpleStreamOptions> = (
 	model: Model<"bedrock-converse-stream">,
 	context: Context,
