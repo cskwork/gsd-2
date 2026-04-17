@@ -113,6 +113,11 @@ function paramsToTaskRow(params: CompleteTaskParams, completedAt: string): TaskR
     observability_impact: "",
     full_plan_md: "",
     sequence: 0,
+    blocker_source: "",
+    escalation_pending: 0,
+    escalation_awaiting_review: 0,
+    escalation_artifact_path: null,
+    escalation_override_applied_at: null,
   };
 }
 
