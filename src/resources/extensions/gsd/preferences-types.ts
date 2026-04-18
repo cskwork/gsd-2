@@ -120,7 +120,7 @@ export const KNOWN_PREFERENCE_KEYS = new Set<string>([
 
 /** Canonical list of all dispatch unit types. */
 export const KNOWN_UNIT_TYPES = [
-  "research-milestone", "plan-milestone", "research-slice", "plan-slice",
+  "research-milestone", "plan-milestone", "research-slice", "plan-slice", "refine-slice",
   "execute-task", "reactive-execute", "gate-evaluate", "complete-slice", "replan-slice", "reassess-roadmap",
   "run-uat", "complete-milestone", "validate-milestone", "rewrite-docs",
   "discuss-milestone", "discuss-slice", "worktree-merge",
@@ -287,7 +287,7 @@ export interface GSDPreferences {
   post_unit_hooks?: PostUnitHookConfig[];
   pre_dispatch_hooks?: PreDispatchHookConfig[];
   dynamic_routing?: DynamicRoutingConfig;
-  /** Unified Orchestration Kernel controls (all flags default off). */
+  /** Unified Orchestration Kernel controls (default-on, with opt-out and emergency legacy fallback). */
   uok?: UokPreferences;
   /** Per-model capability overrides. Deep-merged with built-in profiles for capability-aware routing (ADR-004). */
   modelOverrides?: Record<string, { capabilities?: Partial<ModelCapabilities> }>;

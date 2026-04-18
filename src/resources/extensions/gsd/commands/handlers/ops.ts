@@ -191,6 +191,11 @@ Examples:
     await handleNotificationsCommand(trimmed.replace(/^notifications\s*/, "").trim(), ctx, pi);
     return true;
   }
+  if (trimmed === "escalate" || trimmed.startsWith("escalate ")) {
+    const { handleEscalateCommand } = await import("./escalate.js");
+    await handleEscalateCommand(trimmed.replace(/^escalate\s*/, "").trim(), ctx, pi);
+    return true;
+  }
   if (trimmed === "inspect") {
     await handleInspect(ctx);
     return true;
@@ -244,6 +249,12 @@ Examples:
   if (trimmed === "extract-learnings" || trimmed.startsWith("extract-learnings ")) {
     const { handleExtractLearnings } = await import("../../commands-extract-learnings.js");
     await handleExtractLearnings(trimmed.replace(/^extract-learnings\s*/, "").trim(), ctx, pi);
+    return true;
+  }
+  if (trimmed === "scan" || trimmed.startsWith("scan ")) {
+    const { handleScan } = await import("../../commands-scan.js");
+    // \s* (not \s+) is intentional: handles both /gsd scan (no args) and /gsd scan --focus X
+    await handleScan(trimmed.replace(/^scan\s*/, "").trim(), ctx, pi);
     return true;
   }
   return false;

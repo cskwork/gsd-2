@@ -431,6 +431,14 @@ describe("stream-adapter — session persistence (#2859)", () => {
 		);
 	});
 
+	test("buildSdkOptions enables context-1m beta for opus-4-7 (#4348)", () => {
+		const opts = buildSdkOptions("claude-opus-4-7", "test");
+		assert.ok(
+			Array.isArray(opts.betas) && opts.betas.includes("context-1m-2025-08-07"),
+			"claude-opus-4-7 should have context-1m beta enabled for 1M token context window",
+		);
+	});
+
 	test("buildSdkOptions maps reasoning to effort for adaptive Claude Code models (#3917)", () => {
 		const options = buildSdkOptions("claude-sonnet-4-6", "test", undefined, { reasoning: "high" });
 		assert.equal(options.effort, "high");
@@ -441,6 +449,16 @@ describe("stream-adapter — session persistence (#2859)", () => {
 		assert.equal(options.effort, "max");
 	});
 
+	test("buildSdkOptions maps reasoning to effort for opus-4-7 (#4348)", () => {
+		const options = buildSdkOptions("claude-opus-4-7", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high");
+	});
+
+	test("buildSdkOptions passes xhigh reasoning natively for opus-4-7 (#4348)", () => {
+		const options = buildSdkOptions("claude-opus-4-7", "test", undefined, { reasoning: "xhigh" });
+		assert.equal(options.effort, "xhigh");
+	});
+
 	test("buildSdkOptions omits effort when reasoning is undefined (#3917)", () => {
 		const options = buildSdkOptions("claude-sonnet-4-6", "test");
 		assert.equal("effort" in options, false);
@@ -449,6 +467,72 @@ describe("stream-adapter — session persistence (#2859)", () => {
 	test("buildSdkOptions omits effort for non-adaptive Claude models (#3917)", () => {
 		const options = buildSdkOptions("claude-sonnet-4-20250514", "test", undefined, { reasoning: "high" });
 		assert.equal("effort" in options, false);
+	});
+
+	// --- Bug fixes #4392: thinking field & model coverage ---
+
+	test("buildSdkOptions sets thinking disabled when reasoning is undefined on adaptive model (#4392)", () => {
+		// Bug C: thinkingLevel="off" means reasoning===undefined; SDK needs thinking:{type:"disabled"}
+		const options = buildSdkOptions("claude-sonnet-4-6", "test", undefined, {});
+		assert.deepEqual(
+			(options as any).thinking,
+			{ type: "disabled" },
+			"thinking must be {type:'disabled'} when reasoning is undefined so SDK stops adaptive thinking",
+		);
+	});
+
+	test("buildSdkOptions omits effort when reasoning is undefined (thinking disabled) (#4392)", () => {
+		// Bug C corollary: no effort when thinking is off
+		const options = buildSdkOptions("claude-sonnet-4-6", "test", undefined, {});
+		assert.equal("effort" in options, false, "effort must not be set when reasoning is undefined");
+	});
+
+	test("buildSdkOptions sets thinking adaptive when reasoning is provided (#4392)", () => {
+		// Bug B: when effort is set, thinking:{type:"adaptive"} must also be present
+		const options = buildSdkOptions("claude-opus-4-6", "test", undefined, { reasoning: "high" });
+		assert.deepEqual(
+			(options as any).thinking,
+			{ type: "adaptive" },
+			"thinking must be {type:'adaptive'} alongside effort when reasoning is set",
+		);
+	});
+
+	test("buildSdkOptions includes both effort and thinking.type=adaptive when reasoning is set (#4392)", () => {
+		// Bug B: both fields must be present together
+		const options = buildSdkOptions("claude-opus-4-6", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "effort must be set");
+		assert.deepEqual((options as any).thinking, { type: "adaptive" }, "thinking must be adaptive");
+	});
+
+	test("buildSdkOptions maps reasoning to effort for sonnet-4-7 (modelSupportsAdaptiveThinking #4392)", () => {
+		// Bug D: sonnet-4-7 was missing from modelSupportsAdaptiveThinking
+		const options = buildSdkOptions("claude-sonnet-4-7", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "sonnet-4-7 must support adaptive thinking and map effort");
+	});
+
+	test("buildSdkOptions maps reasoning to effort for haiku-4-5 (modelSupportsAdaptiveThinking #4392)", () => {
+		// Bug D: haiku-4-5 was missing from modelSupportsAdaptiveThinking
+		const options = buildSdkOptions("claude-haiku-4-5", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "haiku-4-5 must support adaptive thinking and map effort");
+	});
+
+	test("buildSdkOptions maps reasoning to effort for sonnet-4.7 dot-form (modelSupportsAdaptiveThinking #4392)", () => {
+		// Dot-form aliases (e.g. claude-sonnet-4.7) must also be recognised
+		const options = buildSdkOptions("claude-sonnet-4.7", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "claude-sonnet-4.7 must support adaptive thinking and map effort");
+	});
+
+	test("buildSdkOptions maps reasoning to effort for haiku-4.5 dot-form (modelSupportsAdaptiveThinking #4392)", () => {
+		// Dot-form aliases (e.g. claude-haiku-4.5) must also be recognised
+		const options = buildSdkOptions("claude-haiku-4.5", "test", undefined, { reasoning: "high" });
+		assert.equal(options.effort, "high", "claude-haiku-4.5 must support adaptive thinking and map effort");
+	});
+
+	test("buildSdkOptions does not set thinking field for non-adaptive model when reasoning is undefined (#4392)", () => {
+		// Non-adaptive models (e.g. claude-sonnet-4-20250514) don't use the thinking API at all;
+		// no thinking field should be set when reasoning is undefined
+		const options = buildSdkOptions("claude-sonnet-4-20250514", "test", undefined, {});
+		assert.equal("thinking" in options, false, "non-adaptive models must not receive a thinking field");
 	});
 
 	test("buildSdkOptions includes workflow MCP server config when env is set", () => {

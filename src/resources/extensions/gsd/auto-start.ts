@@ -464,11 +464,12 @@ export async function bootstrapAutoSession(
     // Detect survivor milestone branches in both pre-planning and complete phases.
     // In phase=complete, the milestone artifacts exist but finalization (merge,
     // worktree cleanup) was never run — the survivor branch must be merged.
+    // Applies to both worktree and branch isolation modes.
     let hasSurvivorBranch = false;
     if (
       state.activeMilestone &&
       (state.phase === "pre-planning" || state.phase === "complete") &&
-      shouldUseWorktreeIsolation() &&
+      getIsolationMode() !== "none" &&
       !detectWorktreeName(base) &&
       !base.includes(`${pathSep}.gsd${pathSep}worktrees${pathSep}`)
     ) {
@@ -711,7 +712,7 @@ export async function bootstrapAutoSession(
 
     if (
       s.currentMilestoneId &&
-      shouldUseWorktreeIsolation() &&
+      getIsolationMode() !== "none" &&
       !detectWorktreeName(base) &&
       !isUnderGsdWorktrees(base)
     ) {
@@ -837,10 +838,11 @@ export async function bootstrapAutoSession(
     const bannerPrefs = loadEffectiveGSDPreferences()?.preferences;
     const effectiveProvider = s.autoModeStartModel?.provider ?? ctx.model?.provider;
     const effectivelyEnabled = routingConfig.enabled
-      && !(effectiveProvider && isFlatRateProvider(
-        effectiveProvider,
-        buildFlatRateContext(effectiveProvider, ctx, bannerPrefs),
-      ));
+      && (routingConfig.allow_flat_rate_providers
+        || !(effectiveProvider && isFlatRateProvider(
+          effectiveProvider,
+          buildFlatRateContext(effectiveProvider, ctx, bannerPrefs),
+        )));
 
     // The actual ceiling may come from tier_models.heavy, not the start model.
     const effectiveCeiling = (routingConfig.enabled && routingConfig.tier_models?.heavy)

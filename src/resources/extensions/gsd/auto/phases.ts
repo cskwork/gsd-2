@@ -59,6 +59,7 @@ import { resolveSafetyHarnessConfig } from "../safety/safety-harness.js";
 import {
   getWorkflowTransportSupportError,
   getRequiredWorkflowToolsForAutoUnit,
+  supportsStructuredQuestions,
 } from "../workflow-mcp.js";
 
 // ─── Session timeout auto-resume state ────────────────────────────────────────
@@ -214,6 +215,62 @@ async function emitCancelledUnitEnd(
     },
     causedBy: { flowId: ic.flowId, seq: unitStartSeq },
   });
+}
+
+async function failClosedOnFinalizeTimeout(
+  ic: IterationContext,
+  iterData: IterationData,
+  loopState: LoopState,
+  stage: "pre" | "post",
+  startedAt: number,
+): Promise<PhaseResult> {
+  const { ctx, pi, s, deps } = ic;
+  const now = Date.now();
+  const unitType = iterData.unitType;
+  const unitId = iterData.unitId;
+  const timeoutMs = stage === "pre" ? FINALIZE_PRE_TIMEOUT_MS : FINALIZE_POST_TIMEOUT_MS;
+  const progressKind = stage === "pre" ? "finalize-pre-timeout" : "finalize-post-timeout";
+
+  writeUnitRuntimeRecord(s.basePath, unitType, unitId, startedAt, {
+    phase: "finalize-timeout",
+    timeoutAt: now,
+    lastProgressAt: now,
+    lastProgressKind: progressKind,
+  });
+
+  deps.emitJournalEvent({
+    ts: new Date(now).toISOString(),
+    flowId: ic.flowId,
+    seq: ic.nextSeq(),
+    eventType: "unit-end",
+    data: {
+      unitType,
+      unitId,
+      status: "timed-out-finalize",
+      artifactVerified: false,
+      finalizeStage: stage,
+    },
+  });
+
+  loopState.consecutiveFinalizeTimeouts++;
+  debugLog("autoLoop", {
+    phase: progressKind,
+    iteration: ic.iteration,
+    unitType,
+    unitId,
+    consecutiveTimeouts: loopState.consecutiveFinalizeTimeouts,
+  });
+
+  ctx.ui.notify(
+    `${stage === "pre" ? "postUnitPreVerification" : "postUnitPostVerification"} timed out after ${timeoutMs / 1000}s for ${unitType} ${unitId} (${loopState.consecutiveFinalizeTimeouts}/${MAX_FINALIZE_TIMEOUTS}) — pausing auto-mode for recovery.`,
+    "warning",
+  );
+
+  await deps.pauseAuto(ctx, pi);
+  s.currentUnit = null;
+  clearCurrentPhase();
+  drainLogs();
+  return { action: "break", reason: progressKind };
 }
 
 // ─── runPreDispatch ───────────────────────────────────────────────────────────
@@ -781,6 +838,15 @@ export async function runDispatch(
   const { ctx, pi, s, deps, prefs } = ic;
   const { state, mid, midTitle } = preData;
   const STUCK_WINDOW_SIZE = 6;
+  const provider = ctx.model?.provider;
+  const authMode = provider && typeof ctx.modelRegistry?.getProviderAuthMode === "function"
+    ? ctx.modelRegistry.getProviderAuthMode(provider)
+    : undefined;
+  const activeTools = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : [];
+  const structuredQuestionsAvailable = supportsStructuredQuestions(activeTools, {
+    authMode,
+    baseUrl: ctx.model?.baseUrl,
+  }) ? "true" : "false";
 
   debugLog("autoLoop", { phase: "dispatch-resolve", iteration: ic.iteration });
   const dispatchResult = await deps.resolveDispatch({
@@ -790,6 +856,7 @@ export async function runDispatch(
     state,
     prefs,
     session: s,
+    structuredQuestionsAvailable,
   });
 
   if (dispatchResult.action === "stop") {
@@ -848,6 +915,17 @@ export async function runDispatch(
           s.basePath,
         );
         if (artifactExists) {
+          if (unitType === "complete-milestone") {
+            const stuckDiag = diagnoseExpectedArtifact(unitType, unitId, s.basePath);
+            const stuckParts = [
+              `Detected ${unitType} ${unitId} output on disk, but the same unit is still being derived.`,
+              "This usually means the milestone summary exists while the DB row still does not mark the milestone complete.",
+            ];
+            if (stuckDiag) stuckParts.push(`Expected: ${stuckDiag}`);
+            ctx.ui.notify(stuckParts.join(" "), "warning");
+            await deps.pauseAuto(ctx, pi);
+            return { action: "break", reason: "complete-milestone-artifact-db-mismatch" };
+          }
           debugLog("autoLoop", {
             phase: "stuck-recovery",
             level: 1,
@@ -1241,6 +1319,8 @@ export async function runUnitPhase(
   // per-unit. Without this, the module-level _buffer accumulates across every
   // unit in the same Node process (see workflow-logger.ts module header).
   _resetLogs();
+  const dispatchKey = `${unitType}/${unitId}`;
+  s.unitDispatchCount.set(dispatchKey, (s.unitDispatchCount.get(dispatchKey) ?? 0) + 1);
   s.currentUnit = { type: unitType, id: unitId, startedAt: Date.now() };
   s.lastGitActionFailure = null;
   s.lastGitActionStatus = null;
@@ -1307,7 +1387,7 @@ export async function runUnitPhase(
         : s.pendingCrashRecovery;
     finalPrompt = `${capped}\n\n---\n\n${finalPrompt}`;
     s.pendingCrashRecovery = null;
-  } else if ((s.unitDispatchCount.get(`${unitType}/${unitId}`) ?? 0) > 1) {
+  } else if ((s.unitDispatchCount.get(dispatchKey) ?? 0) > 1) {
     const diagnostic = deps.getDeepDiagnostic(s.basePath);
     if (diagnostic) {
       const cappedDiag =
@@ -1666,7 +1746,7 @@ export async function runUnitPhase(
     skipArtifactVerification ||
     verifyExpectedArtifact(unitType, unitId, s.basePath);
   if (artifactVerified) {
-    s.unitDispatchCount.delete(`${unitType}/${unitId}`);
+    s.unitDispatchCount.delete(dispatchKey);
     s.unitRecoveryCount.delete(`${unitType}/${unitId}`);
   }
 
@@ -1771,36 +1851,13 @@ export async function runFinalize(
   );
 
   if (preResultGuard.timedOut) {
-    // Detach session from the timed-out unit so late async completions
-    // cannot mutate state for the next unit (#3757).
-    s.currentUnit = null;
-    clearCurrentPhase();
-    // Drop any logger entries from the timed-out unit so they don't bleed
-    // into the next iteration's drain.
-    drainLogs();
-    loopState.consecutiveFinalizeTimeouts++;
-    debugLog("autoLoop", {
-      phase: "pre-verification-timeout",
-      iteration: ic.iteration,
-      unitType: iterData.unitType,
-      unitId: iterData.unitId,
-      consecutiveTimeouts: loopState.consecutiveFinalizeTimeouts,
-    });
-
-    if (loopState.consecutiveFinalizeTimeouts >= MAX_FINALIZE_TIMEOUTS) {
-      ctx.ui.notify(
-        `postUnitPreVerification timed out ${loopState.consecutiveFinalizeTimeouts} consecutive times — stopping auto-mode to prevent budget waste`,
-        "error",
-      );
-      await deps.stopAuto(ctx, pi, `${loopState.consecutiveFinalizeTimeouts} consecutive finalize timeouts`);
-      return { action: "break", reason: "finalize-timeout-escalation" };
-    }
-
-    ctx.ui.notify(
-      `postUnitPreVerification timed out after ${FINALIZE_PRE_TIMEOUT_MS / 1000}s for ${iterData.unitType} ${iterData.unitId} (${loopState.consecutiveFinalizeTimeouts}/${MAX_FINALIZE_TIMEOUTS}) — continuing to next iteration`,
-      "warning",
+    return failClosedOnFinalizeTimeout(
+      ic,
+      iterData,
+      loopState,
+      "pre",
+      preUnitSnapshot?.startedAt ?? Date.now(),
     );
-    return { action: "next", data: undefined as void };
   }
 
   const preResult = preResultGuard.value;
@@ -1876,36 +1933,13 @@ export async function runFinalize(
   );
 
   if (postResultGuard.timedOut) {
-    // Detach session from the timed-out unit so late async completions
-    // cannot mutate state for the next unit (#3757).
-    s.currentUnit = null;
-    clearCurrentPhase();
-    // Drop any logger entries from the timed-out unit so they don't bleed
-    // into the next iteration's drain.
-    drainLogs();
-    loopState.consecutiveFinalizeTimeouts++;
-    debugLog("autoLoop", {
-      phase: "post-verification-timeout",
-      iteration: ic.iteration,
-      unitType: iterData.unitType,
-      unitId: iterData.unitId,
-      consecutiveTimeouts: loopState.consecutiveFinalizeTimeouts,
-    });
-
-    if (loopState.consecutiveFinalizeTimeouts >= MAX_FINALIZE_TIMEOUTS) {
-      ctx.ui.notify(
-        `postUnitPostVerification timed out ${loopState.consecutiveFinalizeTimeouts} consecutive times — stopping auto-mode to prevent budget waste`,
-        "error",
-      );
-      await deps.stopAuto(ctx, pi, `${loopState.consecutiveFinalizeTimeouts} consecutive finalize timeouts`);
-      return { action: "break", reason: "finalize-timeout-escalation" };
-    }
-
-    ctx.ui.notify(
-      `postUnitPostVerification timed out after ${FINALIZE_POST_TIMEOUT_MS / 1000}s for ${iterData.unitType} ${iterData.unitId} (${loopState.consecutiveFinalizeTimeouts}/${MAX_FINALIZE_TIMEOUTS}) — continuing to next iteration`,
-      "warning",
+    return failClosedOnFinalizeTimeout(
+      ic,
+      iterData,
+      loopState,
+      "post",
+      preUnitSnapshot?.startedAt ?? Date.now(),
     );
-    return { action: "next", data: undefined as void };
   }
 
   const postResult = postResultGuard.value;
