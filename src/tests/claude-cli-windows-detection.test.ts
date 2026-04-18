@@ -34,7 +34,7 @@ const WINDOWS_CLAUDE_SELECTOR =
  * selector used by `execFileSync`. Guards the wizard path from Issue
  * #4424 where Windows users never saw the "Use Claude Code CLI" option.
  */
-test("claude-cli-check.ts selects claude.cmd on win32", () => {
+function verifyCliCheckSelector(): void {
 	const source = readFileSync(
 		join(import.meta.dirname, "..", "claude-cli-check.ts"),
 		"utf-8",
@@ -45,14 +45,14 @@ test("claude-cli-check.ts selects claude.cmd on win32", () => {
 		WINDOWS_CLAUDE_SELECTOR,
 		"claude-cli-check.ts must implement process.platform === 'win32' ? 'claude.cmd' : 'claude'",
 	);
-});
+}
 
 /**
  * Verifies the cached extension-level readiness check (`readiness.ts`)
  * carries the same Windows shim selector, so provider gating succeeds
  * on Windows installs where `claude` is an npm-shipped `.cmd` shim.
  */
-test("readiness.ts selects claude.cmd on win32", () => {
+function verifyReadinessSelector(): void {
 	const source = readFileSync(
 		join(
 			import.meta.dirname,
@@ -70,4 +70,7 @@ test("readiness.ts selects claude.cmd on win32", () => {
 		WINDOWS_CLAUDE_SELECTOR,
 		"readiness.ts must implement process.platform === 'win32' ? 'claude.cmd' : 'claude'",
 	);
-});
+}
+
+test("claude-cli-check.ts selects claude.cmd on win32", verifyCliCheckSelector);
+test("readiness.ts selects claude.cmd on win32", verifyReadinessSelector);
