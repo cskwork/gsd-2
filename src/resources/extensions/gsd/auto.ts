@@ -146,6 +146,7 @@ import { getPriorSliceCompletionBlocker } from "./dispatch-guard.js";
 import {
   createAutoWorktree,
   enterAutoWorktree,
+  enterBranchModeForMilestone,
   teardownAutoWorktree,
   isInAutoWorktree,
   getAutoWorktreePath,
@@ -160,6 +161,7 @@ import {
   escapeStaleWorktree,
 } from "./auto-worktree.js";
 import { pruneQueueOrder } from "./queue-order.js";
+import { startCommandPolling as _startCommandPolling, isRemoteConfigured } from "../remote-questions/manager.js";
 
 import { debugLog, isDebugEnabled, writeDebugSummary } from "./debug-logger.js";
 import {
@@ -201,7 +203,7 @@ import {
 } from "./auto-post-unit.js";
 import { bootstrapAutoSession, openProjectDbIfPresent, type BootstrapDeps } from "./auto-start.js";
 import { initHealthWidget } from "./health-widget.js";
-import { autoLoop, resolveAgentEnd, resolveAgentEndCancelled, _resetPendingResolve, isSessionSwitchInFlight, type LoopDeps, type ErrorContext } from "./auto-loop.js";
+import { runLegacyAutoLoop, runUokKernelLoop, resolveAgentEnd, resolveAgentEndCancelled, _resetPendingResolve, isSessionSwitchInFlight, type LoopDeps, type ErrorContext } from "./auto-loop.js";
 import { runAutoLoopWithUok } from "./uok/kernel.js";
 import { resolveUokFlags } from "./uok/flags.js";
 // Slice-level parallelism (#2340)
@@ -326,6 +328,7 @@ export function startAutoDetached(
   });
 }
 
+/** Returns true if the project is configured for `isolation:worktree` mode. */
 export function shouldUseWorktreeIsolation(): boolean {
   const prefs = loadEffectiveGSDPreferences()?.preferences?.git;
   if (prefs?.isolation === "worktree") return true;
@@ -388,6 +391,27 @@ function registerSigtermHandler(currentBasePath: string): void {
 function deregisterSigtermHandler(): void {
   _deregisterSigtermHandler(s.sigtermHandler);
   s.sigtermHandler = null;
+}
+
+/**
+ * Wrapper: start background command polling for the configured remote channel
+ * (currently Telegram only). Stores the cleanup function on the session so
+ * every exit path can stop the interval via stopCommandPolling().
+ * No-op when no remote channel is configured.
+ */
+function startAutoCommandPolling(basePath: string): void {
+  if (!isRemoteConfigured()) return;
+  // Clear any existing interval before starting a new one (e.g. resume path).
+  stopAutoCommandPolling();
+  s.commandPollingCleanup = _startCommandPolling(basePath);
+}
+
+/** Wrapper: stop background command polling and clear the stored cleanup. */
+function stopAutoCommandPolling(): void {
+  if (s.commandPollingCleanup) {
+    s.commandPollingCleanup();
+    s.commandPollingCleanup = null;
+  }
 }
 
 export { type AutoDashboardData } from "./auto-dashboard.js";
@@ -464,6 +488,15 @@ export function getAutoModeStartModel(): {
   id: string;
 } | null {
   return s.autoModeStartModel;
+}
+
+/**
+ * Update the dashboard-facing dispatched model label.
+ * Used when runtime recovery switches models mid-unit (e.g. provider fallback)
+ * so the AUTO box reflects the active model immediately.
+ */
+export function setCurrentDispatchedModelId(model: { provider: string; id: string } | null): void {
+  s.currentDispatchedModelId = model ? `${model.provider}/${model.id}` : null;
 }
 
 // Tool tracking — delegates to auto-tool-tracking.ts
@@ -648,6 +681,7 @@ function handleLostSessionLock(
   s.paused = false;
   deactivateGSD();
   clearUnitTimeout();
+  stopAutoCommandPolling();
   restoreProjectRootEnv();
   restoreMilestoneLockEnv();
   deregisterSigtermHandler();
@@ -687,6 +721,7 @@ function cleanupAfterLoopExit(ctx: ExtensionContext): void {
   s.active = false;
   deactivateGSD();
   clearUnitTimeout();
+  stopAutoCommandPolling();
   restoreProjectRootEnv();
   restoreMilestoneLockEnv();
 
@@ -735,6 +770,7 @@ export async function stopAuto(
     // ── Step 1: Timers and locks ──
     try {
       clearUnitTimeout();
+      stopAutoCommandPolling();
       if (lockBase()) clearLock(lockBase());
       if (lockBase()) releaseSessionLock(lockBase());
     } catch (e) {
@@ -1000,6 +1036,7 @@ export async function pauseAuto(
 ): Promise<void> {
   if (!s.active) return;
   clearUnitTimeout();
+  stopAutoCommandPolling();
 
   // Flush queued follow-up messages (#3512).
   // Late async notifications (async_job_result, gsd-auto-wrapup) can trigger
@@ -1103,6 +1140,7 @@ function buildResolverDeps(): WorktreeResolverDeps {
     teardownAutoWorktree,
     createAutoWorktree,
     enterAutoWorktree,
+    enterBranchModeForMilestone,
     getAutoWorktreePath,
     autoCommitCurrentBranch,
     getCurrentBranch,
@@ -1253,6 +1291,11 @@ function buildLoopDeps(): LoopDeps {
   } as unknown as LoopDeps;
 }
 
+/**
+ * Start auto-mode. Handles both fresh-start and resume paths, sets up session
+ * state, enters the milestone worktree or branch, and dispatches the first unit.
+ * No-ops if auto-mode is already active.
+ */
 export async function startAuto(
   ctx: ExtensionCommandContext,
   pi: ExtensionAPI,
@@ -1438,10 +1481,10 @@ export async function startAuto(
       ctx.ui.notify(summary, level as "info" | "warning" | "error");
     });
 
-    // ── Auto-worktree: re-enter worktree on resume ──
+    // ── Auto-worktree / branch-mode: re-enter on resume ──
     if (
       s.currentMilestoneId &&
-      shouldUseWorktreeIsolation() &&
+      getIsolationMode() !== "none" &&
       s.originalBasePath &&
       !isInAutoWorktree(s.basePath) &&
       !detectWorktreeName(s.basePath) &&
@@ -1533,12 +1576,14 @@ export async function startAuto(
     logCmuxEvent(loadEffectiveGSDPreferences()?.preferences, s.stepMode ? "Step-mode resumed." : "Auto-mode resumed.", "progress");
 
     captureProjectRootEnv(s.originalBasePath || s.basePath);
+    startAutoCommandPolling(s.basePath);
     await runAutoLoopWithUok({
       ctx,
       pi,
       s,
       deps: buildLoopDeps(),
-      runLegacyLoop: autoLoop,
+      runKernelLoop: runUokKernelLoop,
+      runLegacyLoop: runLegacyAutoLoop,
     });
     cleanupAfterLoopExit(ctx);
     return;
@@ -1573,13 +1618,16 @@ export async function startAuto(
   }
   logCmuxEvent(loadEffectiveGSDPreferences()?.preferences, requestedStepMode ? "Step-mode started." : "Auto-mode started.", "progress");
 
+  startAutoCommandPolling(s.basePath);
+
   // Dispatch the first unit
   await runAutoLoopWithUok({
     ctx,
     pi,
     s,
     deps: buildLoopDeps(),
-    runLegacyLoop: autoLoop,
+    runKernelLoop: runUokKernelLoop,
+    runLegacyLoop: runLegacyAutoLoop,
   });
   cleanupAfterLoopExit(ctx);
 }

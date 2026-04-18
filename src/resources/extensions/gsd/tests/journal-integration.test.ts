@@ -10,13 +10,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { JournalEntry } from "../journal.js";
 import type { LoopDeps } from "../auto/loop-deps.js";
 import type { IterationContext, LoopState, PreDispatchData, IterationData } from "../auto/types.js";
 import type { SessionLockStatus } from "../session-lock.js";
-import { runDispatch, runUnitPhase, runPreDispatch } from "../auto/phases.js";
+import { runDispatch, runUnitPhase, runPreDispatch, runFinalize } from "../auto/phases.js";
+import { readUnitRuntimeRecord } from "../unit-runtime.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -317,6 +321,75 @@ test("runDispatch checks prior-slice completion against the project root in work
   ]);
 });
 
+test("runDispatch pauses when complete-milestone summary exists on disk but the unit is still stuck (#4289)", async (t) => {
+  const capture = createEventCapture();
+  let pauseCalls = 0;
+  let stopCalls = 0;
+  const base = join(tmpdir(), `gsd-stuck-complete-${randomUUID()}`);
+  t.after(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  mkdirSync(join(base, ".gsd", "milestones", "M001"), { recursive: true });
+  mkdirSync(join(base, "src"), { recursive: true });
+  writeFileSync(join(base, ".gsd", "milestones", "M001", "M001-SUMMARY.md"), "# Summary\nDone.\n");
+  writeFileSync(join(base, "src", "app.ts"), "export const ok = true;\n");
+
+  execFileSync("git", ["init", "-b", "main"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Codex"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "codex@example.com"], { cwd: base, stdio: "ignore" });
+  writeFileSync(join(base, "README.md"), "# test\n");
+  execFileSync("git", ["add", "README.md"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "chore: seed"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["checkout", "-b", "fix/test"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["add", ".gsd/milestones/M001/M001-SUMMARY.md", "src/app.ts"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "feat: summary exists but db is stale"], { cwd: base, stdio: "ignore" });
+
+  const deps = makeMockDeps(capture, {
+    pauseAuto: async () => { pauseCalls++; },
+    stopAuto: async () => { stopCalls++; },
+    resolveDispatch: async () => ({
+      action: "dispatch" as const,
+      unitType: "complete-milestone",
+      unitId: "M001",
+      prompt: "complete the milestone",
+      matchedRule: "completing-milestone-rule",
+    }),
+  });
+
+  const ic = makeIC(deps, {
+    s: {
+      ...makeSession(),
+      basePath: base,
+      currentMilestoneId: "M001",
+    } as any,
+  });
+  const preData: PreDispatchData = {
+    state: {
+      phase: "completing-milestone",
+      activeMilestone: { id: "M001", title: "Test", status: "active" },
+      registry: [{ id: "M001", status: "active" }],
+      blockers: [],
+    } as any,
+    mid: "M001",
+    midTitle: "Test Milestone",
+  };
+
+  const result = await runDispatch(ic, preData, {
+    recentUnits: [
+      { key: "complete-milestone/M001" },
+      { key: "complete-milestone/M001" },
+    ],
+    stuckRecoveryAttempts: 0,
+    consecutiveFinalizeTimeouts: 0,
+  });
+
+  assert.equal(result.action, "break");
+  assert.equal((result as any).reason, "complete-milestone-artifact-db-mismatch");
+  assert.equal(pauseCalls, 1, "complete-milestone disk/db mismatch should pause auto-mode");
+  assert.equal(stopCalls, 0, "mismatch pause should not hard-stop the loop");
+});
+
 test("runUnitPhase emits unit-start and unit-end with causedBy reference", async () => {
   const capture = createEventCapture();
 
@@ -378,6 +451,41 @@ test("runUnitPhase emits unit-start and unit-end with causedBy reference", async
   assert.ok(endEvents[0].causedBy, "unit-end must have a causedBy reference");
   assert.equal(endEvents[0].causedBy!.flowId, ic.flowId);
   assert.equal(endEvents[0].causedBy!.seq, startEvents[0].seq, "unit-end causedBy.seq must match unit-start.seq");
+});
+
+test("runUnitPhase increments unitDispatchCount for repeated artifact-missing retries", async () => {
+  const capture = createEventCapture();
+  const { resolveAgentEnd, _resetPendingResolve } = await import("../auto-loop.js");
+  _resetPendingResolve();
+
+  const deps = makeMockDeps(capture);
+  const ic = makeIC(deps);
+  const iterData: IterationData = {
+    unitType: "execute-task",
+    unitId: "M001/S01/T01",
+    prompt: "do stuff",
+    finalPrompt: "do stuff",
+    pauseAfterUatDispatch: false,
+    state: { phase: "executing", activeMilestone: { id: "M001" }, activeSlice: { id: "S01" }, registry: [], blockers: [] } as any,
+    mid: "M001",
+    midTitle: "Test",
+    isRetry: false,
+    previousTier: undefined,
+  };
+  const loopState: LoopState = { recentUnits: [{ key: "execute-task/M001/S01/T01" }], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 };
+
+  const firstRun = runUnitPhase(ic, iterData, loopState);
+  await new Promise(r => setTimeout(r, 50));
+  resolveAgentEnd({ messages: [{ role: "assistant" }] });
+  await firstRun;
+  assert.equal(ic.s.unitDispatchCount.get("execute-task/M001/S01/T01"), 1);
+
+  _resetPendingResolve();
+  const secondRun = runUnitPhase(ic, iterData, loopState);
+  await new Promise(r => setTimeout(r, 50));
+  resolveAgentEnd({ messages: [{ role: "assistant" }] });
+  await secondRun;
+  assert.equal(ic.s.unitDispatchCount.get("execute-task/M001/S01/T01"), 2);
 });
 
 test("all events from a mock iteration have monotonically increasing seq and same flowId", async () => {
@@ -666,4 +774,66 @@ test("session-failed cancellations close out and emit unit-end before hard stop"
   assert.equal((endEvents[0].data as any).status, "cancelled");
   assert.equal((endEvents[0].data as any).artifactVerified, false);
   assert.equal((endEvents[0].data as any).errorContext.category, "session-failed");
+});
+
+test("runFinalize pauses and emits unit-end when pre-verification times out", async () => {
+  const capture = createEventCapture();
+  let pauseCalls = 0;
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-finalize-timeout-"));
+
+  const deps = makeMockDeps(capture, {
+    pauseAuto: async () => { pauseCalls++; },
+    postUnitPreVerification: async () => {
+      await new Promise(() => {});
+      return "continue" as const;
+    },
+  });
+
+  const ic = makeIC(deps, {
+    s: {
+      ...makeSession(),
+      basePath,
+      currentUnit: { type: "execute-task", id: "M001/S01/T01", startedAt: 1234 },
+    } as any,
+  });
+  const iterData: IterationData = {
+    unitType: "execute-task",
+    unitId: "M001/S01/T01",
+    prompt: "do stuff",
+    finalPrompt: "do stuff",
+    pauseAfterUatDispatch: false,
+    state: { phase: "executing", activeMilestone: { id: "M001" }, activeSlice: { id: "S01" }, registry: [], blockers: [] } as any,
+    mid: "M001",
+    midTitle: "Test",
+    isRetry: false,
+    previousTier: undefined,
+  };
+  const loopState: LoopState = { recentUnits: [], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 };
+
+  const originalSetTimeout = globalThis.setTimeout;
+  try {
+    globalThis.setTimeout = ((handler: (...args: any[]) => void, _timeout?: number, ...args: any[]) =>
+      originalSetTimeout(handler, 0, ...args)) as typeof setTimeout;
+
+    const result = await runFinalize(ic, iterData, loopState);
+    assert.equal(result.action, "break");
+    assert.equal((result as any).reason, "finalize-pre-timeout");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+
+  assert.equal(pauseCalls, 1, "pre-verification timeout should pause auto-mode");
+  assert.equal(loopState.consecutiveFinalizeTimeouts, 1, "timeout should increment finalize timeout counter");
+  assert.equal(ic.s.currentUnit, null, "timed-out finalize should detach currentUnit");
+
+  const runtime = readUnitRuntimeRecord(basePath, "execute-task", "M001/S01/T01");
+  assert.ok(runtime, "timed-out finalize should persist a runtime record");
+  assert.equal(runtime?.phase, "finalize-timeout");
+  assert.equal(runtime?.lastProgressKind, "finalize-pre-timeout");
+
+  const endEvents = capture.events.filter((e) => e.eventType === "unit-end");
+  assert.equal(endEvents.length, 1, "timed-out finalize should emit terminal unit-end");
+  assert.equal((endEvents[0].data as any).status, "timed-out-finalize");
+  assert.equal((endEvents[0].data as any).artifactVerified, false);
+  assert.equal((endEvents[0].data as any).finalizeStage, "pre");
 });
