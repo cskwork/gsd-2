@@ -11,6 +11,7 @@ export type Phase =
   | "discussing"
   | "researching"
   | "planning"
+  | "refining"
   | "evaluating-gates"
   | "executing"
   | "verifying"
@@ -353,6 +354,8 @@ export interface PhaseSkipPreferences {
   require_slice_discussion?: boolean;
   /** ADR-011 Phase 2: when true, executors may escalate task-level ambiguity via T##-ESCALATION.json. */
   mid_execution_escalation?: boolean;
+  /** ADR-011 Phase 1: when true, plan S01 in full and S02+ as sketches refined just-in-time. */
+  progressive_planning?: boolean;
 }
 
 // ─── ADR-011 Phase 2 Escalation ──────────────────────────────────────────
