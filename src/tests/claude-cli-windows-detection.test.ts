@@ -13,11 +13,27 @@ import { join } from "node:path";
  * Both the lightweight onboarding check (`src/claude-cli-check.ts`) and
  * the cached readiness check
  * (`src/resources/extensions/claude-code-cli/readiness.ts`) must carry
- * the `process.platform === 'win32'` ? 'claude.cmd' : 'claude'` guard —
+ * the `process.platform === 'win32' ? 'claude.cmd' : 'claude'` guard —
  * analogous to the existing `NPM_COMMAND` pattern in
  * `src/resources/extensions/gsd/pre-execution-checks.ts`.
  */
 
+/**
+ * Proximity regex matching the full ternary expression. Validates the
+ * real command-selection logic rather than individual tokens — keyword-
+ * only assertions (e.g. `/win32/`, `/claude\.cmd/`) can be satisfied by
+ * documentation or comments alone and would fail to catch a regression
+ * that removes the code path while leaving the JSDoc in place.
+ */
+const WINDOWS_CLAUDE_SELECTOR =
+	/process\.platform\s*===\s*['"]win32['"]\s*\?\s*['"]claude\.cmd['"]\s*:\s*['"]claude['"]/;
+
+/**
+ * Verifies the onboarding-level readiness check (`claude-cli-check.ts`)
+ * carries the `process.platform === 'win32' ? 'claude.cmd' : 'claude'`
+ * selector used by `execFileSync`. Guards the wizard path from Issue
+ * #4424 where Windows users never saw the "Use Claude Code CLI" option.
+ */
 test("claude-cli-check.ts selects claude.cmd on win32", () => {
 	const source = readFileSync(
 		join(import.meta.dirname, "..", "claude-cli-check.ts"),
@@ -26,16 +42,16 @@ test("claude-cli-check.ts selects claude.cmd on win32", () => {
 
 	assert.match(
 		source,
-		/win32/,
-		"claude-cli-check.ts must branch on process.platform === 'win32'",
-	);
-	assert.match(
-		source,
-		/claude\.cmd/,
-		"claude-cli-check.ts must reference 'claude.cmd' for Windows shim detection",
+		WINDOWS_CLAUDE_SELECTOR,
+		"claude-cli-check.ts must implement process.platform === 'win32' ? 'claude.cmd' : 'claude'",
 	);
 });
 
+/**
+ * Verifies the cached extension-level readiness check (`readiness.ts`)
+ * carries the same Windows shim selector, so provider gating succeeds
+ * on Windows installs where `claude` is an npm-shipped `.cmd` shim.
+ */
 test("readiness.ts selects claude.cmd on win32", () => {
 	const source = readFileSync(
 		join(
@@ -51,12 +67,7 @@ test("readiness.ts selects claude.cmd on win32", () => {
 
 	assert.match(
 		source,
-		/win32/,
-		"readiness.ts must branch on process.platform === 'win32'",
-	);
-	assert.match(
-		source,
-		/claude\.cmd/,
-		"readiness.ts must reference 'claude.cmd' for Windows shim detection",
+		WINDOWS_CLAUDE_SELECTOR,
+		"readiness.ts must implement process.platform === 'win32' ? 'claude.cmd' : 'claude'",
 	);
 });
