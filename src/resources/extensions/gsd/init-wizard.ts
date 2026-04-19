@@ -18,7 +18,6 @@ import type { ProjectDetection, ProjectSignals } from "./detection.js";
 import { runSkillInstallStep } from "./skill-catalog.js";
 import { generateCodebaseMap, writeCodebaseMap } from "./codebase-generator.js";
 import { handlePrefsWizard, writePreferencesFile } from "./commands-prefs-wizard.js";
-import { getProjectGSDPreferencesPath } from "./preferences.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -234,16 +233,12 @@ export async function showProjectInit(
     // Non-fatal — skill installation failure should never block project init
   }
 
-  // ── Step 9: Bootstrap .gsd/ ────────────────────────────────────────────────
-  // Create directory + context.md, then route preferences through the unified
+  // ── Step 9: Optional full-prefs review ─────────────────────────────────────
+  // Ask BEFORE bootstrapping so a defer (`not_yet`) leaves the project untouched.
+  // Once the user commits, we bootstrap and route preferences through the unified
   // writer (commands-prefs-wizard.writePreferencesFile) so init and the prefs
-  // wizard share one serializer. Optional follow-up step lets the user open
-  // the full prefs wizard with their init answers pre-populated, surfacing
-  // every configurable preference instead of just the init-wizard subset.
-  bootstrapGsdDirectoryStructure(basePath, signals);
-  const prefillPrefs = mapInitPrefsToWizardShape(prefs);
-
-  // ── Step 9b: Optional full-prefs review ────────────────────────────────────
+  // wizard share one serializer. The "Open full wizard" branch surfaces every
+  // configurable preference, prefilled with the init answers.
   const reviewChoice = await showNextAction(ctx, {
     title: "GSD — Review All Preferences (Optional)",
     summary: [
@@ -259,12 +254,27 @@ export async function showProjectInit(
     notYetMessage: "Run /gsd init when ready.",
   });
 
+  if (reviewChoice === "not_yet") {
+    // User deferred — don't create .gsd/ or persist preferences. Pre-step state
+    // (e.g. git init from Step 2) remains as-is, matching prior step semantics.
+    return { completed: false, bootstrapped: false };
+  }
+
+  // ── Step 10: Bootstrap .gsd/ + write preferences ───────────────────────────
+  bootstrapGsdDirectoryStructure(basePath, signals);
+  const prefillPrefs = mapInitPrefsToWizardShape(prefs);
+  // Always derive the preferences path from basePath so init writing the
+  // structure to one location and preferences to another (cwd-derived) is
+  // impossible — see #4457 codex review.
+  const projectPrefsPath = join(gsdRoot(basePath), "PREFERENCES.md");
+
   if (reviewChoice === "review") {
-    // The wizard handles its own write via writePreferencesFile internally.
-    await handlePrefsWizard(ctx, "project", prefillPrefs);
+    // Wizard writes via writePreferencesFile internally; pass pathOverride so it
+    // targets basePath rather than cwd.
+    await handlePrefsWizard(ctx, "project", prefillPrefs, { pathOverride: projectPrefsPath });
   } else {
     // Direct path: write the init-collected prefs through the unified writer.
-    await writePreferencesFile(getProjectGSDPreferencesPath(), prefillPrefs, ctx, {
+    await writePreferencesFile(projectPrefsPath, prefillPrefs, ctx, {
       scope: "project",
       defaultBody: buildInitPreferencesBody(),
       notifyOnSave: false,

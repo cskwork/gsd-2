@@ -122,3 +122,69 @@ test("writePreferencesFile — falls back to default body for new files", async 
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ─── Regression tests from #4457 codex adversarial review ──────────────────
+
+test("init — Step 9b shape: 'not_yet' option is recognized as defer (#4457 review)", async () => {
+  // The init wizard relies on showNextAction always appending a `not_yet` action
+  // and mapping Escape to it. The Step 9b code must explicitly handle `not_yet`
+  // as defer (return without bootstrapping or persisting prefs). This test
+  // documents the contract — it doesn't drive the full wizard, but it locks in
+  // that "not_yet" is the canonical defer signal so a future refactor can't
+  // silently drop the explicit branch.
+  const { showNextAction } = await import("../../shared/tui.ts") as { showNextAction: unknown };
+  assert.equal(typeof showNextAction, "function");
+
+  // Read the source to assert Step 9b explicitly handles not_yet — a static
+  // smoke test cheaper than spinning up the full wizard with a mocked ctx.
+  const src = readFileSync(
+    new URL("../init-wizard.ts", import.meta.url),
+    "utf-8",
+  );
+  assert.match(
+    src,
+    /reviewChoice === "not_yet"[\s\S]*?return \{ completed: false, bootstrapped: false \}/,
+    "init Step 9b must short-circuit on not_yet without writing preferences",
+  );
+});
+
+test("init — preferences path is basePath-derived, not cwd-derived (#4457 review)", async () => {
+  // If basePath !== process.cwd(), preferences must still write to
+  // join(gsdRoot(basePath), "PREFERENCES.md"), not the cwd-derived path.
+  // Static check: the post-#4457-review code constructs the path from gsdRoot(basePath).
+  const src = readFileSync(
+    new URL("../init-wizard.ts", import.meta.url),
+    "utf-8",
+  );
+  assert.match(
+    src,
+    /projectPrefsPath\s*=\s*join\(gsdRoot\(basePath\),\s*"PREFERENCES\.md"\)/,
+    "init must derive the project preferences path from basePath",
+  );
+  // And neither write site should call getProjectGSDPreferencesPath() (which
+  // resolves from process.cwd()).
+  assert.doesNotMatch(
+    src,
+    /getProjectGSDPreferencesPath\s*\(/,
+    "init must not use the cwd-derived getProjectGSDPreferencesPath()",
+  );
+});
+
+test("handlePrefsWizard — accepts pathOverride to target a non-cwd location", async () => {
+  // The wizard's signature must support pathOverride so /gsd init can route
+  // both the review and skip branches to the basePath-derived path.
+  const { handlePrefsWizard } = await import("../commands-prefs-wizard.ts");
+  assert.equal(handlePrefsWizard.length >= 2, true);
+  // Read source to confirm the opts.pathOverride wiring exists — calling
+  // handlePrefsWizard end-to-end requires a full ExtensionCommandContext
+  // mock, which is heavier than this contract check warrants.
+  const src = readFileSync(
+    new URL("../commands-prefs-wizard.ts", import.meta.url),
+    "utf-8",
+  );
+  assert.match(
+    src,
+    /opts\?\.pathOverride[\s\S]*?\?\?[\s\S]*?(getProjectGSDPreferencesPath|getGlobalGSDPreferencesPath)/,
+    "handlePrefsWizard must honor opts.pathOverride before falling back to scope-derived path",
+  );
+});

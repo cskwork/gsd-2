@@ -700,8 +700,13 @@ export async function handlePrefsWizard(
   ctx: ExtensionCommandContext,
   scope: "global" | "project",
   prefill?: Record<string, unknown>,
+  opts?: { pathOverride?: string },
 ): Promise<void> {
-  const path = scope === "project" ? getProjectGSDPreferencesPath() : getGlobalGSDPreferencesPath();
+  // pathOverride lets callers like /gsd init pass a basePath-derived target
+  // path so the wizard doesn't fall back to cwd-based getProjectGSDPreferencesPath
+  // when the init target diverges from the current working directory.
+  const path = opts?.pathOverride
+    ?? (scope === "project" ? getProjectGSDPreferencesPath() : getGlobalGSDPreferencesPath());
   const existing = scope === "project" ? loadProjectGSDPreferences() : loadGlobalGSDPreferences();
   // Order: existing-on-disk values, overlaid with prefill (caller's seeded answers).
   // Callers like /gsd init pass freshly-collected init answers as prefill so the
