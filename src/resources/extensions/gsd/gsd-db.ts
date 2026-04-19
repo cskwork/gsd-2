@@ -180,7 +180,7 @@ function openRawDb(path: string): unknown {
   return new Database(path);
 }
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 20;
 
 function indexExists(db: DbAdapter, name: string): boolean {
   return !!db.prepare(
@@ -281,7 +281,9 @@ function initSchema(db: DbAdapter, fileBacked: boolean): void {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         superseded_by TEXT DEFAULT NULL,
-        hit_count INTEGER NOT NULL DEFAULT 0
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        scope TEXT NOT NULL DEFAULT 'project',
+        tags TEXT NOT NULL DEFAULT '[]'
       )
     `);
 
@@ -292,6 +294,45 @@ function initSchema(db: DbAdapter, fileBacked: boolean): void {
         processed_at TEXT NOT NULL
       )
     `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_sources (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        uri TEXT,
+        title TEXT,
+        content TEXT NOT NULL,
+        content_hash TEXT NOT NULL UNIQUE,
+        imported_at TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'project',
+        tags TEXT NOT NULL DEFAULT '[]'
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_embeddings (
+        memory_id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_relations (
+        from_id TEXT NOT NULL,
+        to_id TEXT NOT NULL,
+        rel TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.8,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (from_id, to_id, rel)
+      )
+    `);
+
+    // FTS5 virtual table mirroring memories.content for fast keyword search.
+    // Optional — if the SQLite build lacks FTS5, we fall back to LIKE scans.
+    tryCreateMemoriesFts(db);
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS milestones (
@@ -516,6 +557,11 @@ function initSchema(db: DbAdapter, fileBacked: boolean): void {
     `);
 
     db.exec("CREATE INDEX IF NOT EXISTS idx_memories_active ON memories(superseded_by)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_memory_sources_kind ON memory_sources(kind)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_memory_sources_scope ON memory_sources(scope)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_memory_relations_from ON memory_relations(from_id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_memory_relations_to ON memory_relations(to_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_replan_history_milestone ON replan_history(milestone_id, created_at)");
 
     // v13 indexes — hot-path dispatch queries
@@ -563,6 +609,56 @@ function initSchema(db: DbAdapter, fileBacked: boolean): void {
 function columnExists(db: DbAdapter, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all();
   return rows.some((row) => row["name"] === column);
+}
+
+/**
+ * Create the FTS5 virtual table for memories plus the triggers that keep it
+ * in sync with the base table. FTS5 may be unavailable on stripped-down
+ * SQLite builds — callers should treat failure as non-fatal and fall back
+ * to LIKE-based scans in `memory-store.queryMemoriesRanked`.
+ */
+export function tryCreateMemoriesFts(db: DbAdapter): boolean {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+      USING fts5(content, content='memories', content_rowid='seq', tokenize='porter unicode61')
+    `);
+    // Triggers mirror inserts / updates / deletes on the base memories table.
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS memories_ai
+      AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, content) VALUES (new.seq, new.content);
+      END
+    `);
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS memories_ad
+      AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.seq, old.content);
+      END
+    `);
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS memories_au
+      AFTER UPDATE OF content ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.seq, old.content);
+        INSERT INTO memories_fts(rowid, content) VALUES (new.seq, new.content);
+      END
+    `);
+    return true;
+  } catch (err) {
+    logWarning("db", `FTS5 unavailable — memory queries will use LIKE fallback: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+export function isMemoriesFtsAvailable(db: DbAdapter): boolean {
+  try {
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'")
+      .get();
+    return !!row;
+  } catch {
+    return false;
+  }
 }
 
 function ensureColumn(db: DbAdapter, table: string, column: string, ddl: string): void {
@@ -984,6 +1080,79 @@ function migrateSchema(db: DbAdapter): void {
       db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_escalation_pending ON tasks(milestone_id, slice_id, escalation_pending)");
       db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (:version, :applied_at)").run({
         ":version": 17,
+        ":applied_at": new Date().toISOString(),
+      });
+    }
+
+    if (currentVersion < 18) {
+      // Memory system Phase 2: scope + tags on memories, plus memory_sources
+      // table for raw ingested content (notes, files, URLs, artifacts).
+      ensureColumn(db, "memories", "scope", `ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'project'`);
+      ensureColumn(db, "memories", "tags", `ALTER TABLE memories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memory_sources (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          uri TEXT,
+          title TEXT,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL UNIQUE,
+          imported_at TEXT NOT NULL,
+          scope TEXT NOT NULL DEFAULT 'project',
+          tags TEXT NOT NULL DEFAULT '[]'
+        )
+      `);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_sources_kind ON memory_sources(kind)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_sources_scope ON memory_sources(scope)");
+      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (:version, :applied_at)").run({
+        ":version": 18,
+        ":applied_at": new Date().toISOString(),
+      });
+    }
+
+    if (currentVersion < 19) {
+      // Memory system Phase 3: embeddings + FTS5 for hybrid retrieval.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memory_embeddings (
+          memory_id TEXT PRIMARY KEY,
+          model TEXT NOT NULL,
+          dim INTEGER NOT NULL,
+          vector BLOB NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+      tryCreateMemoriesFts(db);
+      // Backfill FTS5 with any existing memories (triggers only cover future writes).
+      if (isMemoriesFtsAvailable(db)) {
+        try {
+          db.exec(`INSERT INTO memories_fts(rowid, content) SELECT seq, content FROM memories`);
+        } catch (err) {
+          logWarning("db", `FTS5 backfill failed: ${(err as Error).message}`);
+        }
+      }
+      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (:version, :applied_at)").run({
+        ":version": 19,
+        ":applied_at": new Date().toISOString(),
+      });
+    }
+
+    if (currentVersion < 20) {
+      // Memory system Phase 4: knowledge-graph relations between memories.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memory_relations (
+          from_id TEXT NOT NULL,
+          to_id TEXT NOT NULL,
+          rel TEXT NOT NULL,
+          confidence REAL NOT NULL DEFAULT 0.8,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (from_id, to_id, rel)
+        )
+      `);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_relations_from ON memory_relations(from_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_relations_to ON memory_relations(to_id)");
+      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (:version, :applied_at)").run({
+        ":version": 20,
         ":applied_at": new Date().toISOString(),
       });
     }
@@ -3423,11 +3592,13 @@ export function insertMemoryRow(args: {
   sourceUnitId: string | null;
   createdAt: string;
   updatedAt: string;
+  scope?: string;
+  tags?: string[];
 }): void {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
   currentDb.prepare(
-    `INSERT INTO memories (id, category, content, confidence, source_unit_type, source_unit_id, created_at, updated_at)
-     VALUES (:id, :category, :content, :confidence, :source_unit_type, :source_unit_id, :created_at, :updated_at)`,
+    `INSERT INTO memories (id, category, content, confidence, source_unit_type, source_unit_id, created_at, updated_at, scope, tags)
+     VALUES (:id, :category, :content, :confidence, :source_unit_type, :source_unit_id, :created_at, :updated_at, :scope, :tags)`,
   ).run({
     ":id": args.id,
     ":category": args.category,
@@ -3437,7 +3608,105 @@ export function insertMemoryRow(args: {
     ":source_unit_id": args.sourceUnitId,
     ":created_at": args.createdAt,
     ":updated_at": args.updatedAt,
+    ":scope": args.scope ?? "project",
+    ":tags": JSON.stringify(args.tags ?? []),
   });
+}
+
+export function insertMemorySourceRow(args: {
+  id: string;
+  kind: string;
+  uri: string | null;
+  title: string | null;
+  content: string;
+  contentHash: string;
+  importedAt: string;
+  scope?: string;
+  tags?: string[];
+}): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb.prepare(
+    `INSERT OR IGNORE INTO memory_sources (id, kind, uri, title, content, content_hash, imported_at, scope, tags)
+     VALUES (:id, :kind, :uri, :title, :content, :content_hash, :imported_at, :scope, :tags)`,
+  ).run({
+    ":id": args.id,
+    ":kind": args.kind,
+    ":uri": args.uri,
+    ":title": args.title,
+    ":content": args.content,
+    ":content_hash": args.contentHash,
+    ":imported_at": args.importedAt,
+    ":scope": args.scope ?? "project",
+    ":tags": JSON.stringify(args.tags ?? []),
+  });
+}
+
+export function deleteMemorySourceRow(id: string): boolean {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  const res = currentDb
+    .prepare("DELETE FROM memory_sources WHERE id = :id")
+    .run({ ":id": id }) as { changes?: number };
+  return (res?.changes ?? 0) > 0;
+}
+
+export function upsertMemoryEmbedding(args: {
+  memoryId: string;
+  model: string;
+  dim: number;
+  vector: Uint8Array;
+  updatedAt: string;
+}): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb.prepare(
+    `INSERT INTO memory_embeddings (memory_id, model, dim, vector, updated_at)
+     VALUES (:memory_id, :model, :dim, :vector, :updated_at)
+     ON CONFLICT(memory_id) DO UPDATE SET
+       model = excluded.model,
+       dim = excluded.dim,
+       vector = excluded.vector,
+       updated_at = excluded.updated_at`,
+  ).run({
+    ":memory_id": args.memoryId,
+    ":model": args.model,
+    ":dim": args.dim,
+    ":vector": args.vector,
+    ":updated_at": args.updatedAt,
+  });
+}
+
+export function deleteMemoryEmbedding(memoryId: string): boolean {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  const res = currentDb
+    .prepare("DELETE FROM memory_embeddings WHERE memory_id = :id")
+    .run({ ":id": memoryId }) as { changes?: number };
+  return (res?.changes ?? 0) > 0;
+}
+
+export function insertMemoryRelationRow(args: {
+  fromId: string;
+  toId: string;
+  rel: string;
+  confidence: number;
+  createdAt: string;
+}): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb.prepare(
+    `INSERT OR REPLACE INTO memory_relations (from_id, to_id, rel, confidence, created_at)
+     VALUES (:from_id, :to_id, :rel, :confidence, :created_at)`,
+  ).run({
+    ":from_id": args.fromId,
+    ":to_id": args.toId,
+    ":rel": args.rel,
+    ":confidence": args.confidence,
+    ":created_at": args.createdAt,
+  });
+}
+
+export function deleteMemoryRelationsFor(memoryId: string): void {
+  if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  currentDb
+    .prepare("DELETE FROM memory_relations WHERE from_id = :id OR to_id = :id")
+    .run({ ":id": memoryId });
 }
 
 export function rewriteMemoryId(placeholderId: string, realId: string): void {
