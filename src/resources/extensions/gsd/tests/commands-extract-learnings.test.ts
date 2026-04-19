@@ -245,7 +245,7 @@ describe("buildExtractLearningsPrompt", () => {
     assert.ok(result.includes("M001-VERIFICATION.md"));
   });
 
-  it("does NOT reference phantom capture_thought tool (regression for #4429)", () => {
+  it("references capture_thought as the memory-store mirror write (Option A' dual-write)", () => {
     const result = buildExtractLearningsPrompt({
       milestoneId: "M001",
       milestoneName: "Test Milestone",
@@ -260,8 +260,8 @@ describe("buildExtractLearningsPrompt", () => {
     });
 
     assert.ok(
-      !result.includes("capture_thought"),
-      "prompt must not advertise the non-existent capture_thought tool",
+      result.includes("capture_thought"),
+      "prompt must instruct the LLM to mirror durable insights into the memory store via capture_thought",
     );
   });
 
@@ -527,9 +527,27 @@ describe("buildExtractionStepsBlock", () => {
     assert.ok(/skip/i.test(block));
   });
 
-  it("does NOT reference the non-existent capture_thought tool (#4429 regression)", () => {
+  it("instructs capture_thought mirror writes for Patterns, Lessons, and Decisions (Option A' dual-write)", () => {
     const block = buildExtractionStepsBlock(ctx);
-    assert.ok(!block.includes("capture_thought"));
+    // Three persistence steps must each pair their legacy write with a capture_thought call.
+    const captureThoughtMatches = block.match(/capture_thought/g) ?? [];
+    assert.ok(
+      captureThoughtMatches.length >= 3,
+      `expected at least 3 capture_thought references (Patterns + Lessons + Decisions); got ${captureThoughtMatches.length}`,
+    );
+    // Required category vocabulary for the three mirror writes.
+    assert.ok(/category:\s*"pattern"/.test(block), "Patterns mirror must use category: \"pattern\"");
+    assert.ok(/category:\s*"gotcha"/.test(block), "Lessons mirror must reference category: \"gotcha\"");
+    assert.ok(/category:\s*"architecture"/.test(block), "Decisions mirror must use category: \"architecture\"");
+    // Milestone scope must be threaded through.
+    assert.ok(block.includes(`scope: "${ctx.milestoneId}"`), "capture_thought calls must scope to the milestone ID");
+  });
+
+  it("preserves the legacy KNOWLEDGE.md and gsd_save_decision writes alongside capture_thought (no cutover yet)", () => {
+    const block = buildExtractionStepsBlock(ctx);
+    // The dual-write contract requires BOTH the legacy and new persistence paths to remain.
+    assert.ok(block.includes(".gsd/KNOWLEDGE.md"), "KNOWLEDGE.md append must remain (Option A' dual-write)");
+    assert.ok(block.includes("gsd_save_decision"), "gsd_save_decision must remain (Option A' dual-write)");
   });
 
   it("does NOT reference the non-existent gsd_graph tool (#4429 regression)", () => {

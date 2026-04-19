@@ -255,7 +255,7 @@ If the file already exists:
 - find the highest existing \`L###\` ID in the \`## Lessons Learned\` table — same rule for the next lesson ID
 - read the existing \`Pattern\` and \`What Happened\` column text so you can skip semantic duplicates in steps 4 and 5
 
-### Step 4 — Append Patterns to \`## Patterns\`
+### Step 4 — Append Patterns to \`## Patterns\` AND mirror to memory store
 
 For each extracted Pattern that is **not** already represented in the table
 (semantic match, not exact-string match), append exactly one row to the
@@ -270,7 +270,15 @@ Rules:
 - Append-only — never reorder, edit, or delete existing rows.
 - If a column value is genuinely unknown, write \`—\` (em-dash). Never leave a cell empty.
 
-### Step 5 — Append Lessons to \`## Lessons Learned\`
+**After appending each row, also call \`capture_thought\`** with:
+- \`category: "pattern"\`
+- \`content\`: a 1–2 sentence restatement combining the Pattern, Where, and any non-obvious notes
+- \`scope: "${ctx.milestoneId}"\`
+
+This dual-write keeps KNOWLEDGE.md as the human-visible audit table while
+making the same insight retrievable via \`memory_query\` in future sessions.
+
+### Step 5 — Append Lessons to \`## Lessons Learned\` AND mirror to memory store
 
 For each extracted Lesson that is not already represented, append one row to
 the \`## Lessons Learned\` table:
@@ -281,13 +289,18 @@ the \`## Lessons Learned\` table:
 
 Same ID numbering, append-only, and em-dash rules as Step 4.
 
+**After appending each row, also call \`capture_thought\`** with:
+- \`category: "gotcha"\` when the Lesson describes a pitfall, surprise root cause, or recurring failure mode; \`category: "convention"\` when it describes a project-wide rule or normative practice
+- \`content\`: a 1–3 sentence restatement of What Happened + Root Cause + Fix
+- \`scope: "${ctx.milestoneId}"\`
+
 ### Step 6 — Do NOT modify the \`## Rules\` table
 
 The \`## Rules\` table holds project-wide constraints authored manually via
 \`/gsd knowledge\`. Milestone learnings never produce rules — leave this
 table untouched.
 
-### Step 7 — Persist Decisions via \`gsd_save_decision\`
+### Step 7 — Persist Decisions via \`gsd_save_decision\` AND mirror to memory store
 
 For each extracted Decision, call the \`gsd_save_decision\` MCP tool exactly
 once with these parameters:
@@ -303,6 +316,14 @@ The tool writes the decision to the GSD database and regenerates
 \`.gsd/DECISIONS.md\` atomically. Never edit \`DECISIONS.md\` manually — the
 file is DB-authoritative and manual edits will be overwritten.
 
+**After \`gsd_save_decision\` succeeds, also call \`capture_thought\`** with:
+- \`category: "architecture"\`
+- \`content\`: a 1–3 sentence restatement combining decision + choice + rationale (e.g. "Chose X over Y because Z")
+- \`scope: "${ctx.milestoneId}"\`
+
+This dual-write makes the decision retrievable via \`memory_query\` in future
+sessions while keeping \`gsd_save_decision\` as the canonical structured record.
+
 ### Step 8 — Surprises stay only in LEARNINGS.md
 
 Surprises are milestone-local context and are NOT cross-session-reusable. Do
@@ -313,9 +334,14 @@ They are captured only in the LEARNINGS.md file written in Step 2.
 
 Before appending a Pattern or Lesson row, or before calling
 \`gsd_save_decision\`, check whether a semantically equivalent entry already
-exists in the target surface. If so, skip that item entirely. Prefer skipping
-a near-duplicate over creating a second slightly-different row — redundancy
-degrades the signal.`;
+exists in the target surface. If so, skip that item entirely — including the
+paired \`capture_thought\` call. Prefer skipping a near-duplicate over creating
+a second slightly-different row — redundancy degrades the signal.
+
+For the \`capture_thought\` mirror writes, optionally call \`memory_query\` with
+2–3 keywords from the entry first; if a high-confidence semantic duplicate is
+returned, skip the \`capture_thought\` call (the legacy KNOWLEDGE.md or
+\`gsd_save_decision\` write may still proceed if its target is empty).`;
 }
 
 /**
