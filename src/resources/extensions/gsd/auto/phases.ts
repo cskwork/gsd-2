@@ -1707,7 +1707,7 @@ export async function runUnitPhase(
       await deps.pauseAuto(ctx, pi);
       await deps.autoCommitUnit?.(s.basePath, unitType, unitId, ctx);
       await emitCancelledUnitEnd(ic, unitType, unitId, unitStartSeq, unitResult.errorContext);
-      return { action: "break", reason: "session-failed" };
+      return { action: "break", reason: "session-timeout" };
     }
     // All other cancelled states (structural errors, non-transient failures): hard stop
     if (s.currentUnit) {
