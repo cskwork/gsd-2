@@ -1014,6 +1014,37 @@ test("stripThinkingFromHistory handles string content (no array)", () => {
   assert.equal(messages[1].content, "just a string");
 });
 
+// ─── #4478 session-restore edge: model_select suppressed (same model) ──────
+
+test("#4478 claude-code session restore with model_select suppressed still injects native search", async () => {
+  // Regression: when a session is restored and the restored model equals the
+  // active model, `modelsAreEqual` suppresses `model_select`. The
+  // before_provider_request handler must still detect Anthropic via the
+  // event.model object's `api` field — not fall through to the narrower
+  // `provider === "anthropic"` fallback which misses claude-code.
+  const pi = createMockPI();
+  registerNativeSearchHooks(pi);
+
+  // NO model_select fired — simulates restore-with-same-model.
+  const payload: Record<string, unknown> = {
+    model: "claude-sonnet-4-6",
+    tools: [{ name: "bash", type: "custom" }],
+  };
+
+  const result = await pi.fire("before_provider_request", {
+    type: "before_provider_request",
+    payload,
+    // Full Model object carrying `api` — matches what the runner forwards at runtime.
+    model: { provider: "claude-code", id: "claude-sonnet-4-6", api: "anthropic-messages" },
+  });
+
+  const tools = ((result as any)?.tools ?? payload.tools) as any[];
+  assert.ok(
+    tools.some((t) => t.type === "web_search_20250305"),
+    "Should inject native web_search on claude-code restore even with model_select suppressed",
+  );
+});
+
 // ─── #4478 regression: Anthropic-fronting transports inject native search ───
 
 test("#4478 claude-code OAuth provider injects native web_search", async () => {
