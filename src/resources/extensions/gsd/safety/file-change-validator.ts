@@ -100,7 +100,7 @@ function getChangedFilesFromLastCommit(basePath: string): string[] | null {
   try {
     const result = execFileSync(
       "git",
-      ["diff-tree", "--no-commit-id", "-r", "--name-only", "HEAD"],
+      ["diff-tree", "--root", "--no-commit-id", "-r", "--name-only", "HEAD"],
       { cwd: basePath, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" },
     ).trim();
     return result ? result.split("\n").filter(Boolean) : [];
