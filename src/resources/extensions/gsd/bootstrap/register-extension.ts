@@ -103,14 +103,17 @@ export function registerGsdExtension(pi: ExtensionAPI): void {
     ["memory-tools", () => registerMemoryTools(pi)],
     ["exec-tools", () => registerExecTools(pi)],
     ["shortcuts", () => registerShortcuts(pi)],
-    ["hooks", () => registerHooks(pi, ecosystemHandlers)],
+    // cmux-events runs before hooks so the dynamic-import microtask is queued
+    // as early as possible. cmux is a library (no pi), so gsd sets up the
+    // event listeners on its behalf using the shared event channel contract.
+    // Today no hook fires a CMUX_CHANNELS emit at registration time, but this
+    // ordering is defensive against future hooks that might.
     ["cmux-events", () => {
-      // cmux is a library (no pi), so gsd sets up the event listeners on its
-      // behalf using the shared event channel contract.
       void import("../../cmux/index.js").then(({ initCmuxEventListeners }) => {
         initCmuxEventListeners(pi.events);
       });
     }],
+    ["hooks", () => registerHooks(pi, ecosystemHandlers)],
     ["ecosystem", () => {
       void loadEcosystemExtensions(pi, ecosystemHandlers).catch((err) => {
         logWarning(
