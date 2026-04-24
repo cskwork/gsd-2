@@ -153,20 +153,32 @@ export async function composeUnitContext(
   const manifest: UnitContextManifest | null = resolveManifest(unitType);
   if (!manifest) return { prepend: "", inline: "" };
 
-  const prependBlocks = await runComputed(manifest.prepend ?? [], opts);
+  // Single-source `unitType`: the manifest is resolved against the
+  // function arg, but computed builders read it from `base.unitType`.
+  // If those ever diverge (caller passes one type to composeUnitContext
+  // but a different one in opts.base), the composer would silently
+  // mix one unit's manifest with another unit's computed context.
+  // Normalize here so the composer dispatches a consistent identity
+  // through to every builder.
+  const normalizedOpts: ComposeUnitContextOptions = {
+    ...opts,
+    base: { ...opts.base, unitType },
+  };
+
+  const prependBlocks = await runComputed(manifest.prepend ?? [], normalizedOpts);
   const inlineBlocks: string[] = [];
 
   for (const key of manifest.artifacts.inline) {
-    if (!opts.resolveArtifact) break;
-    const body = await opts.resolveArtifact(key);
+    if (!normalizedOpts.resolveArtifact) break;
+    const body = await normalizedOpts.resolveArtifact(key);
     if (body && body.length > 0) inlineBlocks.push(body);
   }
   for (const key of manifest.artifacts.excerpt) {
-    if (!opts.resolveExcerpt) break;
-    const body = await opts.resolveExcerpt(key);
+    if (!normalizedOpts.resolveExcerpt) break;
+    const body = await normalizedOpts.resolveExcerpt(key);
     if (body && body.length > 0) inlineBlocks.push(body);
   }
-  inlineBlocks.push(...await runComputed(manifest.artifacts.computed ?? [], opts));
+  inlineBlocks.push(...await runComputed(manifest.artifacts.computed ?? [], normalizedOpts));
 
   return {
     prepend: prependBlocks.join(SECTION_SEPARATOR),

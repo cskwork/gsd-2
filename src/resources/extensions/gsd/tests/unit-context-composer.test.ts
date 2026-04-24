@@ -318,3 +318,38 @@ test("#4924 v2 composer: backward-compat — composeInlinedContext still works f
   const out = await composeInlinedContext("run-uat", async (key) => `BODY:${key}`);
   assert.match(out, /BODY:slice-uat\n\n---\n\nBODY:slice-summary\n\n---\n\nBODY:project/);
 });
+
+test("#4926 review: computed builders see normalized base.unitType matching the resolved manifest", async () => {
+  // Caller passes one unitType to composeUnitContext but a different (stale)
+  // value in opts.base. Composer must normalize so builders observe the
+  // unitType the manifest was resolved against — preventing manifests and
+  // computed context from drifting.
+  const original = UNIT_MANIFESTS["run-uat"];
+  type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+  const patched: UnitContextManifest = {
+    ...original,
+    prepend: ["test-banner"] as never[],
+  };
+  (UNIT_MANIFESTS as Mutable<typeof UNIT_MANIFESTS>)["run-uat"] = patched;
+  try {
+    let observedUnitType: string | undefined;
+    const computed = {
+      "test-banner": {
+        build: async (_inputs: never, base: BaseResolverContext) => {
+          observedUnitType = base.unitType;
+          return `BANNER for ${base.unitType}`;
+        },
+        inputs: undefined as never,
+      },
+    } as unknown as ComputedArtifactRegistry;
+    const out = await composeUnitContext("run-uat", {
+      // Deliberately mismatched: function arg "run-uat" vs. base.unitType "stale-other-unit".
+      base: { ...fakeBase, unitType: "stale-other-unit" },
+      computed,
+    });
+    assert.strictEqual(observedUnitType, "run-uat", "builder must see the unitType the manifest was resolved against");
+    assert.strictEqual(out.prepend, "BANNER for run-uat");
+  } finally {
+    (UNIT_MANIFESTS as Mutable<typeof UNIT_MANIFESTS>)["run-uat"] = original;
+  }
+});
