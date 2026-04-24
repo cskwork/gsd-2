@@ -14,14 +14,34 @@
 //     "artifact is optional / missing / not applicable to this milestone"
 //     case. The composer never errors on a missing artifact.
 //
-// Scope: phase 2 pilot. The composer currently handles only the `inline`
-// artifact list. Excerpt and on-demand artifact shapes (already used by
-// #4780) will be folded in during phase 3 when the remaining unit types
-// migrate into the composer.
+// Scope: phase 2 pilot shipped `composeInlinedContext` for static-key
+// inlining. Phase 3.5 (#4924) adds the v2 surface — `composeUnitContext`
+// — which also handles excerpts, computed artifacts, and prepended blocks.
+// `composeInlinedContext` stays for backward compatibility with the
+// already-migrated simple builders.
+//
+// ─── Composer boundary invariant (#4924) ─────────────────────────────────
+//
+// The composer is allowed to:
+//   - order named sections per the manifest's declared sequence
+//   - resolve registered artifacts (static / computed / excerpt / on-demand)
+//   - apply typed policies (knowledge / memory / codebase-map / preferences)
+//
+// The composer must NOT grow:
+//   - arbitrary conditionals on unit state
+//   - loops over caller-supplied data
+//   - string templating beyond section composition (join + separator)
+//
+// Logic that needs those belongs in a typed computed-artifact builder
+// owned by the unit, not in the composer. Reviews must enforce this — it
+// is the difference between an orchestrator and a runaway DSL.
 
 import {
   resolveManifest,
   type ArtifactKey,
+  type BaseResolverContext,
+  type ComputedArtifactId,
+  type ComputedArtifactRegistry,
   type UnitContextManifest,
 } from "./unit-context-manifest.js";
 
@@ -70,4 +90,129 @@ export async function composeInlinedContext(
 export function manifestBudgetChars(unitType: string): number | null {
   const manifest = resolveManifest(unitType);
   return manifest ? manifest.maxSystemPromptChars : null;
+}
+
+// ─── v2 surface (#4924) ───────────────────────────────────────────────────
+
+/**
+ * Resolver for excerpt-class artifacts. Returns the compact block body
+ * (per-unit excerpt rendering — e.g. `buildSliceSummaryExcerpt` for the
+ * complete-milestone closer) or `null` to omit. Mirrors `ArtifactResolver`
+ * shape so consumers can reuse the same registry pattern.
+ */
+export type ExcerptResolver = (key: ArtifactKey) => Promise<string | null>;
+
+/**
+ * Inputs to the v2 composer entrypoint. The base context is required;
+ * each resolver/registry is optional and absent ones are treated as
+ * "manifest declares no entries of that class for this unit."
+ */
+export interface ComposeUnitContextOptions {
+  readonly base: BaseResolverContext;
+  readonly resolveArtifact?: ArtifactResolver;
+  readonly resolveExcerpt?: ExcerptResolver;
+  readonly computed?: ComputedArtifactRegistry;
+}
+
+/**
+ * Composer output. Kept structured (rather than a single joined string)
+ * because some builders need to splice the prepend block above their own
+ * preamble while keeping the main context block in its existing position.
+ *
+ * Both fields are joined with the in-tree `\n\n---\n\n` separator. Empty
+ * string means "no content for this section" — callers branch on truthy
+ * to decide whether to render any wrapper headers.
+ */
+export interface ComposedUnitContext {
+  readonly prepend: string;
+  readonly inline: string;
+}
+
+const SECTION_SEPARATOR = "\n\n---\n\n";
+
+/**
+ * Compose all manifest-declared context for a unit type using the v2
+ * surface. Walks `prepend` first (computed-only), then the `inline` list
+ * (static keys via `resolveArtifact`), then `excerpt` (via `resolveExcerpt`),
+ * then `artifacts.computed` (via the typed registry). Order within each
+ * section follows the manifest's declared sequence.
+ *
+ * Unknown unit types return empty strings for both sections — callers can
+ * fall back to existing imperative wiring without a special case.
+ *
+ * Resolver / registry omissions: if the manifest declares an entry but no
+ * resolver / registry entry is provided, the composer skips it silently.
+ * This matches the v1 contract where a null body is a no-op, and lets
+ * partial migrations land without forcing every consumer to register
+ * every artifact class up-front.
+ */
+export async function composeUnitContext(
+  unitType: string,
+  opts: ComposeUnitContextOptions,
+): Promise<ComposedUnitContext> {
+  const manifest: UnitContextManifest | null = resolveManifest(unitType);
+  if (!manifest) return { prepend: "", inline: "" };
+
+  // Single-source `unitType`: the manifest is resolved against the
+  // function arg, but computed builders read it from `base.unitType`.
+  // If those ever diverge (caller passes one type to composeUnitContext
+  // but a different one in opts.base), the composer would silently
+  // mix one unit's manifest with another unit's computed context.
+  // Normalize here so the composer dispatches a consistent identity
+  // through to every builder.
+  const normalizedOpts: ComposeUnitContextOptions = {
+    ...opts,
+    base: { ...opts.base, unitType },
+  };
+
+  const prependBlocks = await runComputed(manifest.prepend ?? [], normalizedOpts);
+  const inlineBlocks: string[] = [];
+
+  for (const key of manifest.artifacts.inline) {
+    if (!normalizedOpts.resolveArtifact) break;
+    const body = await normalizedOpts.resolveArtifact(key);
+    if (body && body.length > 0) inlineBlocks.push(body);
+  }
+  for (const key of manifest.artifacts.excerpt) {
+    if (!normalizedOpts.resolveExcerpt) break;
+    const body = await normalizedOpts.resolveExcerpt(key);
+    if (body && body.length > 0) inlineBlocks.push(body);
+  }
+  inlineBlocks.push(...await runComputed(manifest.artifacts.computed ?? [], normalizedOpts));
+
+  return {
+    prepend: prependBlocks.join(SECTION_SEPARATOR),
+    inline: inlineBlocks.join(SECTION_SEPARATOR),
+  };
+}
+
+/**
+ * Invoke the registered builder for each declared computed id, in order.
+ * Missing registry entries (manifest declares the id but caller didn't
+ * register it) are skipped silently — see composeUnitContext rationale.
+ */
+async function runComputed(
+  ids: readonly ComputedArtifactId[],
+  opts: ComposeUnitContextOptions,
+): Promise<string[]> {
+  if (ids.length === 0 || !opts.computed) return [];
+  // Type safety lives at the registration boundary (caller-supplied
+  // `computed` is typed against ComputedArtifactInputs[K] per id). Inside
+  // the composer we only dispatch — view the registry through a widened
+  // local shape so the loop compiles when the registry is empty (which
+  // it is in the v2-contract foundation PR before any computed ids are
+  // registered, making `keyof ComputedArtifactInputs` resolve to `never`).
+  type AnyEntry = {
+    build: (inputs: unknown, base: BaseResolverContext) => Promise<string | null>;
+    inputs: unknown;
+  };
+  const registry = opts.computed as Record<string, AnyEntry | undefined>;
+  const out: string[] = [];
+  for (const id of ids) {
+    const entry = registry[id];
+    if (!entry) continue;
+    const body = await entry.build(entry.inputs, opts.base);
+    if (body && body.length > 0) out.push(body);
+  }
+  return out;
 }
