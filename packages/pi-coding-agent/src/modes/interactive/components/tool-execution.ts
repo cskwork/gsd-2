@@ -72,7 +72,7 @@ function parseMcpToolName(name: string): { server: string; tool: string } | null
  * prefix and converts snake_case to Title Case.
  */
 function prettifyToolName(name: string, label?: string): string {
-	if (label && label.trim().length > 0 && label !== name) return label;
+	if (label && label.trim().length > 0) return label;
 	const stripped = name.replace(/^gsd_/, "");
 	if (stripped.length === 0) return name;
 	return stripped
