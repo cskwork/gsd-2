@@ -37,7 +37,7 @@ function makeUnit(partial: Partial<UnitMetrics> & { type: string; cost: number }
     model: "test-model",
     startedAt: 0,
     finishedAt: 0,
-    tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 } as UnitMetrics["tokens"],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     toolCalls: 0,
     assistantMessages: 0,
     userMessages: 0,
