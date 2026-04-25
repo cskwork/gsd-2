@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.78.1] - 2026-04-25
+
+### Fixed
+- **claude-code-cli**: catch-all candidate iteration + auth-status fallback
+- **claude-code-cli**: restore Claude subscription detection on Windows
+
 ## [2.78.0] - 2026-04-25
 
 ### Added
@@ -3708,7 +3714,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.78.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.78.1...HEAD
+[2.78.1]: https://github.com/gsd-build/gsd-2/compare/v2.78.0...v2.78.1
 [2.78.0]: https://github.com/gsd-build/gsd-2/compare/v2.77.0...v2.78.0
 [2.77.0]: https://github.com/gsd-build/gsd-2/compare/v2.76.0...v2.77.0
 [2.76.0]: https://github.com/gsd-build/gsd-2/compare/v2.75.0...v2.76.0
