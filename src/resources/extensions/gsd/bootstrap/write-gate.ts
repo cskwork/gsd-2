@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { minimatch } from "minimatch";
@@ -101,8 +101,15 @@ export interface WriteGateSnapshot {
   pendingGateId: string | null;
 }
 
+/**
+ * Persistence is ON by default (opt-out).
+ * Set GSD_PERSIST_WRITE_GATE_STATE="0" or GSD_PERSIST_WRITE_GATE_STATE="false"
+ * to disable. All other values — including unset — persist the snapshot.
+ * (Inverted from the original opt-in guard; see #4950.)
+ */
 function shouldPersistWriteGateSnapshot(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.GSD_PERSIST_WRITE_GATE_STATE === "1";
+  const v = env.GSD_PERSIST_WRITE_GATE_STATE;
+  return v !== "0" && v !== "false";
 }
 
 function writeGateSnapshotPath(basePath: string = process.cwd()): string {
@@ -121,9 +128,20 @@ function persistWriteGateSnapshot(basePath: string = process.cwd()): void {
   if (!shouldPersistWriteGateSnapshot()) return;
   const path = writeGateSnapshotPath(basePath);
   mkdirSync(join(basePath, ".gsd", "runtime"), { recursive: true });
-  const tempPath = `${path}.tmp`;
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   writeFileSync(tempPath, JSON.stringify(currentWriteGateSnapshot(), null, 2), "utf-8");
-  renameSync(tempPath, path);
+  try {
+    renameSync(tempPath, path);
+  } catch (err: unknown) {
+    // EXDEV: cross-device rename (temp and dest on different mounts). Fall back
+    // to copy-then-delete so the snapshot is still written atomically enough.
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EXDEV") {
+      copyFileSync(tempPath, path);
+      unlinkSync(tempPath);
+    } else {
+      throw err;
+    }
+  }
 }
 
 function clearPersistedWriteGateSnapshot(basePath: string = process.cwd()): void {
@@ -363,9 +381,9 @@ export function isDepthConfirmationAnswer(
     return typeof confirmLabel === "string" && value === confirmLabel;
   }
 
-  // Fallback when options aren't available (e.g., older call sites):
-  // accept only if it contains "(Recommended)" — the prompt convention suffix.
-  return value.includes("(Recommended)");
+  // Fail-closed: no options means we cannot structurally validate the answer.
+  // Returning false prevents any free-form string from unlocking the gate.
+  return false;
 }
 
 export function shouldBlockContextWrite(

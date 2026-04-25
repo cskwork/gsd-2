@@ -84,10 +84,11 @@ import {
   clearInFlightTools,
   isToolInvocationError,
   isQueuedUserMessageSkip,
+  isDeterministicPolicyError,
 } from "./auto-tool-tracking.js";
 import { closeoutUnit } from "./auto-unit-closeout.js";
 import { recoverTimedOutUnit } from "./auto-timeout-recovery.js";
-import { selectAndApplyModel, resolveModelId } from "./auto-model-selection.js";
+import { selectAndApplyModel, resolveModelId, clearToolBaseline } from "./auto-model-selection.js";
 import { resetRoutingHistory, recordOutcome } from "./routing-history.js";
 import {
   checkPostUnitHooks,
@@ -232,9 +233,7 @@ import { reorderForCaching } from "./prompt-ordering.js";
 
 import {
   AutoSession,
-  MAX_UNIT_DISPATCHES,
   STUB_RECOVERY_THRESHOLD,
-  MAX_LIFETIME_DISPATCHES,
   NEW_SESSION_TIMEOUT_MS,
 } from "./auto/session.js";
 import type {
@@ -243,9 +242,7 @@ import type {
   StartModel,
 } from "./auto/session.js";
 export {
-  MAX_UNIT_DISPATCHES,
   STUB_RECOVERY_THRESHOLD,
-  MAX_LIFETIME_DISPATCHES,
   NEW_SESSION_TIMEOUT_MS,
 } from "./auto/session.js";
 export type {
@@ -335,6 +332,25 @@ function normalizeSessionFilePath(raw: unknown): string | null {
   if (!isAbsolute(candidate)) return null;
   if (!candidate.toLowerCase().endsWith(".jsonl")) return null;
   return candidate;
+}
+
+function synthesizePausedSessionRecovery(
+  basePath: string,
+  unitType: string,
+  unitId: string,
+  sessionFile: string,
+): ReturnType<typeof synthesizeCrashRecovery> {
+  const activityDir = join(gsdRoot(basePath), "activity");
+  return synthesizeCrashRecovery(basePath, unitType, unitId, sessionFile, activityDir);
+}
+
+export function _synthesizePausedSessionRecoveryForTest(
+  basePath: string,
+  unitType: string,
+  unitId: string,
+  sessionFile: string,
+): ReturnType<typeof synthesizeCrashRecovery> {
+  return synthesizePausedSessionRecovery(basePath, unitType, unitId, sessionFile);
 }
 
 export function startAutoDetached(
@@ -544,12 +560,14 @@ export function markToolEnd(toolCallId: string): void {
 /**
  * Record a tool invocation error on the current session (#2883).
  * Called from tool_execution_end when a GSD tool fails with isError.
- * Only stores the error if it matches the tool-invocation-error pattern
- * (malformed/truncated JSON), not normal business-logic errors.
+ * Stores the error if it matches:
+ *   - tool-invocation-error pattern (malformed/truncated JSON)
+ *   - queued-user-message skip pattern
+ *   - deterministic policy rejection (#4973, e.g. context_write_blocked)
  */
 export function recordToolInvocationError(toolName: string, errorMsg: string): void {
   if (!s.active) return;
-  if (isToolInvocationError(errorMsg) || isQueuedUserMessageSkip(errorMsg)) {
+  if (isToolInvocationError(errorMsg) || isQueuedUserMessageSkip(errorMsg) || isDeterministicPolicyError(errorMsg)) {
     s.lastToolInvocationError = `${toolName}: ${errorMsg}`;
   }
 }
@@ -1088,6 +1106,12 @@ export async function stopAuto(
     restoreProjectRootEnv();
     restoreMilestoneLockEnv();
 
+    // Drop the active-tool baseline so a subsequent /gsd auto run on the
+    // same `pi` instance recaptures from the live tool set rather than
+    // restoring this session's snapshot and silently undoing any tool
+    // changes the user made between sessions (#4959 / CodeRabbit).
+    if (pi) clearToolBaseline(pi);
+
     // Reset all session state in one call
     s.reset();
   }
@@ -1388,6 +1412,15 @@ export async function startAuto(
     return;
   }
 
+  // On a *fresh* start, drop any stale active-tool baseline left by a prior
+  // auto session that didn't run stopAuto cleanly.  Skip on resume: pauseAuto
+  // leaves the last provider-trimmed active tools in place, so clearing here
+  // would let the next selectAndApplyModel recapture that already-narrowed
+  // set as the new baseline — exactly the cross-unit poisoning this PR is
+  // fixing (#4959 / CodeRabbit Major).  The pre-pause baseline survives in
+  // the WeakMap keyed by `pi`.
+  if (!s.paused) clearToolBaseline(pi);
+
   const requestedStepMode = options?.step ?? false;
   const interruptedAssessment = options?.interrupted ?? null;
   if (options?.milestoneLock !== undefined) {
@@ -1556,16 +1589,6 @@ export async function startAuto(
       return;
     }
 
-    // Lock acquired — now safe to delete the pause file
-    if (s.pausedSessionFile) {
-      try { unlinkSync(s.pausedSessionFile); } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-          logWarning("session", `pause file cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
-        }
-      }
-      s.pausedSessionFile = null;
-    }
-
     s.paused = false;
     s.active = true;
     s.verbose = verboseMode;
@@ -1663,13 +1686,11 @@ export async function startAuto(
     invalidateAllCaches();
 
     if (s.pausedSessionFile) {
-      const activityDir = join(gsdRoot(s.basePath), "activity");
-      const recovery = synthesizeCrashRecovery(
+      const recovery = synthesizePausedSessionRecovery(
         s.basePath,
         s.currentUnit?.type ?? s.pausedUnitType ?? "unknown",
         s.currentUnit?.id ?? s.pausedUnitId ?? "unknown",
-        s.pausedSessionFile ?? undefined,
-        activityDir,
+        s.pausedSessionFile,
       );
       if (recovery && recovery.trace.toolCallCount > 0) {
         s.pendingCrashRecovery = recovery.prompt;
