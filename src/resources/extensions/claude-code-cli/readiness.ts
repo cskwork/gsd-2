@@ -42,6 +42,10 @@ const VERSION_TIMEOUT_MS = 5_000;
 // without making startup feel hung when the CLI is genuinely missing.
 const AUTH_TIMEOUT_MS = 15_000;
 
+/**
+ * Run the requested Claude CLI command against each supported executable name.
+ * Returns the first successful output buffer and rethrows hard failures.
+ */
 function execClaude(args: string[], timeoutMs: number): Buffer {
 	let lastError: unknown;
 	for (const command of CLAUDE_COMMAND_CANDIDATES) {
@@ -97,6 +101,10 @@ let cachedAuthed: boolean | null = null;
 let lastCheckMs = 0;
 const CHECK_INTERVAL_MS = 30_000;
 
+/**
+ * Refresh the cached binary/auth state when the cache window has expired.
+ * Preserves a known auth state across soft-fail auth probes.
+ */
 function refreshCache(): void {
 	const now = Date.now();
 	if (cachedBinaryPresent !== null && now - lastCheckMs < CHECK_INTERVAL_MS) {
