@@ -377,9 +377,9 @@ export function isDepthConfirmationAnswer(
     return typeof confirmLabel === "string" && value === confirmLabel;
   }
 
-  // Fallback when options aren't available (e.g., older call sites):
-  // accept only if it contains "(Recommended)" — the prompt convention suffix.
-  return value.includes("(Recommended)");
+  // Fail-closed: no options means we cannot structurally validate the answer.
+  // Returning false prevents any free-form string from unlocking the gate.
+  return false;
 }
 
 export function shouldBlockContextWrite(
