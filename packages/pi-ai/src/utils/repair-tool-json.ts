@@ -74,15 +74,19 @@ function parseXmlParameterValue(raw: string): unknown {
 }
 
 function extractXmlParameterBlocks(text: string): XmlParameterBlock[] {
-	const blocks: XmlParameterBlock[] = [];
+	const strictBlocks: XmlParameterBlock[] = [];
+	let hasNestedParameterOpening = false;
 	for (const match of text.matchAll(xmlParameterBlockPattern)) {
-		blocks.push({
+		const rawValue = match[2] ?? "";
+		hasNestedParameterOpening ||= rawValue.includes("<parameter");
+		strictBlocks.push({
 			name: match[1],
-			value: parseXmlParameterValue(match[2] ?? ""),
+			value: parseXmlParameterValue(rawValue),
 		});
 	}
-	if (blocks.length > 0) return blocks;
+	if (strictBlocks.length > 0 && !hasNestedParameterOpening) return strictBlocks;
 
+	const blocks: XmlParameterBlock[] = [];
 	const openings = [...text.matchAll(xmlParameterOpenPattern)];
 	for (let i = 0; i < openings.length; i++) {
 		const current = openings[i];
