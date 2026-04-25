@@ -479,6 +479,41 @@ export function tokenizePreMergeCommand(input: string): string[] {
   return tokens;
 }
 
+function containsUnquotedShellControl(input: string): boolean {
+  let i = 0;
+  let quote: "" | "'" | '"' = "";
+
+  while (i < input.length) {
+    const ch = input[i]!;
+    if (quote) {
+      if (ch === quote) {
+        quote = "";
+      } else if (ch === "\\" && quote === '"' && i + 1 < input.length) {
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      i++;
+      continue;
+    }
+    if (ch === "\\" && i + 1 < input.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === ";" || ch === "&" || ch === "|" || ch === "`" || ch === "$" || ch === "<" || ch === ">") {
+      return true;
+    }
+    i++;
+  }
+
+  return false;
+}
+
 // ─── Git Helper ────────────────────────────────────────────────────────────
 
 
@@ -877,8 +912,7 @@ export class GitServiceImpl {
     // chaining/redirection (e.g. `;`, `&&`, `|`, backticks) — a privesc
     // surface in repos with a checked-in `.gsd/PREFERENCES.md`.
     // (Issue #4980 HIGH-2)
-    const SHELL_METACHARS = /[;&|`$()<>]|\\$|>|<<|\&\&|\|\|/;
-    if (SHELL_METACHARS.test(command)) {
+    if (containsUnquotedShellControl(command)) {
       return {
         passed: false,
         skipped: false,

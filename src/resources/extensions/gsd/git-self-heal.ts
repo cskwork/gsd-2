@@ -25,6 +25,18 @@ export interface AbortAndResetResult {
   cleaned: string[];
 }
 
+function hasWorkingTreeChanges(cwd: string): boolean {
+  try {
+    return execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    }).trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Detect and clean up leftover merge/rebase state, then hard-reset.
  *
@@ -76,15 +88,17 @@ export function abortAndReset(cwd: string): AbortAndResetResult {
   // state), so a labeled stash gives the user a recovery handle if their
   // in-flight inspection work would otherwise be silently lost.
   // (Issue #4980 HIGH-5)
-  try {
-    execFileSync(
-      "git",
-      ["stash", "push", "--include-untracked", "-m", `gsd: pre-self-heal-reset ${new Date().toISOString()}`],
-      { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" },
-    );
-    cleaned.push("stashed working tree before reset");
-  } catch {
-    /* nothing to stash, or stash refused (e.g. unresolved conflicts) — proceed */
+  if (hasWorkingTreeChanges(cwd)) {
+    try {
+      execFileSync(
+        "git",
+        ["stash", "push", "--include-untracked", "-m", `gsd: pre-self-heal-reset ${new Date().toISOString()}`],
+        { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" },
+      );
+      cleaned.push("stashed working tree before reset");
+    } catch {
+      /* nothing to stash, or stash refused (e.g. unresolved conflicts) — proceed */
+    }
   }
 
   // Always hard-reset to HEAD
