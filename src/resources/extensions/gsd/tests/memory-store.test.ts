@@ -329,3 +329,54 @@ test('memory-store: schema includes memories table', () => {
 
   closeDatabase();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// regression #4967 — createMemory must not silently swallow SQL errors
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('memory-store: createMemory throws on memory-table SQL errors (regression #4967)', () => {
+  openDatabase(':memory:');
+
+  const adapter = _getAdapter()!;
+  // Drop FTS + dependents first to satisfy SQLite's trigger ordering, then
+  // the base memories table. IF EXISTS makes setup robust against schema
+  // versions that may not have created every dependent (e.g. embeddings).
+  adapter.prepare('DROP TABLE IF EXISTS memory_embeddings').run();
+  adapter.prepare('DROP TABLE IF EXISTS memories_fts').run();
+  adapter.prepare('DROP TABLE IF EXISTS memories').run();
+
+  // Pre-fix behaviour: returns null and the caller has no idea why.
+  // Post-fix behaviour: throws so the caller can surface the real SQL message.
+  assert.throws(
+    () => createMemory({ category: 'gotcha', content: 'broken store' }),
+    /memories|no such table/i,
+    'createMemory must surface SQL errors instead of returning null',
+  );
+
+  closeDatabase();
+});
+
+test('memory-store: applyMemoryActions stays non-fatal when memory store is broken (regression #4967)', () => {
+  openDatabase(':memory:');
+
+  const adapter = _getAdapter()!;
+  // Drop FTS + dependents first to satisfy SQLite's trigger ordering, then
+  // the base memories table. IF EXISTS makes setup robust against schema
+  // versions that may not have created every dependent (e.g. embeddings).
+  adapter.prepare('DROP TABLE IF EXISTS memory_embeddings').run();
+  adapter.prepare('DROP TABLE IF EXISTS memories_fts').run();
+  adapter.prepare('DROP TABLE IF EXISTS memories').run();
+
+  // applyMemoryActions wraps createMemory in a transaction with an outer
+  // catch. Even with createMemory now throwing, applyMemoryActions must not
+  // crash the auto-mode flow that calls it (memory extraction is best-effort).
+  const actions: MemoryAction[] = [
+    { action: 'CREATE', category: 'gotcha', content: 'inside-transaction call' },
+  ];
+  assert.doesNotThrow(
+    () => applyMemoryActions(actions),
+    'applyMemoryActions must absorb thrown errors so callers continue',
+  );
+
+  closeDatabase();
+});
