@@ -31,3 +31,18 @@ test("clean keep reason includes uncommitted context with changed files", () => 
   const reason = formatCleanKeepReason(mkStatus({ filesChanged: 2, uncommitted: true }));
   assert.equal(reason, "2 changed files, uncommitted");
 });
+
+test("clean keep reason flags missing directory with prune hint", () => {
+  const reason = formatCleanKeepReason(mkStatus({ exists: false }));
+  assert.equal(reason, "directory missing — run 'git worktree prune' to unregister");
+});
+
+test("clean keep reason reports changed files without uncommitted suffix", () => {
+  const reason = formatCleanKeepReason(mkStatus({ filesChanged: 2, uncommitted: false }));
+  assert.equal(reason, "2 changed files");
+});
+
+test("clean keep reason uses singular form for a single changed file", () => {
+  const reason = formatCleanKeepReason(mkStatus({ filesChanged: 1, uncommitted: false }));
+  assert.equal(reason, "1 changed file");
+});

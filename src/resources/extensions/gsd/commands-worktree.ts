@@ -180,10 +180,16 @@ async function handleMerge(args: string, ctx: ExtensionCommandContext): Promise<
     try {
       autoCommitCurrentBranch(wt.path, "worktree-merge", target);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       ctx.ui.notify(
-        `Auto-commit before merge failed: ${err instanceof Error ? err.message : String(err)}`,
-        "warning",
+        [
+          `Auto-commit before merge failed: ${msg}`,
+          "",
+          `Commit or stash changes in ${wt.path}, then re-run /gsd worktree merge ${target}.`,
+        ].join("\n"),
+        "error",
       );
+      return;
     }
   }
 
@@ -296,7 +302,7 @@ async function handleRemove(args: string, ctx: ExtensionCommandContext): Promise
   if ((status.filesChanged > 0 || status.uncommitted) && !force) {
     ctx.ui.notify(
       [
-        `Worktree "${name}" has unmerged changes (${status.filesChanged} file${status.filesChanged === 1 ? "" : "s"}).`,
+        `Worktree "${name}" has pending changes (${formatCleanKeepReason(status)}).`,
         "",
         `  Merge first:     /gsd worktree merge ${name}`,
         `  Or force-remove: /gsd worktree remove ${name} --force`,
