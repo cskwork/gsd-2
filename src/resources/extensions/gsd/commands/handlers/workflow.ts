@@ -546,9 +546,9 @@ export async function handleWorkflowCommand(trimmed: string, ctx: ExtensionComma
     return true;
   }
   if (trimmed === "new-project" || trimmed.startsWith("new-project ")) {
-    // Phase 11 — Direct entrypoint for new-project bootstrap.
+    // Direct entrypoint for new-project bootstrap.
     // Routes through showSmartEntry (same as new-milestone for first project),
-    // but accepts --deep to opt into Phase 11 deep planning mode.
+    // but accepts --deep to opt into staged project-level discovery (deep mode).
     if (requireNotAutoActive("/gsd new-project", ctx)) return true;
     const basePath = projectRoot();
     const args = trimmed.replace(/^new-project\s*/, "").trim();

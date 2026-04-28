@@ -1288,7 +1288,7 @@ export async function buildDiscussMilestonePrompt(
 }
 
 /**
- * Build a prompt for the workflow-preferences unit type (Phase 11 — deep mode).
+ * Build a prompt for the workflow-preferences unit type (deep mode).
  * Fixed-question wizard: captures 5 high-impact workflow toggles via structured
  * questions and writes them to .gsd/config.json. Runs ONCE per project, early
  * in deep-mode bootstrap before discuss-project.
@@ -1304,7 +1304,7 @@ export async function buildWorkflowPreferencesPrompt(
 }
 
 /**
- * Build a prompt for the research-project (parallel) unit type (Phase 11 — deep mode).
+ * Build a prompt for the research-project (parallel) unit type (deep mode).
  * Orchestrator that spawns 4 parallel Task() calls covering stack, features,
  * architecture, and pitfalls. Each subagent writes its findings to .gsd/research/.
  * Fires after research-decision marker says "research" and project research files
@@ -1321,7 +1321,7 @@ export async function buildResearchProjectPrompt(
 }
 
 /**
- * Build a prompt for the research-decision unit type (Phase 11 — deep mode).
+ * Build a prompt for the research-decision unit type (deep mode).
  * Fixed-question stage: asks "research first or skip?" via ask_user_questions
  * and writes .gsd/runtime/research-decision.json. Fires after discuss-requirements
  * and before research-project-parallel.
@@ -1337,7 +1337,7 @@ export async function buildResearchDecisionPrompt(
 }
 
 /**
- * Build a prompt for the discuss-project unit type (Phase 11 — deep mode).
+ * Build a prompt for the discuss-project unit type (deep mode).
  * Project-level interview: produces .gsd/PROJECT.md.
  * Fires before any milestone-level work when planning_depth === "deep" and
  * PROJECT.md is missing.
@@ -1357,7 +1357,7 @@ export async function buildDiscussProjectPrompt(
 }
 
 /**
- * Build a prompt for the discuss-requirements unit type (Phase 11 — deep mode).
+ * Build a prompt for the discuss-requirements unit type (deep mode).
  * Requirements-level interview: produces .gsd/REQUIREMENTS.md using the
  * structured R### format. Reads PROJECT.md as authoritative context.
  * Fires when planning_depth === "deep", PROJECT.md exists, and REQUIREMENTS.md is missing.

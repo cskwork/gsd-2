@@ -1,4 +1,4 @@
-// GSD-2 — Phase 11 Deep Planning Mode dispatch behavior contract.
+// GSD-2 — Deep planning mode dispatch behavior contract.
 // Verifies the new deep-mode dispatch rules guard correctly on prefs.planning_depth
 // and on artifact presence, and that light mode behavior is unaffected.
 
@@ -61,7 +61,7 @@ function rule(name: string) {
 
 // ─── workflow-preferences rule ────────────────────────────────────────────
 
-test("Phase 11: workflow-preferences does NOT dispatch in light mode", async (t) => {
+test("Deep mode: workflow-preferences does NOT dispatch in light mode", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -69,7 +69,7 @@ test("Phase 11: workflow-preferences does NOT dispatch in light mode", async (t)
   assert.strictEqual(result, null);
 });
 
-test("Phase 11: workflow-preferences DOES dispatch in deep mode when config.json missing", async (t) => {
+test("Deep mode: workflow-preferences DOES dispatch in deep mode when config.json missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -82,7 +82,7 @@ test("Phase 11: workflow-preferences DOES dispatch in deep mode when config.json
   }
 });
 
-test("Phase 11: workflow-preferences does NOT dispatch when config.json has commit_policy", async (t) => {
+test("Deep mode: workflow-preferences does NOT dispatch when config.json has commit_policy", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -92,7 +92,7 @@ test("Phase 11: workflow-preferences does NOT dispatch when config.json has comm
   assert.strictEqual(result, null, "presence of any deep-mode key indicates already configured");
 });
 
-test("Phase 11: workflow-preferences DOES re-dispatch on malformed config.json", async (t) => {
+test("Deep mode: workflow-preferences DOES re-dispatch on malformed config.json", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -102,7 +102,7 @@ test("Phase 11: workflow-preferences DOES re-dispatch on malformed config.json",
   assert.ok(result && result.action === "dispatch", "malformed config treated as missing");
 });
 
-test("Phase 11: workflow-preferences does NOT dispatch when config.json has phases.skip_research", async (t) => {
+test("Deep mode: workflow-preferences does NOT dispatch when config.json has phases.skip_research", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -114,7 +114,7 @@ test("Phase 11: workflow-preferences does NOT dispatch when config.json has phas
 
 // ─── discuss-project rule ─────────────────────────────────────────────────
 
-test("Phase 11: discuss-project does NOT dispatch when planning_depth is undefined (default light)", async (t) => {
+test("Deep mode: discuss-project does NOT dispatch when planning_depth is undefined (default light)", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -122,7 +122,7 @@ test("Phase 11: discuss-project does NOT dispatch when planning_depth is undefin
   assert.strictEqual(result, null, "light mode (default) must not fire deep-mode rule");
 });
 
-test("Phase 11: discuss-project does NOT dispatch when planning_depth is 'light'", async (t) => {
+test("Deep mode: discuss-project does NOT dispatch when planning_depth is 'light'", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -131,7 +131,7 @@ test("Phase 11: discuss-project does NOT dispatch when planning_depth is 'light'
   assert.strictEqual(result, null, "explicit light mode must not fire deep-mode rule");
 });
 
-test("Phase 11: discuss-project DOES dispatch when planning_depth is 'deep' and PROJECT.md missing", async (t) => {
+test("Deep mode: discuss-project DOES dispatch when planning_depth is 'deep' and PROJECT.md missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -145,7 +145,7 @@ test("Phase 11: discuss-project DOES dispatch when planning_depth is 'deep' and 
   }
 });
 
-test("Phase 11: discuss-project does NOT dispatch when PROJECT.md already exists", async (t) => {
+test("Deep mode: discuss-project does NOT dispatch when PROJECT.md already exists", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -155,7 +155,7 @@ test("Phase 11: discuss-project does NOT dispatch when PROJECT.md already exists
   assert.strictEqual(result, null, "PROJECT.md present must fall through to next rule");
 });
 
-test("Phase 11: discuss-project does NOT dispatch in non-pre-planning phases", async (t) => {
+test("Deep mode: discuss-project does NOT dispatch in non-pre-planning phases", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -164,7 +164,7 @@ test("Phase 11: discuss-project does NOT dispatch in non-pre-planning phases", a
   assert.strictEqual(result, null, "execution phases must not fire project-level discussion");
 });
 
-test("Phase 11: discuss-project DOES dispatch in needs-discussion phase", async (t) => {
+test("Deep mode: discuss-project DOES dispatch in needs-discussion phase", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -175,7 +175,7 @@ test("Phase 11: discuss-project DOES dispatch in needs-discussion phase", async 
 
 // ─── discuss-requirements rule ────────────────────────────────────────────
 
-test("Phase 11: discuss-requirements does NOT dispatch in light mode", async (t) => {
+test("Deep mode: discuss-requirements does NOT dispatch in light mode", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -183,7 +183,7 @@ test("Phase 11: discuss-requirements does NOT dispatch in light mode", async (t)
   assert.strictEqual(result, null, "light mode must not fire deep-mode requirements rule");
 });
 
-test("Phase 11: discuss-requirements does NOT dispatch when PROJECT.md missing (project rule must run first)", async (t) => {
+test("Deep mode: discuss-requirements does NOT dispatch when PROJECT.md missing (project rule must run first)", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -192,7 +192,7 @@ test("Phase 11: discuss-requirements does NOT dispatch when PROJECT.md missing (
   assert.strictEqual(result, null, "PROJECT.md missing — earlier rule handles");
 });
 
-test("Phase 11: discuss-requirements DOES dispatch when PROJECT.md exists and REQUIREMENTS.md missing", async (t) => {
+test("Deep mode: discuss-requirements DOES dispatch when PROJECT.md exists and REQUIREMENTS.md missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -206,7 +206,7 @@ test("Phase 11: discuss-requirements DOES dispatch when PROJECT.md exists and RE
   }
 });
 
-test("Phase 11: discuss-requirements does NOT dispatch when REQUIREMENTS.md already exists", async (t) => {
+test("Deep mode: discuss-requirements does NOT dispatch when REQUIREMENTS.md already exists", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -219,7 +219,7 @@ test("Phase 11: discuss-requirements does NOT dispatch when REQUIREMENTS.md alre
 
 // ─── research-decision rule ───────────────────────────────────────────────
 
-test("Phase 11: research-decision does NOT dispatch in light mode", async (t) => {
+test("Deep mode: research-decision does NOT dispatch in light mode", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -229,7 +229,7 @@ test("Phase 11: research-decision does NOT dispatch in light mode", async (t) =>
   assert.strictEqual(result, null);
 });
 
-test("Phase 11: research-decision does NOT dispatch when REQUIREMENTS.md missing", async (t) => {
+test("Deep mode: research-decision does NOT dispatch when REQUIREMENTS.md missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -240,7 +240,7 @@ test("Phase 11: research-decision does NOT dispatch when REQUIREMENTS.md missing
   assert.strictEqual(result, null, "REQUIREMENTS.md must exist before research decision is asked");
 });
 
-test("Phase 11: research-decision DOES dispatch when REQUIREMENTS.md exists and no decision marker", async (t) => {
+test("Deep mode: research-decision DOES dispatch when REQUIREMENTS.md exists and no decision marker", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -255,7 +255,7 @@ test("Phase 11: research-decision DOES dispatch when REQUIREMENTS.md exists and 
   }
 });
 
-test("Phase 11: research-decision does NOT dispatch when decision marker exists", async (t) => {
+test("Deep mode: research-decision does NOT dispatch when decision marker exists", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -280,7 +280,7 @@ function setupReadyForResearchProject(base: string): void {
   );
 }
 
-test("Phase 11: research-project does NOT dispatch in light mode", async (t) => {
+test("Deep mode: research-project does NOT dispatch in light mode", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -289,7 +289,7 @@ test("Phase 11: research-project does NOT dispatch in light mode", async (t) => 
   assert.strictEqual(result, null);
 });
 
-test("Phase 11: research-project does NOT dispatch when decision marker missing", async (t) => {
+test("Deep mode: research-project does NOT dispatch when decision marker missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -301,7 +301,7 @@ test("Phase 11: research-project does NOT dispatch when decision marker missing"
   assert.strictEqual(result, null);
 });
 
-test("Phase 11: research-project does NOT dispatch when user chose 'skip'", async (t) => {
+test("Deep mode: research-project does NOT dispatch when user chose 'skip'", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -314,7 +314,7 @@ test("Phase 11: research-project does NOT dispatch when user chose 'skip'", asyn
   assert.strictEqual(result, null, "skip decision must short-circuit research-project");
 });
 
-test("Phase 11: research-project DOES dispatch when decision is 'research' and research files missing", async (t) => {
+test("Deep mode: research-project DOES dispatch when decision is 'research' and research files missing", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -328,7 +328,7 @@ test("Phase 11: research-project DOES dispatch when decision is 'research' and r
   }
 });
 
-test("Phase 11: research-project does NOT dispatch when all 4 research files exist", async (t) => {
+test("Deep mode: research-project does NOT dispatch when all 4 research files exist", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -342,7 +342,7 @@ test("Phase 11: research-project does NOT dispatch when all 4 research files exi
   assert.strictEqual(result, null, "all research files present — fall through");
 });
 
-test("Phase 11: research-project DOES dispatch when only 3 of 4 research files exist", async (t) => {
+test("Deep mode: research-project DOES dispatch when only 3 of 4 research files exist", async (t) => {
   const base = makeIsolatedBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -359,7 +359,7 @@ test("Phase 11: research-project DOES dispatch when only 3 of 4 research files e
 
 // ─── ordering invariant ───────────────────────────────────────────────────
 
-test("Phase 11: deep-mode rules registered in correct order", () => {
+test("Deep mode: deep-mode rules registered in correct order", () => {
   const workflowIdx = DISPATCH_RULES.findIndex(r => r.name === WORKFLOW_PREFS_RULE_NAME);
   const projectIdx = DISPATCH_RULES.findIndex(r => r.name === PROJECT_RULE_NAME);
   const requirementsIdx = DISPATCH_RULES.findIndex(r => r.name === REQUIREMENTS_RULE_NAME);

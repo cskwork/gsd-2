@@ -348,7 +348,7 @@ export interface GSDPreferences {
    * Planning depth for new-project / new-milestone interactive flows.
    * - "light" (default): single discuss-milestone session writes CONTEXT.md.
    * - "deep": staged flow writes PROJECT.md → REQUIREMENTS.md → CONTEXT.md → ROADMAP.md
-   *   with user gates between each. Phase 11 (.planning/phases/11-deep-planning-mode/).
+   *   with user gates between each.
    */
   planning_depth?: "light" | "deep";
   auto_visualize?: boolean;

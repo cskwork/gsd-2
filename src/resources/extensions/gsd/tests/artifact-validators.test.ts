@@ -1,4 +1,4 @@
-// GSD-2 — Phase 11 artifact validator tests.
+// GSD-2 — Deep planning mode artifact validator tests.
 // Verifies validateArtifact() correctly accepts valid PROJECT.md / REQUIREMENTS.md /
 // ROADMAP.md fixtures and flags specific malformations with the expected error codes.
 
@@ -33,13 +33,13 @@ function writeArtifact(base: string, name: string, content: string): string {
 
 // ─── PROJECT.md ─────────────────────────────────────────────────────────
 
-test("Phase 11 validator: valid PROJECT.md fixture passes", (t) => {
+test("Deep mode validator: valid PROJECT.md fixture passes", (t) => {
   const result = validateArtifact(join(FIXTURES_DIR, "valid-project.md"), "project");
   assert.deepStrictEqual(result.errors, []);
   assert.strictEqual(result.ok, true);
 });
 
-test("Phase 11 validator: PROJECT.md missing 'What This Is' fails", (t) => {
+test("Deep mode validator: PROJECT.md missing 'What This Is' fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -71,7 +71,7 @@ See .gsd/REQUIREMENTS.md.
   assert.ok(hasErrorCode(result.errors, "missing-section"), "must flag missing section");
 });
 
-test("Phase 11 validator: PROJECT.md with template tokens fails", (t) => {
+test("Deep mode validator: PROJECT.md with template tokens fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -107,7 +107,7 @@ See .gsd/REQUIREMENTS.md.
   assert.ok(hasErrorCode(result.errors, "template-token"), "must flag unsubstituted template tokens");
 });
 
-test("Phase 11 validator: PROJECT.md with no milestones fails", (t) => {
+test("Deep mode validator: PROJECT.md with no milestones fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -143,7 +143,7 @@ See .gsd/REQUIREMENTS.md.
   assert.ok(hasErrorCode(result.errors, "no-milestones"), "must flag empty milestone sequence");
 });
 
-test("Phase 11 validator: PROJECT.md with duplicate milestone IDs fails", (t) => {
+test("Deep mode validator: PROJECT.md with duplicate milestone IDs fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -180,7 +180,7 @@ See .gsd/REQUIREMENTS.md.
   assert.ok(hasErrorCode(result.errors, "duplicate-milestone"), "must flag duplicate milestone IDs");
 });
 
-test("Phase 11 validator: missing PROJECT.md file returns file-missing error", () => {
+test("Deep mode validator: missing PROJECT.md file returns file-missing error", () => {
   const result = validateArtifact("/nonexistent/path/PROJECT.md", "project");
   assert.strictEqual(result.ok, false);
   assert.ok(hasErrorCode(result.errors, "file-missing"));
@@ -188,13 +188,13 @@ test("Phase 11 validator: missing PROJECT.md file returns file-missing error", (
 
 // ─── REQUIREMENTS.md ────────────────────────────────────────────────────
 
-test("Phase 11 validator: valid REQUIREMENTS.md fixture passes", () => {
+test("Deep mode validator: valid REQUIREMENTS.md fixture passes", () => {
   const result = validateArtifact(join(FIXTURES_DIR, "valid-requirements.md"), "requirements");
   assert.deepStrictEqual(result.errors, []);
   assert.strictEqual(result.ok, true);
 });
 
-test("Phase 11 validator: REQUIREMENTS.md missing required section fails", (t) => {
+test("Deep mode validator: REQUIREMENTS.md missing required section fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -217,7 +217,7 @@ test("Phase 11 validator: REQUIREMENTS.md missing required section fails", (t) =
   assert.ok(hasErrorCode(result.errors, "missing-section"));
 });
 
-test("Phase 11 validator: requirement under wrong section fails (status-section mismatch)", (t) => {
+test("Deep mode validator: requirement under wrong section fails (status-section mismatch)", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -257,7 +257,7 @@ test("Phase 11 validator: requirement under wrong section fails (status-section 
   assert.ok(hasErrorCode(result.errors, "status-section-mismatch"));
 });
 
-test("Phase 11 validator: requirement with invalid class fails", (t) => {
+test("Deep mode validator: requirement with invalid class fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -297,7 +297,7 @@ test("Phase 11 validator: requirement with invalid class fails", (t) => {
   assert.ok(hasErrorCode(result.errors, "invalid-class"));
 });
 
-test("Phase 11 validator: REQUIREMENTS.md with dangling owner flagged when PROJECT.md provided", (t) => {
+test("Deep mode validator: REQUIREMENTS.md with dangling owner flagged when PROJECT.md provided", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -361,14 +361,14 @@ See .gsd/REQUIREMENTS.md.
 
 // ─── ROADMAP.md ─────────────────────────────────────────────────────────
 
-test("Phase 11 validator: valid ROADMAP.md fixture passes (without cross-refs)", () => {
+test("Deep mode validator: valid ROADMAP.md fixture passes (without cross-refs)", () => {
   const result = validateArtifact(join(FIXTURES_DIR, "valid-roadmap.md"), "roadmap");
   // May have orphan-slice warnings (no requirements provided) but no errors
   assert.deepStrictEqual(result.errors, []);
   assert.strictEqual(result.ok, true);
 });
 
-test("Phase 11 validator: ROADMAP.md with circular dependencies fails", (t) => {
+test("Deep mode validator: ROADMAP.md with circular dependencies fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -396,7 +396,7 @@ test("Phase 11 validator: ROADMAP.md with circular dependencies fails", (t) => {
   assert.ok(hasErrorCode(result.errors, "circular-dependency"));
 });
 
-test("Phase 11 validator: ROADMAP.md with dangling dependency fails", (t) => {
+test("Deep mode validator: ROADMAP.md with dangling dependency fails", (t) => {
   const base = tempBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 

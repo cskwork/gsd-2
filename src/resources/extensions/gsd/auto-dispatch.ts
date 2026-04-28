@@ -481,7 +481,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    // Phase 11 — Deep mode stage gate: workflow preferences not yet captured.
+    // Deep mode stage gate: workflow preferences not yet captured.
     // Fires once per project, before discuss-project, when planning_depth === "deep"
     // and the project has no .gsd/config.json (or the file lacks the workflow keys).
     // Captures 5 toggles via structured questions; writes config.json.
@@ -515,7 +515,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    // Phase 11 — Deep mode stage gate: PROJECT.md missing.
+    // Deep mode stage gate: PROJECT.md missing.
     // Fires only when planning_depth === "deep" and PROJECT.md is missing.
     // Project-level interview must complete before any milestone-level discussion.
     // Light mode (default) skips this rule entirely — falls through to milestone rules.
@@ -534,7 +534,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    // Phase 11 — Deep mode stage gate: REQUIREMENTS.md missing.
+    // Deep mode stage gate: REQUIREMENTS.md missing.
     // Fires only when planning_depth === "deep", PROJECT.md exists, and REQUIREMENTS.md is missing.
     // Falls through in light mode or when REQUIREMENTS.md already exists.
     name: "deep: pre-planning (no REQUIREMENTS) → discuss-requirements",
@@ -554,7 +554,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    // Phase 11 — Deep mode research gate: capture user's research decision.
+    // Deep mode research gate: capture user's research decision.
     // Fires after discuss-requirements (REQUIREMENTS.md exists) when no decision
     // marker has been written yet. Asks one yes/no question via ask_user_questions
     // and writes .gsd/runtime/research-decision.json. Downstream research-project
@@ -577,7 +577,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    // Phase 11 — Deep mode parallel research.
+    // Deep mode parallel research.
     // Fires when planning_depth === "deep", REQUIREMENTS.md exists,
     // research-decision marker says "research", and any of the 4 project
     // research files is missing. Spawns one orchestrator session that fans

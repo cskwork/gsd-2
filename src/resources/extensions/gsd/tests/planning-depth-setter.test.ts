@@ -1,4 +1,4 @@
-// GSD-2 — Phase 11 setPlanningDepth helper.
+// GSD-2 — Deep planning mode setPlanningDepth helper.
 // Verifies the helper correctly creates and updates .gsd/PREFERENCES.md while
 // preserving existing frontmatter keys and body content.
 
@@ -27,7 +27,7 @@ function readFrontmatter(path: string): { frontmatter: Record<string, unknown>; 
   return { frontmatter: parsed as Record<string, unknown>, body: match[2] };
 }
 
-test("Phase 11: setPlanningDepth creates PREFERENCES.md when missing", (t) => {
+test("Deep mode: setPlanningDepth creates PREFERENCES.md when missing", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -39,7 +39,7 @@ test("Phase 11: setPlanningDepth creates PREFERENCES.md when missing", (t) => {
   assert.strictEqual(frontmatter.planning_depth, "deep");
 });
 
-test("Phase 11: setPlanningDepth updates existing planning_depth", (t) => {
+test("Deep mode: setPlanningDepth updates existing planning_depth", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -51,7 +51,7 @@ test("Phase 11: setPlanningDepth updates existing planning_depth", (t) => {
   assert.strictEqual(frontmatter.planning_depth, "deep");
 });
 
-test("Phase 11: setPlanningDepth preserves other frontmatter keys", (t) => {
+test("Deep mode: setPlanningDepth preserves other frontmatter keys", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -69,7 +69,7 @@ test("Phase 11: setPlanningDepth preserves other frontmatter keys", (t) => {
   assert.strictEqual(frontmatter.uat_dispatch, true);
 });
 
-test("Phase 11: setPlanningDepth preserves body content", (t) => {
+test("Deep mode: setPlanningDepth preserves body content", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -83,7 +83,7 @@ test("Phase 11: setPlanningDepth preserves body content", (t) => {
   assert.ok(content.includes("Keep this body intact."), "body text must survive");
 });
 
-test("Phase 11: setPlanningDepth handles file without frontmatter delimiters", (t) => {
+test("Deep mode: setPlanningDepth handles file without frontmatter delimiters", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
@@ -100,7 +100,7 @@ test("Phase 11: setPlanningDepth handles file without frontmatter delimiters", (
   assert.ok(body.includes("version: 1"), "legacy content preserved as body");
 });
 
-test("Phase 11: setPlanningDepth can flip back to light", (t) => {
+test("Deep mode: setPlanningDepth can flip back to light", (t) => {
   const base = makeBase();
   t.after(() => { try { rmSync(base, { recursive: true, force: true }); } catch {} });
 
