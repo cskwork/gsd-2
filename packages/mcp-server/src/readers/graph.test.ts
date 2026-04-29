@@ -378,8 +378,12 @@ missing_artifacts: []
     const graph = await buildGraph(noLearningsProject);
     assert.ok(Array.isArray(graph.nodes));
     assert.equal(typeof graph.builtAt, 'string');
+    // Surprises are stored as nodes of type 'lesson' with id-prefix
+    // 'surprise:' (see graph.ts:442); the literal 'surprise' was never a
+    // member of NodeType, so the comparison was a silently-always-false
+    // tautology that triggered TS2367 under strict checks.
     const learningNodes = graph.nodes.filter(
-      (n) => n.type === 'decision' || n.type === 'lesson' || n.type === 'pattern' || n.type === 'surprise',
+      (n) => n.type === 'decision' || n.type === 'lesson' || n.type === 'pattern',
     );
     assert.equal(
       learningNodes.length,

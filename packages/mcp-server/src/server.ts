@@ -14,6 +14,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { z } from 'zod';
 import type { SessionManager } from './session-manager.js';
 import { isRemoteConfigured, tryRemoteQuestions } from './remote-questions.js';
@@ -35,7 +36,21 @@ import { applySecrets, checkExistingEnvKeys, detectDestination, resolveProjectEn
 
 const MCP_PKG = '@modelcontextprotocol/sdk';
 const SERVER_NAME = 'gsd';
-const SERVER_VERSION = '2.53.0';
+
+/**
+ * Read the version from this package's package.json so the MCP handshake
+ * always advertises the deployed artifact's version. Falls back to '0.0.0'
+ * if package.json can't be located (e.g. unusual bundling); the fallback
+ * is loud-ish but won't crash the server.
+ */
+const SERVER_VERSION: string = (() => {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
+  } catch { /* fall through */ }
+  return '0.0.0';
+})();
 
 /** User-interaction timeout — generous but bounded so elicitation can't hang indefinitely (#4586). */
 const ELICIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -68,6 +83,9 @@ function defaultExecFn(
 /**
  * Race a promise against a timeout. Rejects with a typed error on timeout so
  * callers can return a specific MCP error response rather than hanging.
+ * If a parent AbortSignal is provided, an abort also rejects the race so
+ * client-side cancellation propagates instead of being absorbed by the
+ * 10-minute elicitation hold.
  *
  * @param timeoutMs - override for testing; defaults to ELICIT_TIMEOUT_MS
  */
@@ -75,18 +93,36 @@ export async function withElicitTimeout<T>(
   promise: Promise<T>,
   label: string,
   timeoutMs = ELICIT_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${timeoutMs / 60000} minutes — no user response received`)),
-      timeoutMs,
+  const racers: Promise<T>[] = [promise];
+  racers.push(
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${timeoutMs / 60000} minutes — no user response received`)),
+        timeoutMs,
+      );
+    }),
+  );
+  let abortListener: (() => void) | undefined;
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timer);
+      throw new Error(`${label} cancelled by client`);
+    }
+    racers.push(
+      new Promise<never>((_, reject) => {
+        abortListener = () => reject(new Error(`${label} cancelled by client`));
+        signal.addEventListener('abort', abortListener, { once: true });
+      }),
     );
-  });
+  }
   try {
-    return await Promise.race([promise, timeout]);
+    return await Promise.race(racers);
   } finally {
     clearTimeout(timer);
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener);
   }
 }
 
