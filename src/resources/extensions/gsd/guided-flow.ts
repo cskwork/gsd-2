@@ -1736,6 +1736,7 @@ export async function showSmartEntry(
   // milestones/) must trigger the init wizard, not skip it (#2942).
   const gsdPath = gsdRoot(basePath);
   const hasBootstrapArtifacts = hasGsdBootstrapArtifacts(gsdPath);
+  let skipGitBootstrap = false;
 
   if (!hasBootstrapArtifacts) {
     const detection = detectProjectState(basePath);
@@ -1755,6 +1756,7 @@ export async function showSmartEntry(
     // No .gsd/ or zombie .gsd/ — run the project init wizard
     const result = await showProjectInit(ctx, pi, basePath, detection);
     if (!result.completed) return; // User cancelled
+    skipGitBootstrap = result.gitEnabled === false;
 
     // Init wizard bootstrapped .gsd/ — fall through to the normal flow below
     // which will detect "no milestones" and start the discuss prompt
@@ -1764,19 +1766,21 @@ export async function showSmartEntry(
   // Also handle inherited repos: if basePath is a subdirectory of another
   // git repo that has no .gsd, create a fresh repo to prevent cross-project
   // state leaks (#1639).
-  if (!nativeIsRepo(basePath) || isInheritedRepo(basePath)) {
+  if (!skipGitBootstrap && (!nativeIsRepo(basePath) || isInheritedRepo(basePath))) {
     const mainBranch = loadEffectiveGSDPreferences()?.preferences?.git?.main_branch || "main";
     nativeInit(basePath, mainBranch);
   }
 
   // ── Ensure .gitignore has baseline patterns ──────────────────────────
-  ensureGitignore(basePath);
-  untrackRuntimeFiles(basePath);
+  if (!skipGitBootstrap && nativeIsRepo(basePath)) {
+    ensureGitignore(basePath);
+    untrackRuntimeFiles(basePath);
+  }
 
   // Deep setup can pre-create .gsd/PREFERENCES.md before the normal init
   // wizard path runs. If that path also initialized git, make HEAD reachable
   // now so later worktree/git-log operations do not run on an unborn branch.
-  if (nativeIsRepo(basePath) && !nativeHasCommittedHead(basePath)) {
+  if (!skipGitBootstrap && nativeIsRepo(basePath) && !nativeHasCommittedHead(basePath)) {
     try {
       nativeAddAll(basePath);
       nativeCommit(basePath, "chore: init project");

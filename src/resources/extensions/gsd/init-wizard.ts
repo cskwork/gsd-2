@@ -26,6 +26,8 @@ interface InitWizardResult {
   completed: boolean;
   /** Whether .gsd/ was created */
   bootstrapped: boolean;
+  /** Whether git is available or was initialized during setup. */
+  gitEnabled?: boolean;
 }
 
 interface ProjectPreferences {
@@ -75,6 +77,7 @@ export async function showProjectInit(
 
   // ── Step 2: Git setup ──────────────────────────────────────────────────────
   let didInitGit = false;
+  let gitEnabled = signals.isGitRepo;
   if (!signals.isGitRepo) {
     const gitChoice = await showNextAction(ctx, {
       title: "GSD — Project Setup",
@@ -91,6 +94,7 @@ export async function showProjectInit(
     if (gitChoice === "init_git") {
       nativeInit(basePath, prefs.mainBranch);
       didInitGit = true;
+      gitEnabled = true;
     }
   } else {
     // Auto-detect main branch from existing repo
@@ -293,9 +297,12 @@ export async function showProjectInit(
     // Non-fatal — DB creation failure should not block project init
   }
 
-  // Ensure .gitignore
-  ensureGitignore(basePath);
-  untrackRuntimeFiles(basePath);
+  // Ensure .gitignore only when git is active. A user who selected "Skip"
+  // should not have git initialized or git-related files mutated later.
+  if (gitEnabled) {
+    ensureGitignore(basePath);
+    untrackRuntimeFiles(basePath);
+  }
 
   // Create initial commit so git log and git worktree work immediately (#4530).
   // Without this, the branch is "unborn" (zero commits) and downstream operations
@@ -341,7 +348,7 @@ export async function showProjectInit(
 
   ctx.ui.notify("GSD initialized. Starting your first milestone...", "info");
 
-  return { completed: true, bootstrapped: true };
+  return { completed: true, bootstrapped: true, gitEnabled };
 }
 
 // ─── V1 Migration Offer ─────────────────────────────────────────────────────────
