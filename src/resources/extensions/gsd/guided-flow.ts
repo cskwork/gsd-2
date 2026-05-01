@@ -594,6 +594,26 @@ export function maybeHandleReadyPhraseWithoutFiles(event: { messages: any[] }): 
   const roadmapFile = resolveMilestoneFile(basePath, milestoneId, "ROADMAP");
   if (contextFile || roadmapFile) return false;
 
+  // Diagnostic: when the cached resolver reports both files missing, also probe
+  // the canonical paths with uncached existsSync so we can tell whether the
+  // recovery is firing on real-missing files or a path-resolution miss
+  // (basePath/symlink mismatch, stale cache despite agent-end-recovery flush,
+  // legacy descriptor dir not matching, etc.).
+  try {
+    const mDir = resolveMilestonePath(basePath, milestoneId);
+    const canonicalCtx = mDir ? join(mDir, `${milestoneId}-CONTEXT.md`) : null;
+    const canonicalRoadmap = mDir ? join(mDir, `${milestoneId}-ROADMAP.md`) : null;
+    logWarning(
+      "guided",
+      `ready-phrase-reject diagnostic mid=${milestoneId} basePath=${basePath} ` +
+      `mDir=${mDir ?? "null"} ` +
+      `canonical-ctx=${canonicalCtx ?? "null"} ctx-exists=${canonicalCtx ? existsSync(canonicalCtx) : "n/a"} ` +
+      `canonical-roadmap=${canonicalRoadmap ?? "null"} roadmap-exists=${canonicalRoadmap ? existsSync(canonicalRoadmap) : "n/a"}`,
+    );
+  } catch (e) {
+    logWarning("guided", `ready-phrase-reject diagnostic failed: ${(e as Error).message}`);
+  }
+
   entry.readyRejectCount = (entry.readyRejectCount ?? 0) + 1;
 
   if (entry.readyRejectCount > MAX_READY_REJECTS) {
@@ -696,14 +716,14 @@ export function maybeHandleEmptyIntentTurn(
   // path, handled by maybeHandleReadyPhraseWithoutFiles.
   if (READY_PHRASE_RE.test(text)) return false;
 
-  // Skip if the LLM is clearly handing back to the user. Last-line `?` is
-  // the strongest signal, but discuss flows often end with a freeform
-  // question followed by a closing remark ("…what should we build? I'll
-  // pick one if you don't care."). Treat ANY non-empty line ending in `?`
-  // as a question-asked signal — false negatives here auto-reply to the
+  // Skip if the LLM is clearly handing back to the user. Discuss flows
+  // often pose a question and follow it with a conditional intent on the
+  // same line ("Did I capture that correctly? If so, I'll write the
+  // requirements."). A line-trailing `?` check misses these because the
+  // line ends in `.`. Match any sentence-terminating `?` (followed by
+  // whitespace or end-of-text) — false negatives here auto-reply to the
   // user, which is a much worse failure mode than a missed nudge.
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.some((l) => l.endsWith("?"))) return false;
+  if (/\?(?:\s|$)/.test(text)) return false;
 
   // Must contain a commit-intent phrase — this is the stall we care about.
   if (!COMMIT_INTENT_RE.test(text)) return false;
