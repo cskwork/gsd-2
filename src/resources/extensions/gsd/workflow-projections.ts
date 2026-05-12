@@ -369,7 +369,8 @@ export async function renderStateProjection(basePath: string): Promise<void> {
     const content = renderStateContent(state);
     const dir = join(basePath, ".gsd");
     const statePath = join(dir, "STATE.md");
-    if (state.progress.milestones.total === 0 && existsSync(statePath)) {
+    const milestoneTotal = state.progress?.milestones?.total ?? 0;
+    if (milestoneTotal === 0 && existsSync(statePath)) {
       try {
         const manifest = readManifest(basePath);
         const existingContent = (await readFile(statePath, "utf-8")).trim();
