@@ -31,12 +31,17 @@ test("#5389: bootstrap reconciles PROJECT.md milestones that are missing from DB
     insertMilestone({ id: "M001", title: "Existing Milestone", status: "complete" });
 
     const inserted = reconcileProjectMilestonesFromDisk(base);
-    const ids = new Set(getAllMilestones().map((m) => m.id));
+    const rows = getAllMilestones();
+    const ids = new Set(rows.map((m) => m.id));
+    const byId = new Map(rows.map((m) => [m.id, m]));
 
     assert.equal(inserted, 2);
     assert.equal(ids.has("M001"), true);
     assert.equal(ids.has("M002"), true);
     assert.equal(ids.has("M003"), true);
+    assert.equal(byId.get("M001")?.status, "complete");
+    assert.equal(byId.get("M002")?.status, "queued");
+    assert.equal(byId.get("M003")?.status, "queued");
   } finally {
     if (isDbAvailable()) closeDatabase();
     rmSync(base, { recursive: true, force: true });

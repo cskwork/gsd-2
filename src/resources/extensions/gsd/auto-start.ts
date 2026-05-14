@@ -173,6 +173,7 @@ export function reconcileProjectMilestonesFromDisk(basePath: string): number {
         title: milestone.title,
         status: milestone.done ? "complete" : "queued",
       });
+      dbMilestones.add(milestone.id);
       inserted += 1;
     }
     return inserted;
