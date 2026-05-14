@@ -1116,6 +1116,15 @@ async function dispatchWorkflow(
 
 export const _dispatchWorkflowForTest = dispatchWorkflow;
 
+export function getDiscussableFutureMilestones<T extends { id: string; status: string }>(
+  registry: T[],
+  activeMilestoneId?: string | null,
+): T[] {
+  return registry.filter((m) =>
+    m.id !== activeMilestoneId && m.status !== "complete" && m.status !== "parked",
+  );
+}
+
 function getStructuredQuestionsAvailability(
   pi: ExtensionAPI,
   ctx: ExtensionContext | undefined,
@@ -1458,8 +1467,9 @@ export async function showDiscuss(
   invalidateAllCaches();
 
   const state = await deriveState(basePath);
-  const discussableFutureMilestones = state.registry.filter((m) =>
-    m.id !== state.activeMilestone?.id && m.status !== "complete" && m.status !== "parked",
+  const discussableFutureMilestones = getDiscussableFutureMilestones(
+    state.registry,
+    state.activeMilestone?.id,
   );
 
   // Rebuild STATE.md from derived state before any dispatch (#3475).
