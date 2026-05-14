@@ -2,6 +2,7 @@ import { describe, test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { _parseDiscussArgsForTest, handleWorkflowCommand } from "../commands/handlers/workflow.ts";
 import { _setAutoActiveForTest } from "../auto.ts";
+import { getDiscussableFutureMilestones } from "../guided-flow.ts";
 
 describe("discuss command targeting (#5471)", () => {
   test("parses positional milestone and slice targets", () => {
@@ -101,7 +102,7 @@ describe("discuss dispatch via handleWorkflowCommand (#5471)", () => {
 });
 
 describe("discuss picker future-milestone contract (#5471)", () => {
-  test("filter contract excludes active/complete/parked and keeps future milestone statuses", () => {
+  test("runtime contract excludes active/complete/parked and keeps future milestone statuses", () => {
     const activeId = "M001";
     const registry = [
       { id: "M001", status: "active" },
@@ -112,9 +113,7 @@ describe("discuss picker future-milestone contract (#5471)", () => {
       { id: "M006", status: "queued" },
     ];
 
-    const discussableFutureMilestones = registry.filter(
-      (m) => m.id !== activeId && m.status !== "complete" && m.status !== "parked",
-    );
+    const discussableFutureMilestones = getDiscussableFutureMilestones(registry, activeId);
     const ids = discussableFutureMilestones.map((m) => m.id);
     assert.ok(!ids.includes("M001"));
     assert.ok(!ids.includes("M003"));
