@@ -174,12 +174,22 @@ function popStashByRef(basePath: string, stashMarker: string | null): string | n
   return popArg;
 }
 
+/**
+ * Extract a stash ref annotation injected by popStashByRef() when git stash
+ * pop fails and we need to conditionally drop the exact stash entry later.
+ */
 function stashRefFromError(err: unknown): string | null {
   if (!err || typeof err !== "object") return null;
   const stashRef = (err as { stashRef?: unknown }).stashRef;
   return typeof stashRef === "string" && stashRef.length > 0 ? stashRef : null;
 }
 
+/**
+ * Detect whether an on-disk file still contains unresolved merge conflict
+ * markers from a failed stash-pop or merge attempt.
+ *
+ * Returns false when the file cannot be read.
+ */
 function hasConflictMarkers(filePath: string): boolean {
   try {
     const content = readFileSync(filePath, "utf-8");
