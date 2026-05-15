@@ -64,12 +64,10 @@ function resolveVerificationTargets(
 ): VerificationTarget[] {
   const registry = createRepositoryRegistryFromPreferences(basePath, prefs);
   const defaultTargets = defaultRepositoryTargets(registry);
-  const requestedIds =
-    task?.target_repositories?.length
-      ? task.target_repositories
-      : slice?.target_repositories?.length
-        ? slice.target_repositories
-        : defaultTargets;
+  const taskTargetRepositories = task?.target_repositories?.length ? task.target_repositories : null;
+  const sliceTargetRepositories = slice?.target_repositories?.length ? slice.target_repositories : null;
+  const explicitTargetsRequested = Boolean(taskTargetRepositories || sliceTargetRepositories);
+  const requestedIds = taskTargetRepositories ?? sliceTargetRepositories ?? defaultTargets;
 
   const targets: VerificationTarget[] = [];
   const seen = new Set<string>();
@@ -90,11 +88,15 @@ function resolveVerificationTargets(
     });
   }
 
-  if (targets.length === 0) {
+  if (!explicitTargetsRequested && targets.length === 0) {
     const project = registry.byId.get("project");
     if (project) targets.push({ id: "project", cwd: project.root });
   }
   return targets;
+}
+
+function hasExplicitVerificationTargets(task: TaskRow | null, slice: SliceRow | null): boolean {
+  return Boolean(task?.target_repositories?.length || slice?.target_repositories?.length);
 }
 
 /**
@@ -300,6 +302,12 @@ export async function runPostUnitVerification(
     }
 
     const verificationTargets = resolveVerificationTargets(s.basePath, prefs, taskRow, sliceRow);
+    const explicitVerificationTargetsRequested = hasExplicitVerificationTargets(taskRow, sliceRow);
+    if (explicitVerificationTargetsRequested && verificationTargets.length === 0) {
+      logWarning("engine", "verification: explicit target_repositories requested but no repositories resolved");
+      await pauseAuto(ctx, pi);
+      return "pause";
+    }
     const result = verificationTargets.length <= 1
       ? runVerificationGate({
         cwd: verificationTargets[0]?.cwd ?? s.basePath,
