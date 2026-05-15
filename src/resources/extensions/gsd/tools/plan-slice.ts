@@ -259,7 +259,13 @@ export async function handlePlanSlice(
     return { error: `validation failed: ${(err as Error).message}` };
   }
 
-  const repositoryRegistry = loadRepositoryRegistry(basePath);
+  let repositoryRegistry: RepositoryRegistry;
+  try {
+    repositoryRegistry = loadRepositoryRegistry(basePath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `validation failed: ${message}` };
+  }
   const repoValidationError = validateReferencedRepositories(params, repositoryRegistry);
   if (repoValidationError) {
     return { error: `validation failed: ${repoValidationError}` };

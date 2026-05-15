@@ -2811,8 +2811,8 @@ export function restoreManifest(manifest: StateManifest): void {
       `INSERT INTO slices (milestone_id, id, title, status, risk, depends, demo,
         created_at, completed_at, full_summary_md, full_uat_md,
         goal, success_criteria, proof_level, integration_closure, observability_impact,
-        sequence, replan_triggered_at, is_sketch, sketch_scope)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        target_repositories, sequence, replan_triggered_at, is_sketch, sketch_scope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const s of manifest.slices) {
       slStmt.run(
@@ -2820,6 +2820,7 @@ export function restoreManifest(manifest: StateManifest): void {
         JSON.stringify(s.depends), s.demo,
         s.created_at, s.completed_at, s.full_summary_md, s.full_uat_md,
         s.goal, s.success_criteria, s.proof_level, s.integration_closure, s.observability_impact,
+        JSON.stringify(s.target_repositories ?? []),
         s.sequence, s.replan_triggered_at,
         s.is_sketch ?? 0,
         s.sketch_scope ?? "",
@@ -2832,10 +2833,10 @@ export function restoreManifest(manifest: StateManifest): void {
         one_liner, narrative, verification_result, duration, completed_at,
         blocker_discovered, deviations, known_issues, key_files, key_decisions,
         full_summary_md, description, estimate, files, verify,
-        inputs, expected_output, observability_impact, sequence,
+        inputs, expected_output, observability_impact, target_repositories, sequence,
         blocker_source, escalation_pending, escalation_awaiting_review,
         escalation_artifact_path, escalation_override_applied_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const t of manifest.tasks) {
       tkStmt.run(
@@ -2845,7 +2846,7 @@ export function restoreManifest(manifest: StateManifest): void {
         JSON.stringify(t.key_files), JSON.stringify(t.key_decisions),
         t.full_summary_md, t.description, t.estimate, JSON.stringify(t.files), t.verify,
         JSON.stringify(t.inputs), JSON.stringify(t.expected_output),
-        t.observability_impact, t.sequence,
+        t.observability_impact, JSON.stringify(t.target_repositories ?? []), t.sequence,
         t.blocker_source ?? "",
         t.escalation_pending ?? 0,
         t.escalation_awaiting_review ?? 0,
