@@ -276,18 +276,20 @@ export function decideEngineDispatch(input: EngineDispatchInput): EngineDispatch
   return { action: "dispatch" };
 }
 
+const COMPLETE_AND_BREAK_REASONS = new Set([
+  "step-wizard",
+  "post-verification-stopped",
+  "pre-verification-dispatched",
+  "uat-pause",
+  "verification-pause",
+  "finalize-pre-timeout",
+  "finalize-post-timeout",
+] as const);
+
 export function decideFinalizeResult(input: FinalizeInput): FinalizeDecision {
   if (input.action === "break") {
     const reason = input.reason ?? "unknown";
-    if (
-      reason === "step-wizard"
-      || reason === "post-verification-stopped"
-      || reason === "pre-verification-dispatched"
-      || reason === "uat-pause"
-      || reason === "verification-pause"
-      || reason === "finalize-pre-timeout"
-      || reason === "finalize-post-timeout"
-    ) {
+    if (COMPLETE_AND_BREAK_REASONS.has(reason)) {
       return { action: "complete-and-break" };
     }
     return {
