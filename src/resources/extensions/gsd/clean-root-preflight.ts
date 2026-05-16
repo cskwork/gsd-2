@@ -387,10 +387,6 @@ export function preflightCleanRoot(
     };
   }
 
-  // Warn the user before stashing
-  const warnMsg = `Working tree has uncommitted changes before milestone ${milestoneId} merge. Auto-stashing to allow clean merge (stash will be restored after merge).`;
-  notify(warnMsg, "warning");
-
   if (process.platform === "win32") {
     const reservedUntracked = listUntrackedPaths(basePath).filter(hasWindowsReservedBasename);
     if (reservedUntracked.length > 0) {
@@ -401,6 +397,10 @@ export function preflightCleanRoot(
       return { stashPushed: false, summary: `stash-skipped-reserved-device-names: ${reservedList}` };
     }
   }
+
+  // Warn the user before stashing
+  const warnMsg = `Working tree has uncommitted changes before milestone ${milestoneId} merge. Auto-stashing to allow clean merge (stash will be restored after merge).`;
+  notify(warnMsg, "warning");
 
   // Push the stash
   try {
