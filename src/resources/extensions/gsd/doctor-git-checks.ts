@@ -118,6 +118,16 @@ export async function checkGitHealth(
 
   const gitDir = resolveGitDir(basePath);
   const unmergedPaths = listUnmergedGitPaths(basePath);
+  if (unmergedPaths === null) {
+    issues.push({
+      severity: "error",
+      code: "corrupt_merge_state",
+      scope: "repo",
+      message: "Failed to evaluate unresolved Git conflicts. Resolve Git/worktree state manually before resuming auto-mode.",
+      fixable: false,
+    });
+    return;
+  }
 
   // ── Orphaned auto-worktrees & Stale milestone branches ────────────────
   // These checks only apply in worktree/branch modes — skip in none mode

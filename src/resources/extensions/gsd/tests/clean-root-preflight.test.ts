@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 
 import { preflightCleanRoot, postflightPopStash } from "../clean-root-preflight.ts";
 
@@ -149,7 +149,8 @@ test("preflightCleanRoot blocks unresolved stash-apply conflicts before stashing
     writeFileSync(join(repo, "README.md"), "# merged milestone work\n");
     run("git add README.md", repo);
     run('git commit -m "feat: merged readme"', repo);
-    execSync("git stash apply 'stash@{0}' || true", { cwd: repo, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" });
+    const apply = spawnSync("git", ["stash", "apply", "stash@{0}"], { cwd: repo, encoding: "utf-8" });
+    if (apply.error) throw apply.error;
 
     assert.match(run("git diff --name-only --diff-filter=U", repo), /README\.md/, "fixture must have unresolved conflict");
 

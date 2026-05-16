@@ -27,13 +27,13 @@ export interface PreflightResult {
   /** true when the merge must not start because dirty files need user action */
   blocked?: boolean;
   /** Machine-readable reason for blocked preflight. */
-  blockedReason?: "dirty-overlap" | "unmerged-conflicts";
+  blockedReason?: "dirty-overlap" | "dirty-overlap-eval-failed" | "unmerged-conflicts" | "unmerged-conflicts-eval-failed";
   /** Unique marker embedded in the stash message for targeted restoration */
   stashMarker?: string;
   /** Dirty paths that overlap the milestone branch diff and would conflict after merge */
-  overlappingPaths?: string[];
+  overlappingPaths?: string[] | null;
   /** Paths with unresolved Git conflict stages. */
-  conflictedPaths?: string[];
+  conflictedPaths?: string[] | null;
   /** human-readable summary of what happened (empty string for clean trees) */
   summary: string;
 }
@@ -112,6 +112,10 @@ function listMilestoneChangedPaths(basePath: string, milestoneId: string): strin
   const milestoneBranch = `milestone/${milestoneId}`;
   try {
     gitText(basePath, ["rev-parse", "--verify", "--quiet", `refs/heads/${milestoneBranch}`]);
+  } catch {
+    return [];
+  }
+  try {
     const mergeBase = gitText(basePath, ["merge-base", "HEAD", milestoneBranch]).trim();
     if (!mergeBase) return null;
     return readZeroDelimitedPaths(gitText(basePath, ["diff", "--name-only", "-z", mergeBase, milestoneBranch]));
@@ -282,6 +286,19 @@ export function preflightCleanRoot(
   }
 
   const conflictedPaths = listUnmergedGitPaths(basePath);
+  if (conflictedPaths === null) {
+    const msg =
+      `Unable to verify unresolved Git conflicts before milestone ${milestoneId} merge. ` +
+      `Resolve Git/worktree state manually before resuming auto-mode.`;
+    notify(msg, "error");
+    return {
+      stashPushed: false,
+      blocked: true,
+      blockedReason: "unmerged-conflicts-eval-failed",
+      conflictedPaths: null,
+      summary: msg,
+    };
+  }
   if (conflictedPaths.length > 0) {
     const msg =
       `Working tree has unresolved Git conflicts before milestone ${milestoneId} merge: ` +
@@ -297,6 +314,19 @@ export function preflightCleanRoot(
   }
 
   const overlappingPaths = findOverlappingDirtyMilestonePaths(basePath, milestoneId);
+  if (overlappingPaths === null) {
+    const msg =
+      `Unable to verify dirty-path overlap for milestone ${milestoneId}. ` +
+      `Resolve Git/worktree state manually before resuming auto-mode.`;
+    notify(msg, "error");
+    return {
+      stashPushed: false,
+      blocked: true,
+      blockedReason: "dirty-overlap-eval-failed",
+      overlappingPaths: null,
+      summary: msg,
+    };
+  }
   if (overlappingPaths && overlappingPaths.length > 0) {
     const msg =
       `Working tree has uncommitted files that overlap milestone ${milestoneId} changes: ` +

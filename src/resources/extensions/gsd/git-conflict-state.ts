@@ -8,7 +8,7 @@ function splitZeroDelimited(output: string): string[] {
   return output.split("\0").filter(Boolean);
 }
 
-export function listUnmergedGitPaths(basePath: string): string[] {
+export function listUnmergedGitPaths(basePath: string): string[] | null {
   try {
     const output = execFileSync("git", ["diff", "--name-only", "--diff-filter=U", "-z"], {
       cwd: basePath,
@@ -18,6 +18,6 @@ export function listUnmergedGitPaths(basePath: string): string[] {
     });
     return [...new Set(splitZeroDelimited(output))].sort();
   } catch {
-    return [];
+    return null;
   }
 }

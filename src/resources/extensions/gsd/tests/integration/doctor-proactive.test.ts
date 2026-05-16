@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 
 import {
   preDispatchHealthGate,
@@ -75,11 +75,11 @@ function createStashApplyConflict(): string {
   writeFileSync(join(dir, "README.md"), "# merged milestone work\n");
   run("git add README.md", dir);
   run('git commit -m "feat: merged readme"', dir);
-  execSync("git stash apply 'stash@{0}' || true", {
+  const apply = spawnSync("git", ["stash", "apply", "stash@{0}"], {
     cwd: dir,
-    stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf-8",
   });
+  if (apply.error) throw apply.error;
   return dir;
 }
 

@@ -164,6 +164,13 @@ export interface DispatchRule {
 
 function commitPendingMilestoneCloseoutChanges(basePath: string, mid: string): DispatchAction | null {
   const conflictedPaths = listUnmergedGitPaths(basePath);
+  if (conflictedPaths === null) {
+    return {
+      action: "stop",
+      reason: `Cannot complete milestone ${mid}: failed to evaluate unresolved Git conflicts. Resolve Git/worktree state manually before closing.`,
+      level: "error",
+    };
+  }
   if (conflictedPaths.length > 0) {
     return {
       action: "stop",

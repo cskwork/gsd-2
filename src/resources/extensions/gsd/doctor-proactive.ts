@@ -217,6 +217,10 @@ export async function preDispatchHealthGate(basePath: string): Promise<PreDispat
   const issues: string[] = [];
   const fixesApplied: string[] = [];
   const unmergedPaths = nativeIsRepo(basePath) ? listUnmergedGitPaths(basePath) : [];
+  if (unmergedPaths === null) {
+    issues.push("Failed to evaluate unresolved Git conflicts. Resolve Git/worktree state manually before resuming auto-mode.");
+    return { proceed: false, reason: issues[0], issues, fixesApplied };
+  }
 
   if (unmergedPaths.length > 0) {
     issues.push(
