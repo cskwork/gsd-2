@@ -449,12 +449,16 @@ function describeArtifactVerificationFailure(unitType: string, unitId: string, b
   }
 
   const artifactPath = resolveExpectedArtifactPath(unitType, unitId, basePath);
+  const expected = diagnoseExpectedArtifact(unitType, unitId, basePath);
   if (!artifactPath) {
     return `Artifact verification failed: ${unitType} "${unitId}" has no resolvable artifact path.`;
   }
   const relPath = relative(basePath, artifactPath);
   if (!existsSync(artifactPath)) {
-    return `Artifact verification failed: ${relPath} was not found on disk after unit execution.`;
+    const completionToolHint = unitType === "execute-task"
+      ? " No completion tool call detected (`gsd_task_complete`/alias)."
+      : "";
+    return `Artifact verification failed: ${relPath} was not found on disk after unit execution${expected ? ` (${expected})` : ""}.${completionToolHint}`;
   }
 
   const validationKind = artifactValidationKind(unitType);
@@ -469,9 +473,9 @@ function describeArtifactVerificationFailure(unitType: string, unitId: string, b
     }
   }
 
-  const expected = diagnoseExpectedArtifact(unitType, unitId, basePath);
   return `Artifact verification failed: ${relPath} exists but did not satisfy the ${unitType} completion contract${expected ? ` (${expected})` : ""}.`;
 }
+export const _describeArtifactVerificationFailureForTest = describeArtifactVerificationFailure;
 
 export async function autoCommitUnit(
   basePath: string,
