@@ -67,7 +67,7 @@ docker run --rm -v $(pwd):/workspace ghcr.io/gsd-build/gsd-pi:latest --version
 | Native Binaries | `build-native.yml` | `v*` tags | Cross-compile platform binaries |
 | Dev Cleanup | `cleanup-dev-versions.yml` | Weekly (Monday 06:00 UTC) | Unpublish `-dev.` versions older than 30 days |
 | Agent Workflow Guard | `agent-workflow-guard.yml` | PR changes to workflow files | Blocks workflow diffs that expand `allowed_non_write_users` |
-| AI Triage | `ai-triage.yml` | New and edited issues/PRs | Automated classification and normalized triage labels |
+| AI Triage | `ai-triage.yml` | Issues: opened/edited/reopened; PRs: opened/synchronize/reopened; trusted `issue_comment` with `/rerun-triage` | Automated classification and normalized triage labels for issues/PRs |
 | Issue Dedupe | `issue-dedupe.yml` | Opened/edited/reopened issues + manual dispatch | Posts likely duplicate candidates once per issue |
 | Issue Lifecycle | `issue-lifecycle.yml` | Label changes + schedule + manual dispatch | Adds lifecycle guidance comments and sweeps stale `needs-info` issues |
 
