@@ -716,6 +716,12 @@ function FolderPickerDialog({
   useEffect(() => {
     if (open) {
       void browse(initialPath ?? undefined)
+    } else {
+      setCurrentPath("")
+      setParentPath(null)
+      setEntries([])
+      setError(null)
+      setPathInput("")
     }
   }, [open, initialPath, browse])
 

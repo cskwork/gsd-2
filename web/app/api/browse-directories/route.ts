@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
-import { homedir, platform } from "node:os";
+import { homedir, platform, userInfo } from "node:os";
 import { isAllowedBrowsePath, getAdditionalRoots } from "../../../lib/browse-scope";
 
 export const runtime = "nodejs";
@@ -10,6 +10,14 @@ export const dynamic = "force-dynamic";
  * Resolve the configured dev root from web preferences.
  * Returns the devRoot path if set, otherwise the user's home directory.
  */
+function currentUsername(): string | undefined {
+  try {
+    return userInfo().username || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function getDevRoot(): string {
   try {
     const prefsPath = join(homedir(), ".gsd", "web-preferences.json");
@@ -45,7 +53,7 @@ export async function GET(request: Request): Promise<Response> {
     const rawPath = url.searchParams.get("path");
     const devRoot = getDevRoot();
     const home = homedir();
-    const additionalRoots = getAdditionalRoots(platform(), existsSync);
+    const additionalRoots = getAdditionalRoots(platform(), existsSync, currentUsername());
     const targetPath = rawPath ? resolve(rawPath) : devRoot;
 
     if (!isAllowedBrowsePath(targetPath, { devRoot, home, additionalRoots })) {

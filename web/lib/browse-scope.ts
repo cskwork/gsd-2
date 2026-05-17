@@ -42,7 +42,9 @@ function isWithin(child: string, parent: string): boolean {
 
 /**
  * Return additional allowed roots beyond `devRoot` and `$HOME`, based on platform.
- * `exists` is injected so the function stays pure and testable.
+ * `exists` is injected so the function stays pure and testable. `username` is
+ * used on Linux to scope `/run/media/<user>` to the current user rather than
+ * exposing all users' mounted media.
  *
  *  - darwin: `/Volumes`
  *  - linux:  `/media`, `/mnt` (and `/run/media/<username>` when a username is given)
