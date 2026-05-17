@@ -66,7 +66,7 @@ interface ClaudeCodeStreamOptions extends SimpleStreamOptions {
 	onExternalToolResult?: (event: { toolCall: ToolCall; result: ExternalToolResultPayload }) => Promise<void> | void;
 }
 
-function serverToolUseToToolCallLike(block: {
+export function serverToolUseToToolCallLike(block: {
 	id: string;
 	name: string;
 	input: unknown;
