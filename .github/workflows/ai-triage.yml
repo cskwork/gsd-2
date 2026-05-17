@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   triage:
-    if: ${{ github.event_name != 'issue_comment' || (github.event.comment.user.type != 'Bot' && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')) }}
+    if: ${{ github.event_name != 'issue_comment' || (github.event.comment.user.type != 'Bot' && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') && contains(github.event.comment.body, '/rerun-triage')) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
@@ -258,7 +258,9 @@ jobs:
                 ? `\n\n**If this is a security vulnerability, please delete this ${type} and use [GitHub\'s private vulnerability reporting](https://github.com/gsd-build/GSD-2/security/advisories/new) instead.** See [CONTRIBUTING.md](https://github.com/gsd-build/GSD-2/blob/main/CONTRIBUTING.md#security) for details.`
                 : '';
 
-              const comment = `👋 Thanks for opening this ${type}!
+              const marker = '<!-- gsd-triage-bot:misalignment -->';
+              const comment = `${marker}
+            👋 Thanks for opening this ${type}!
 
             This was automatically flagged for maintainer review.
 
@@ -273,11 +275,30 @@ jobs:
             ---
             *This is an automated triage. The maintainers make all final decisions.*`;
 
-              await github.rest.issues.createComment({
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
-                body: comment
+                per_page: 100
               });
+              const existingBotComment = comments.find(c => (c.body || '').includes(marker));
+
+              if (existingBotComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingBotComment.id,
+                  body: comment
+                });
+                core.info(`Updated existing misalignment comment: ${existingBotComment.id}`);
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                  body: comment
+                });
+                core.info('Created misalignment comment');
+              }
               core.info(`Flagged as misaligned: ${result.violation_type}`);
             }
