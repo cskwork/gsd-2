@@ -60,3 +60,11 @@ test("AbortSignal.timeout installs a one-shot abort listener that reads the time
 
 	assert.equal(reasonWasRead, true);
 });
+
+test("installAbortSignalTimeoutReasonListener is idempotent — second call does not re-wrap", () => {
+	// After the first test ran, the installed flag is true.
+	// A second call must leave AbortSignal.timeout unchanged.
+	const beforeInstall = AbortSignal.timeout;
+	installAbortSignalTimeoutReasonListener();
+	assert.equal(AbortSignal.timeout, beforeInstall, "AbortSignal.timeout should not be re-wrapped");
+});
