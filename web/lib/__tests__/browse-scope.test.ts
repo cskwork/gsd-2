@@ -80,11 +80,29 @@ describe("getAdditionalRoots", () => {
     const roots = getAdditionalRoots("linux", (p) => p === "/media" || p === "/mnt");
     assert.ok(roots.includes("/media"));
     assert.ok(roots.includes("/mnt"));
-    assert.ok(!roots.includes("/run/media"));
+    assert.ok(!roots.some((r) => r.startsWith("/run/media")));
   });
 
-  test("returns an empty array on win32 (drive letters handled separately)", () => {
-    assert.deepEqual(getAdditionalRoots("win32", () => true), []);
+  test("scopes /run/media to the current user on Linux", () => {
+    const roots = getAdditionalRoots("linux", () => true, "alice");
+    assert.ok(roots.includes("/run/media/alice"));
+    assert.ok(!roots.includes("/run/media"));
+    assert.ok(!roots.includes("/run/media/bob"));
+  });
+
+  test("omits /run/media when no username is provided", () => {
+    const roots = getAdditionalRoots("linux", () => true);
+    assert.ok(!roots.some((r) => r.startsWith("/run/media")));
+  });
+
+  test("enumerates existing drive letters on win32", () => {
+    const present = new Set(["C:\\", "D:\\"]);
+    const roots = getAdditionalRoots("win32", (p) => present.has(p));
+    assert.deepEqual(roots, ["C:\\", "D:\\"]);
+  });
+
+  test("returns an empty array on win32 when no drives exist", () => {
+    assert.deepEqual(getAdditionalRoots("win32", () => false), []);
   });
 
   test("skips roots that do not exist", () => {
