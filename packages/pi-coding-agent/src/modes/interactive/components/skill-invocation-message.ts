@@ -1,7 +1,9 @@
-// GSD / pi-coding-agent — Skill invocation message component
-import { Container, Markdown, type MarkdownTheme, Text } from "@gsd/pi-tui";
+// GSD-2 + packages/pi-coding-agent/src/modes/interactive/components/skill-invocation-message.ts - Skill invocation message renderer.
+
+import { Markdown, type MarkdownTheme, Text } from "@gsd/pi-tui";
 import type { ParsedSkillBlock } from "../../../core/agent-session.js";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+import { CollapsibleMessageComponent } from "./collapsible-message.js";
 import { renderChatFrame } from "./transcript-design.js";
 import { editorKey } from "./keybinding-hints.js";
 
@@ -10,8 +12,7 @@ import { editorKey } from "./keybinding-hints.js";
  * `• skill - <name>` header, `│ ` body margin) with purple border/label
  * matching compaction so it visually aligns with user/assistant messages.
  */
-export class SkillInvocationMessageComponent extends Container {
-	private expanded = false;
+export class SkillInvocationMessageComponent extends CollapsibleMessageComponent {
 	private skillBlock: ParsedSkillBlock;
 	private markdownTheme: MarkdownTheme;
 
@@ -19,22 +20,10 @@ export class SkillInvocationMessageComponent extends Container {
 		super();
 		this.skillBlock = skillBlock;
 		this.markdownTheme = markdownTheme;
-		this.rebuild();
+		this.rebuildContent();
 	}
 
-	setExpanded(expanded: boolean): void {
-		if (this.expanded !== expanded) {
-			this.expanded = expanded;
-			this.rebuild();
-		}
-	}
-
-	override invalidate(): void {
-		super.invalidate();
-		this.rebuild();
-	}
-
-	private rebuild(): void {
+	protected rebuildContent(): void {
 		this.clear();
 
 		if (this.expanded) {
