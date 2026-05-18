@@ -96,4 +96,16 @@ describe("Input", () => {
 		assert.doesNotMatch(rendered, /firstfirst/, "negative cursor must not duplicate rendered text");
 		assert.match(rendered, /^> first /, "cursor should land after the replacement text");
 	});
+
+	it("caps oversized bracketed paste before inserting into the input value", () => {
+		const input = new Input();
+		const pasteLimit = 100_000;
+		input.focused = true;
+
+		input.handleInput(`\x1b[200~${"a".repeat(pasteLimit + 10)}\x1b[201~`);
+
+		assert.equal(input.getValue().length, pasteLimit);
+		input.handleInput("\x1f"); // Ctrl+-: undo
+		assert.equal(input.getValue(), "", "capped paste should still undo as a single edit");
+	});
 });
