@@ -4,6 +4,7 @@
 import { type Component, Container, getEditorKeybindings, Spacer, Text, truncateToWidth } from "@gsd/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { selectorFooter } from "./keybinding-hints.js";
 
 interface UserMessageItem {
 	id: string; // Entry ID in the session
@@ -136,6 +137,7 @@ export class UserMessageSelectorComponent extends Container {
 
 		// Add bottom border
 		this.addChild(new Spacer(1));
+		this.addChild(new Text(selectorFooter(), 1, 0));
 		this.addChild(new DynamicBorder());
 
 		// Auto-cancel if no messages — invoke synchronously via microtask
