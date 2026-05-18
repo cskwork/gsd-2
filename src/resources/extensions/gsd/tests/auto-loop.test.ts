@@ -1565,6 +1565,45 @@ test("autoLoop calls deriveState → resolveDispatch → runUnit in sequence", a
   );
 });
 
+test("autoLoop keeps current unit available through post-unit closeout", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  ctx.sessionManager = { getSessionFile: () => "/tmp/session.json" };
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+  const observedUnits: Array<string | null> = [];
+
+  const deps = makeMockDeps({
+    postUnitPreVerification: async (postUnitCtx) => {
+      deps.callLog.push("postUnitPreVerification");
+      const unit = postUnitCtx.s.currentUnit;
+      observedUnits.push(unit ? `${unit.type}:${unit.id}` : null);
+      return "continue" as const;
+    },
+    postUnitPostVerification: async (postUnitCtx) => {
+      deps.callLog.push("postUnitPostVerification");
+      const unit = postUnitCtx.s.currentUnit;
+      observedUnits.push(unit ? `${unit.type}:${unit.id}` : null);
+      s.active = false;
+      return "continue" as const;
+    },
+  });
+
+  const loopPromise = autoLoop(ctx, pi, s, deps);
+  await new Promise((r) => setTimeout(r, 50));
+  resolveAgentEnd(makeEvent());
+  await loopPromise;
+
+  assert.deepEqual(
+    observedUnits,
+    ["execute-task:M001/S01/T01", "execute-task:M001/S01/T01"],
+    "pre/post closeout hooks need currentUnit so they can commit and sync the unit that just finished",
+  );
+  assert.equal(s.currentUnit, null, "currentUnit should clear after closeout finishes");
+});
+
 test("autoLoop dev path dispatches orchestration.advance results without legacy resolveDispatch", async () => {
   _resetPendingResolve();
 
@@ -3380,9 +3419,13 @@ test("autoLoop re-iterates when postUnitPreVerification returns retry (#1571)", 
 
     assert.equal(preVerifyCallCount, 2, "preVerification should be called twice");
     assert.deepEqual(
-      currentUnitSnapshotsAtPreVerify,
-      [null, null],
-      "currentUnit should be cleared before each preVerification run to prevent stale retry scope",
+      currentUnitSnapshotsAtPreVerify.map((unit) => unit ? `${unit.type}:${unit.id}` : null),
+      ["execute-task:M001/S01/T01", "execute-task:M001/S01/T01"],
+      "preVerification needs currentUnit so closeout can commit and sync the unit that just finished",
+    );
+    assert.ok(
+      (currentUnitSnapshotsAtPreVerify[1]?.startedAt ?? 0) > (currentUnitSnapshotsAtPreVerify[0]?.startedAt ?? 0),
+      "retry dispatch should get a fresh currentUnit timestamp, not reuse stale retry scope",
     );
 
     const postVerifyCalls = deps.callLog.filter(
