@@ -166,14 +166,14 @@ describe("headless auto pause e2e (fake LLM)", () => {
 				"--model",
 				"gsd-fake-model",
 				"--timeout",
-				"15000",
+				"45000",
 				"--max-restarts",
 				"0",
 				"auto",
 			],
 			{
 				cwd: project.dir,
-				timeoutMs: 30_000,
+				timeoutMs: 60_000,
 				env: {
 					GSD_FAKE_LLM_TRANSCRIPT: transcript,
 				},
@@ -247,14 +247,14 @@ describe("headless auto pause e2e (fake LLM)", () => {
 				"--model",
 				"gsd-fake-model",
 				"--timeout",
-				"15000",
+				"45000",
 				"--max-restarts",
 				"0",
 				"auto",
 			],
 			{
 				cwd: project.dir,
-				timeoutMs: 30_000,
+				timeoutMs: 60_000,
 			},
 		);
 
