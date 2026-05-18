@@ -393,9 +393,10 @@ function backfillMissingAssessmentsFromSummaries(basePath: string, mid: string):
     const summaryPath = resolveSliceFile(basePath, mid, sliceId, "SUMMARY");
     if (!summaryPath || !existsSync(summaryPath)) continue;
 
+    const slicePath = resolveSlicePath(basePath, mid, sliceId);
     const assessmentPath = resolveSliceFile(basePath, mid, sliceId, "ASSESSMENT")
-      ?? join(resolveSlicePath(basePath, mid, sliceId), buildSliceFileName(sliceId, "ASSESSMENT"));
-    if (existsSync(assessmentPath)) continue;
+      ?? (slicePath ? join(slicePath, buildSliceFileName(sliceId, "ASSESSMENT")) : null);
+    if (!assessmentPath || existsSync(assessmentPath)) continue;
 
     mkdirSync(dirname(assessmentPath), { recursive: true });
     const now = new Date().toISOString();
