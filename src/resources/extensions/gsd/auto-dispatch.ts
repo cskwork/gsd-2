@@ -1654,7 +1654,7 @@ export async function resolveDispatch(
     const action = annotateBackgroundable(await registry.evaluateDispatch(ctx));
     if (
       action.action === "dispatch" &&
-      ctx.session?.exhaustedVerificationUnits.has(`${action.unitType}:${action.unitId}`)
+      ctx.session?.exhaustedVerificationUnits?.has(`${action.unitType}:${action.unitId}`)
     ) {
       return {
         action: "stop",
@@ -1675,7 +1675,7 @@ export async function resolveDispatch(
       const action = annotateBackgroundable(result);
       if (
         action.action === "dispatch" &&
-        ctx.session?.exhaustedVerificationUnits.has(`${action.unitType}:${action.unitId}`)
+        ctx.session?.exhaustedVerificationUnits?.has(`${action.unitType}:${action.unitId}`)
       ) {
         return {
           action: "stop",
