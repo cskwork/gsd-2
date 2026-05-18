@@ -2547,7 +2547,16 @@ export async function runFinalize(
   const preUnitSnapshot = s.currentUnit
     ? { type: s.currentUnit.type, id: s.currentUnit.id, startedAt: s.currentUnit.startedAt }
     : null;
-  s.currentUnit = null;
+  const clearFinalizingUnit = () => {
+    if (
+      preUnitSnapshot &&
+      s.currentUnit?.type === preUnitSnapshot.type &&
+      s.currentUnit?.id === preUnitSnapshot.id &&
+      s.currentUnit?.startedAt === preUnitSnapshot.startedAt
+    ) {
+      s.currentUnit = null;
+    }
+  };
   clearCurrentPhase();
   const preResultGuard = await withTimeout(
     deps.postUnitPreVerification(postUnitCtx, preVerificationOpts),
@@ -2575,6 +2584,7 @@ export async function runFinalize(
       reason: dispatchedReason,
       gitError: s.lastGitActionFailure ?? undefined,
     });
+    clearFinalizingUnit();
     return { action: "break", reason: dispatchedReason };
   }
   if (preResult === "retry") {
@@ -2603,10 +2613,12 @@ export async function runFinalize(
         "artifact-verification-retry",
       );
       if (retryPolicyResult) {
+        clearFinalizingUnit();
         return retryPolicyResult;
       }
       // Continue the loop — next iteration will inject the retry context into the prompt.
       debugLog("autoLoop", { phase: "artifact-verification-retry", iteration: ic.iteration });
+      clearFinalizingUnit();
       return { action: "continue" };
     }
   }
@@ -2618,6 +2630,7 @@ export async function runFinalize(
     );
     await deps.pauseAuto(ctx, pi);
     debugLog("autoLoop", { phase: "exit", reason: "uat-pause" });
+    clearFinalizingUnit();
     return { action: "break", reason: "uat-pause" };
   }
 
@@ -2633,6 +2646,7 @@ export async function runFinalize(
 
     if (verificationResult === "pause") {
       debugLog("autoLoop", { phase: "exit", reason: "verification-pause" });
+      clearFinalizingUnit();
       return { action: "break", reason: "verification-pause" };
     }
 
@@ -2648,10 +2662,12 @@ export async function runFinalize(
           "verification-retry",
         );
         if (retryPolicyResult) {
+          clearFinalizingUnit();
           return retryPolicyResult;
         }
         // Continue the loop — next iteration will inject the retry context into the prompt.
         debugLog("autoLoop", { phase: "verification-retry", iteration: ic.iteration });
+        clearFinalizingUnit();
         return { action: "continue" };
       }
     }
@@ -2684,18 +2700,23 @@ export async function runFinalize(
       phase: "exit",
       reason: "post-verification-stopped",
     });
+    clearFinalizingUnit();
     return { action: "break", reason: "post-verification-stopped" };
   }
 
   if (postResult === "step-wizard") {
     // Step mode — exit the loop (caller handles wizard)
     debugLog("autoLoop", { phase: "exit", reason: "step-wizard" });
+    clearFinalizingUnit();
     return { action: "break", reason: "step-wizard" };
   }
 
   if (preUnitSnapshot?.type === "complete-milestone" && s.currentMilestoneId) {
     const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId);
-    if (stop) return stop;
+    if (stop) {
+      clearFinalizingUnit();
+      return stop;
+    }
   }
 
   // Both pre and post verification completed without timeout — reset counter
@@ -2721,6 +2742,7 @@ export async function runFinalize(
       });
     }
   }
+  clearFinalizingUnit();
   // Surface accumulated workflow-logger issues for this unit to the user.
   // Warnings/errors logged during the unit are buffered in the logger and
   // drained here so the user sees a single consolidated post-unit alert.

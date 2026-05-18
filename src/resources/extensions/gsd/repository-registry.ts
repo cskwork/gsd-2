@@ -1,7 +1,10 @@
-// GSD-2 + Repository registry seam for parent workspace multi-repo resolution.
+// Project/App: GSD-2
+// File Purpose: Repository registry seam for parent workspace multi-repo resolution.
 
+import { execFileSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { GSDPreferences, WorkspacePreferences, WorkspaceRepositoryPreference } from "./preferences-types.js";
+import { GIT_NO_PROMPT_ENV } from "./git-constants.js";
 import { resolveGsdPathContract } from "./paths.js";
 
 export interface RegisteredRepository {
@@ -43,12 +46,26 @@ function resolveRepositoryRoot(
   };
 }
 
+function resolveGitWorkingTreeRoot(basePath: string): string | null {
+  try {
+    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+      env: GIT_NO_PROMPT_ENV,
+    }).trim();
+    return root ? resolve(root) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createRepositoryRegistry(
   basePath: string,
   workspacePrefs?: WorkspacePreferences,
 ): RepositoryRegistry {
   const contract = resolveGsdPathContract(basePath);
-  const projectRoot = contract.projectRoot;
+  const projectRoot = resolveGitWorkingTreeRoot(contract.workRoot) ?? contract.projectRoot;
   const mode = workspacePrefs?.mode ?? "project";
   const repoMap = new Map<string, RegisteredRepository>();
 
