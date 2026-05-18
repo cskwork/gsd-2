@@ -4,6 +4,7 @@ import { Container, getEditorKeybindings, Spacer, TruncatedText } from "@gsd/pi-
 import type { AuthStorage } from "../../../core/auth-storage.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { selectorFooter } from "./keybinding-hints.js";
 
 /**
  * Component that renders an OAuth provider selector
@@ -46,6 +47,8 @@ export class OAuthSelectorComponent extends Container {
 		this.listContainer = new Container();
 		this.addChild(this.listContainer);
 
+		this.addChild(new Spacer(1));
+		this.addChild(new TruncatedText(selectorFooter(), 1, 0));
 		this.addChild(new Spacer(1));
 
 		// Add bottom border
