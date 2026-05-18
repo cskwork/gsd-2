@@ -1,6 +1,9 @@
-import { Container, Markdown, type MarkdownTheme, Text } from "@gsd/pi-tui";
+// GSD-2 + packages/pi-coding-agent/src/modes/interactive/components/compaction-summary-message.ts - Compaction summary message renderer.
+
+import { Markdown, type MarkdownTheme, Text } from "@gsd/pi-tui";
 import type { CompactionSummaryMessage } from "../../../core/messages.js";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+import { CollapsibleMessageComponent } from "./collapsible-message.js";
 import { renderChatFrame } from "./transcript-design.js";
 import { editorKey } from "./keybinding-hints.js";
 
@@ -10,8 +13,7 @@ import { editorKey } from "./keybinding-hints.js";
  * visually matches the other framed messages (user / assistant / tool
  * execution) while standing apart from the conversation flow.
  */
-export class CompactionSummaryMessageComponent extends Container {
-	private expanded = false;
+export class CompactionSummaryMessageComponent extends CollapsibleMessageComponent {
 	private message: CompactionSummaryMessage;
 	private markdownTheme: MarkdownTheme;
 
@@ -22,22 +24,10 @@ export class CompactionSummaryMessageComponent extends Container {
 		super();
 		this.message = message;
 		this.markdownTheme = markdownTheme;
-		this.rebuild();
+		this.rebuildContent();
 	}
 
-	setExpanded(expanded: boolean): void {
-		if (this.expanded !== expanded) {
-			this.expanded = expanded;
-			this.rebuild();
-		}
-	}
-
-	override invalidate(): void {
-		super.invalidate();
-		this.rebuild();
-	}
-
-	private rebuild(): void {
+	protected rebuildContent(): void {
 		this.clear();
 
 		const tokenStr = this.message.tokensBefore.toLocaleString();
