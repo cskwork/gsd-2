@@ -23,6 +23,12 @@ interface NotifyCall {
   kind: string;
 }
 
+interface SentMessage {
+  customType: string;
+  content: string;
+  display: boolean;
+}
+
 function makeBase(): string {
   const base = mkdtempSync(join(tmpdir(), `gsd-dispatch-block-${randomUUID()}-`));
   mkdirSync(join(base, ".gsd"), { recursive: true });
@@ -45,6 +51,18 @@ function makeMockCtx(base: string): { ctx: any; calls: NotifyCall[] } {
       },
     },
     calls,
+  };
+}
+
+function makeMockPi(): { pi: any; messages: SentMessage[] } {
+  const messages: SentMessage[] = [];
+  return {
+    pi: {
+      sendMessage: (message: SentMessage) => {
+        messages.push(message);
+      },
+    },
+    messages,
   };
 }
 
@@ -74,14 +92,17 @@ test("dispatcher blocks bare /gsd while milestone validation needs attention", a
   try {
     seedValidationBlockedMilestone(base);
     const { ctx, calls } = makeMockCtx(base);
+    const { pi, messages } = makeMockPi();
 
-    await handleGSDCommand("", ctx, {} as any);
+    await handleGSDCommand("", ctx, pi);
 
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].kind, "warning");
-    assert.match(calls[0].message, /\/gsd cannot run/);
-    assert.match(calls[0].message, /\/gsd validate-milestone/);
-    assert.match(calls[0].message, /\/gsd verdict pass --rationale/);
+    assert.equal(calls.length, 0);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].customType, "gsd-command-block");
+    assert.equal(messages[0].display, true);
+    assert.match(messages[0].content, /\/gsd cannot run/);
+    assert.match(messages[0].content, /\/gsd validate-milestone/);
+    assert.match(messages[0].content, /\/gsd verdict pass --rationale/);
   } finally {
     closeDatabase();
     invalidateStateCache();
@@ -103,12 +124,14 @@ test("dispatcher blocks workflow-advancing aliases while validation is blocked",
     try {
       seedValidationBlockedMilestone(base);
       const { ctx, calls } = makeMockCtx(base);
+      const { pi, messages } = makeMockPi();
 
-      await handleGSDCommand(command, ctx, {} as any);
+      await handleGSDCommand(command, ctx, pi);
 
-      assert.equal(calls.length, 1, command);
-      assert.equal(calls[0].kind, "warning", command);
-      assert.match(calls[0].message, new RegExp(`/gsd ${command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} cannot run`), command);
+      assert.equal(calls.length, 0, command);
+      assert.equal(messages.length, 1, command);
+      assert.equal(messages[0].display, true, command);
+      assert.match(messages[0].content, new RegExp(`/gsd ${command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} cannot run`), command);
     } finally {
       closeDatabase();
       invalidateStateCache();
