@@ -79,6 +79,11 @@ import { isSuspiciousGhostCompletion } from "../auto-unit-closeout.js";
 import { decideVerificationRetry, verificationRetryKey } from "./verification-retry-policy.js";
 import { buildPhaseHandoffOutcome, setAutoOutcomeWidget } from "../auto-dashboard.js";
 import { getConsecutiveDispatchBlocker } from "../dispatch-guard.js";
+import {
+  captureRootDirtySnapshot,
+  detectRootWriteLeak,
+  formatRootWriteLeakMessage,
+} from "../root-write-leak-guard.js";
 
 export const STUCK_WINDOW_SIZE = 6;
 
@@ -88,10 +93,16 @@ function isSamePathLocal(a: string, b: string): boolean {
   return normalizeWorktreePathForCompare(a) === normalizeWorktreePathForCompare(b);
 }
 
+function isIsolatedWorktreeSession(s: AutoSession): boolean {
+  return Boolean(s.originalBasePath)
+    && Boolean(s.basePath)
+    && !isSamePathLocal(s.originalBasePath, s.basePath);
+}
+
 async function applyVerificationRetryPolicy(
   ic: IterationContext,
   unitType: string | undefined,
-  phase: "artifact-verification-retry" | "verification-retry",
+  phase: "artifact-verification-retry" | "verification-retry" | "pre-execution-retry",
 ): Promise<PhaseResult | null> {
   const { ctx, pi, s, deps } = ic;
   const retryInfo = s.pendingVerificationRetry;
@@ -136,6 +147,23 @@ async function applyVerificationRetryPolicy(
   });
   await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs));
   return null;
+}
+
+function rememberRetryDispatch(
+  s: AutoSession,
+  unit: { type: string; id: string } | null,
+  iterData: IterationData,
+): void {
+  if (!unit) return;
+  s.pendingVerificationRetryDispatch = {
+    unitType: unit.type,
+    unitId: unit.id,
+    prompt: iterData.prompt,
+    pauseAfterUatDispatch: iterData.pauseAfterUatDispatch,
+    state: iterData.state,
+    mid: iterData.mid,
+    midTitle: iterData.midTitle,
+  };
 }
 
 export function shouldDegradeEmptyWorktreeToProjectRoot(
@@ -464,7 +492,9 @@ export async function _runMilestoneMergeWithStashRestore(
     const reason = preflight.blockedReason === "unmerged-conflicts"
       ? `Pre-merge unresolved Git conflicts block milestone ${milestoneId}`
       : `Pre-merge dirty working tree overlaps milestone ${milestoneId}`;
-    await deps.stopAuto(ctx, pi, reason);
+    await deps.stopAuto(ctx, pi, reason, {
+      preserveCompletedMilestoneBranch: true,
+    });
     return {
       action: "break",
       reason: preflight.blockedReason === "unmerged-conflicts"
@@ -1339,12 +1369,38 @@ export async function runDispatch(
     return { action: "continue" };
   }
 
-  deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: ic.nextSeq(), eventType: "dispatch-match", rule: dispatchResult.matchedRule, data: { unitType: dispatchResult.unitType, unitId: dispatchResult.unitId } });
-
   let unitType = dispatchResult.unitType;
   let unitId = dispatchResult.unitId;
   let prompt = dispatchResult.prompt;
-  const pauseAfterUatDispatch = dispatchResult.pauseAfterDispatch ?? false;
+  let pauseAfterUatDispatch = dispatchResult.pauseAfterDispatch ?? false;
+  let dispatchState = state;
+  let dispatchMid = mid;
+  let dispatchMidTitle = midTitle;
+  const pendingRetryDispatch = s.pendingVerificationRetryDispatch;
+  if (pendingRetryDispatch) {
+    unitType = pendingRetryDispatch.unitType;
+    unitId = pendingRetryDispatch.unitId;
+    prompt = pendingRetryDispatch.prompt;
+    pauseAfterUatDispatch = pendingRetryDispatch.pauseAfterUatDispatch;
+    dispatchState = pendingRetryDispatch.state;
+    dispatchMid = pendingRetryDispatch.mid ?? mid;
+    dispatchMidTitle = pendingRetryDispatch.midTitle ?? midTitle;
+    s.pendingVerificationRetryDispatch = null;
+    debugLog("autoLoop", {
+      phase: "dispatch-pending-verification-retry",
+      unitType,
+      unitId,
+    });
+  }
+
+  deps.emitJournalEvent({
+    ts: new Date().toISOString(),
+    flowId: ic.flowId,
+    seq: ic.nextSeq(),
+    eventType: "dispatch-match",
+    rule: pendingRetryDispatch ? "verification-retry" : dispatchResult.matchedRule,
+    data: { unitType, unitId },
+  });
 
   // Resolve hooks and prior-slice gating before health/stuck accounting so
   // those checks run against the final dispatch unit.
@@ -1563,8 +1619,8 @@ export async function runDispatch(
     data: {
       unitType, unitId, prompt, finalPrompt: prompt,
       pauseAfterUatDispatch,
-      state, mid, midTitle,
-      isRetry: false, previousTier: undefined,
+      state: dispatchState, mid: dispatchMid, midTitle: dispatchMidTitle,
+      isRetry: Boolean(pendingRetryDispatch), previousTier: undefined,
       hookModelOverride: preDispatchResult.model,
     },
   };
@@ -2082,6 +2138,9 @@ export async function runUnitPhase(
   const unitStartedAt = Date.now();
   s.unitDispatchCount.set(dispatchKey, nextDispatchCount);
   s.currentUnit = { type: unitType, id: unitId, startedAt: unitStartedAt };
+  s.rootWriteBaseline = isIsolatedWorktreeSession(s)
+    ? captureRootDirtySnapshot(s.originalBasePath)
+    : null;
   s.lastGitActionFailure = null;
   s.lastGitActionStatus = null;
   s.lastUnitAgentEndMessages = null;
@@ -2342,6 +2401,12 @@ export async function runUnitPhase(
       unitResult.errorContext?.isTransient &&
       errorCategory === "aborted"
     ) {
+      rememberRetryDispatch(s, { type: unitType, id: unitId }, iterData);
+      writeUnitRuntimeRecord(s.basePath, unitType, unitId, s.currentUnit?.startedAt ?? Date.now(), {
+        phase: "paused",
+        lastProgressAt: Date.now(),
+        lastProgressKind: "unit-aborted-pause",
+      });
       ctx.ui.notify(
         `Unit ${unitType} ${unitId} was aborted by the user. Pausing auto-mode (recoverable).`,
         "warning",
@@ -2547,7 +2612,17 @@ export async function runFinalize(
   const preUnitSnapshot = s.currentUnit
     ? { type: s.currentUnit.type, id: s.currentUnit.id, startedAt: s.currentUnit.startedAt }
     : null;
-  s.currentUnit = null;
+  const clearFinalizingUnit = () => {
+    if (
+      preUnitSnapshot &&
+      s.currentUnit?.type === preUnitSnapshot.type &&
+      s.currentUnit?.id === preUnitSnapshot.id &&
+      s.currentUnit?.startedAt === preUnitSnapshot.startedAt
+    ) {
+      s.currentUnit = null;
+    }
+    s.rootWriteBaseline = null;
+  };
   clearCurrentPhase();
   const preResultGuard = await withTimeout(
     deps.postUnitPreVerification(postUnitCtx, preVerificationOpts),
@@ -2575,6 +2650,7 @@ export async function runFinalize(
       reason: dispatchedReason,
       gitError: s.lastGitActionFailure ?? undefined,
     });
+    clearFinalizingUnit();
     return { action: "break", reason: dispatchedReason };
   }
   if (preResult === "retry") {
@@ -2603,10 +2679,13 @@ export async function runFinalize(
         "artifact-verification-retry",
       );
       if (retryPolicyResult) {
+        clearFinalizingUnit();
         return retryPolicyResult;
       }
       // Continue the loop — next iteration will inject the retry context into the prompt.
+      rememberRetryDispatch(s, preUnitSnapshot, iterData);
       debugLog("autoLoop", { phase: "artifact-verification-retry", iteration: ic.iteration });
+      clearFinalizingUnit();
       return { action: "continue" };
     }
   }
@@ -2618,6 +2697,7 @@ export async function runFinalize(
     );
     await deps.pauseAuto(ctx, pi);
     debugLog("autoLoop", { phase: "exit", reason: "uat-pause" });
+    clearFinalizingUnit();
     return { action: "break", reason: "uat-pause" };
   }
 
@@ -2633,6 +2713,7 @@ export async function runFinalize(
 
     if (verificationResult === "pause") {
       debugLog("autoLoop", { phase: "exit", reason: "verification-pause" });
+      clearFinalizingUnit();
       return { action: "break", reason: "verification-pause" };
     }
 
@@ -2648,10 +2729,13 @@ export async function runFinalize(
           "verification-retry",
         );
         if (retryPolicyResult) {
+          clearFinalizingUnit();
           return retryPolicyResult;
         }
         // Continue the loop — next iteration will inject the retry context into the prompt.
+        rememberRetryDispatch(s, preUnitSnapshot, iterData);
         debugLog("autoLoop", { phase: "verification-retry", iteration: ic.iteration });
+        clearFinalizingUnit();
         return { action: "continue" };
       }
     }
@@ -2679,23 +2763,96 @@ export async function runFinalize(
 
   const postResult = postResultGuard.value;
 
+  if (postResult === "retry") {
+    if (sidecarItem) {
+      debugLog("autoLoop", { phase: "sidecar-pre-execution-retry-skipped", iteration: ic.iteration });
+    } else {
+      const retryInfo = s.pendingVerificationRetry;
+      deps.emitJournalEvent({
+        ts: new Date().toISOString(),
+        flowId: ic.flowId,
+        seq: ic.nextSeq(),
+        eventType: "pre-execution-retry",
+        data: {
+          unitType: preUnitSnapshot?.type,
+          unitId: retryInfo?.unitId,
+          attempt: retryInfo?.attempt,
+        },
+      });
+      const retryPolicyResult = await applyVerificationRetryPolicy(
+        ic,
+        preUnitSnapshot?.type,
+        "pre-execution-retry",
+      );
+      if (retryPolicyResult) {
+        clearFinalizingUnit();
+        return retryPolicyResult;
+      }
+      rememberRetryDispatch(s, preUnitSnapshot, iterData);
+      debugLog("autoLoop", {
+        phase: "pre-execution-retry",
+        iteration: ic.iteration,
+        unitType: preUnitSnapshot?.type,
+        unitId: retryInfo?.unitId,
+        attempt: retryInfo?.attempt,
+      });
+      clearFinalizingUnit();
+      return { action: "continue" };
+    }
+  }
+
   if (postResult === "stopped") {
     debugLog("autoLoop", {
       phase: "exit",
       reason: "post-verification-stopped",
     });
+    clearFinalizingUnit();
     return { action: "break", reason: "post-verification-stopped" };
   }
 
   if (postResult === "step-wizard") {
     // Step mode — exit the loop (caller handles wizard)
     debugLog("autoLoop", { phase: "exit", reason: "step-wizard" });
+    clearFinalizingUnit();
     return { action: "break", reason: "step-wizard" };
+  }
+
+  if (preUnitSnapshot && isIsolatedWorktreeSession(s)) {
+    const leak = detectRootWriteLeak({
+      rootPath: s.originalBasePath,
+      worktreePath: s.basePath,
+      unitType: preUnitSnapshot.type,
+      unitId: preUnitSnapshot.id,
+      before: s.rootWriteBaseline,
+    });
+    s.rootWriteBaseline = null;
+    if (leak) {
+      const message = formatRootWriteLeakMessage(leak);
+      debugLog("autoLoop", {
+        phase: "root-write-leak",
+        unitType: preUnitSnapshot.type,
+        unitId: preUnitSnapshot.id,
+        rootPath: leak.rootPath,
+        worktreePath: leak.worktreePath,
+        files: leak.files.map((file) => ({ path: file.path, status: file.status })),
+      });
+      ctx.ui.notify(message, "error");
+      await deps.stopAuto(ctx, pi, "Root-write leak during isolated auto-mode", {
+        preserveCompletedMilestoneBranch: true,
+      });
+      clearFinalizingUnit();
+      return { action: "break", reason: "root-write-leak" };
+    }
+  } else {
+    s.rootWriteBaseline = null;
   }
 
   if (preUnitSnapshot?.type === "complete-milestone" && s.currentMilestoneId) {
     const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId);
-    if (stop) return stop;
+    if (stop) {
+      clearFinalizingUnit();
+      return stop;
+    }
   }
 
   // Both pre and post verification completed without timeout — reset counter
@@ -2721,6 +2878,7 @@ export async function runFinalize(
       });
     }
   }
+  clearFinalizingUnit();
   // Surface accumulated workflow-logger issues for this unit to the user.
   // Warnings/errors logged during the unit are buffered in the logger and
   // drained here so the user sees a single consolidated post-unit alert.
