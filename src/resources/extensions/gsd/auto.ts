@@ -212,6 +212,8 @@ import { writeUnitRuntimeRecord } from "./unit-runtime.js";
 import { countPendingCaptures } from "./captures.js";
 import { CMUX_CHANNELS, type CmuxLogLevel } from "../shared/cmux-events.js";
 import { ensureDbOpen } from "./bootstrap/dynamic-tools.js";
+import { getValidationBlockMessageForBase } from "./validation-block-guard.js";
+import { getUnmergedMilestoneBlockMessageForBase } from "./unmerged-milestone-guard.js";
 
 function makeCmuxEmitters(pi: ExtensionAPI) {
   return {
@@ -246,6 +248,10 @@ import type { AutoAdvanceResult, AutoOrchestrationModule, AutoOrchestratorDeps, 
 import { reconcileBeforeDispatch } from "./state-reconciliation.js";
 import { compileUnitToolContract } from "./tool-contract.js";
 import { createWorktreeSafetyModule } from "./worktree-safety.js";
+import {
+  repairAutoWorktreeSafetyFailure,
+  resolvePausedAutoWorktreePath,
+} from "./auto-worktree-repair.js";
 import { resolveManifest } from "./unit-context-manifest.js";
 import { classifyFailure } from "./recovery-classification.js";
 import { supportsStructuredQuestions } from "./workflow-mcp.js";
@@ -1100,6 +1106,7 @@ export async function rerootCommandSession(
 
 export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void> {
   const preserveStepSurface = s.preserveStepSurfaceAfterLoopExit;
+  const preserveCompletionSurface = s.completionStopInProgress;
   const preservePausedSurface = s.paused;
   s.currentUnit = null;
   s.active = false;
@@ -1125,6 +1132,9 @@ export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void>
   if (!s.paused) {
     if (preserveStepSurface) {
       s.preserveStepSurfaceAfterLoopExit = false;
+    } else if (preserveCompletionSurface) {
+      ctx.ui.setStatus("gsd-auto", undefined);
+      s.completionStopInProgress = false;
     } else {
       ctx.ui.setStatus("gsd-auto", undefined);
       ctx.ui.setWidget("gsd-progress", undefined);
@@ -1377,6 +1387,7 @@ export async function stopAuto(
           currentMilestoneId: s.currentMilestoneId,
           milestoneComplete,
           milestoneMergedInPhases: s.milestoneMergedInPhases,
+          preserveCompletedMilestoneBranch: options.preserveCompletedMilestoneBranch,
         });
 
         if (exitAction === "merge") {
@@ -1473,22 +1484,24 @@ export async function stopAuto(
 
     // ── Step 8: Ledger notification ──
     try {
-      const ledger = getLedger();
-      const isAllComplete = reason === "All milestones complete";
-      const isMilestoneComplete = /^Milestone\s+\S+\s+complete$/i.test(reason ?? "");
-      const notificationPrefix = isAllComplete
-        ? "All milestones complete"
-        : isMilestoneComplete
-          ? `${reason}. Auto-mode finished this milestone`
-          : `Auto-mode stopped${reasonSuffix}`;
-      if (ledger && ledger.units.length > 0) {
-        const totals = getProjectTotals(ledger.units);
-        ctx?.ui.notify(
-          formatAutoStopNotification(notificationPrefix, totals, ledger.units.length),
-          "info",
-        );
-      } else {
-        ctx?.ui.notify(`${notificationPrefix}.`, "info");
+      if (!preserveCompletionSurface) {
+        const ledger = getLedger();
+        const isAllComplete = reason === "All milestones complete";
+        const isMilestoneComplete = /^Milestone\s+\S+\s+complete$/i.test(reason ?? "");
+        const notificationPrefix = isAllComplete
+          ? "All milestones complete"
+          : isMilestoneComplete
+            ? `${reason}. Auto-mode finished this milestone`
+            : `Auto-mode stopped${reasonSuffix}`;
+        if (ledger && ledger.units.length > 0) {
+          const totals = getProjectTotals(ledger.units);
+          ctx?.ui.notify(
+            formatAutoStopNotification(notificationPrefix, totals, ledger.units.length),
+            "info",
+          );
+        } else {
+          ctx?.ui.notify(`${notificationPrefix}.`, "info");
+        }
       }
     } catch (e) {
       debugLog("stop-cleanup-ledger", { error: e instanceof Error ? e.message : String(e) });
@@ -1564,7 +1577,7 @@ export async function stopAuto(
     try {
       if (isDebugEnabled()) {
         const logPath = writeDebugSummary();
-        if (logPath) {
+        if (logPath && !preserveCompletionSurface) {
           ctx?.ui.notify(`Debug log written → ${logPath}`, "info");
         }
       }
@@ -1678,8 +1691,10 @@ export function _selectStopAutoWorktreeExit(args: {
   currentMilestoneId: string | null;
   milestoneComplete: boolean;
   milestoneMergedInPhases: boolean;
+  preserveCompletedMilestoneBranch?: boolean;
 }): StopAutoWorktreeExitAction {
   if (!args.currentMilestoneId || args.milestoneMergedInPhases) return "none";
+  if (args.milestoneComplete && args.preserveCompletedMilestoneBranch) return "preserve";
   return args.milestoneComplete ? "merge" : "preserve";
 }
 
@@ -1721,9 +1736,16 @@ export async function pauseAuto(
   // PAUSED_SESSION_KV_KEY) instead of runtime/paused-session.json. The
   // fresh-start bootstrap below reads from the same key.
   try {
+    const pausedWorktreePath = resolvePausedAutoWorktreePath({
+      basePath: s.basePath,
+      originalBasePath: s.originalBasePath,
+      currentMilestoneId: s.currentMilestoneId,
+      isolationMode: getIsolationMode(s.originalBasePath || s.basePath),
+      baseIsAutoWorktree: isInAutoWorktree(s.basePath),
+    });
     const pausedMeta: PausedSessionMetadata = {
       milestoneId: s.currentMilestoneId ?? undefined,
-      worktreePath: isInAutoWorktree(s.basePath) ? s.basePath : null,
+      worktreePath: pausedWorktreePath,
       originalBasePath: s.originalBasePath,
       stepMode: s.stepMode,
       pausedAt: new Date().toISOString(),
@@ -1907,6 +1929,18 @@ export function createWiredDispatchAdapter(
             ? "true"
             : "false");
 
+      const pendingRetry = session?.pendingVerificationRetryDispatch;
+      if (session && pendingRetry) {
+        session.pendingVerificationRetryDispatch = null;
+        session.pendingOrchestrationDispatch = pendingRetry;
+        return {
+          unitType: pendingRetry.unitType,
+          unitId: pendingRetry.unitId,
+          reason: "verification-retry",
+          preconditions: [],
+        };
+      }
+
       const action = await resolveDispatch({
         basePath: activeDispatchBasePath,
         mid: active.id,
@@ -1957,6 +1991,41 @@ export function createWiredDispatchAdapter(
   };
 }
 
+function isUsableLiveOrchestratorBasePath(basePath: string): boolean {
+  if (!basePath || !existsSync(basePath)) return false;
+  if (!detectWorktreeName(basePath)) return true;
+
+  try {
+    return readFileSync(join(basePath, ".git"), "utf8").trim().startsWith("gitdir: ");
+  } catch {
+    return false;
+  }
+}
+
+export function resolveLiveOrchestratorBasePath(input: {
+  capturedBasePath: string;
+  runtimeBasePath: string;
+  sessionBasePath?: string | null;
+  originalBasePath?: string | null;
+}): string {
+  const primary = input.sessionBasePath || input.capturedBasePath;
+  if (isUsableLiveOrchestratorBasePath(primary)) return primary;
+
+  const fallbacks = [
+    input.originalBasePath,
+    input.runtimeBasePath,
+    resolveProjectRoot(input.capturedBasePath),
+  ];
+
+  for (const candidate of fallbacks) {
+    if (candidate && isUsableLiveOrchestratorBasePath(candidate)) {
+      return candidate;
+    }
+  }
+
+  return input.runtimeBasePath || input.capturedBasePath;
+}
+
 /**
  * Thin entry glue for the new Auto Orchestration module.
  *
@@ -1972,11 +2041,19 @@ export function createWiredAutoOrchestrationModule(
 ): AutoOrchestrationModule {
   const flowId = `auto-orchestrator-${Date.now()}`;
   let seq = 0;
+  const getLiveDispatchBasePath = () =>
+    resolveLiveOrchestratorBasePath({
+      capturedBasePath: dispatchBasePath,
+      runtimeBasePath,
+      sessionBasePath: s.basePath,
+      originalBasePath: s.originalBasePath,
+    });
 
   const deps: AutoOrchestratorDeps = {
     stateReconciliation: {
       async reconcileBeforeDispatch() {
-        const result = await reconcileBeforeDispatch(dispatchBasePath);
+        const activeBasePath = getLiveDispatchBasePath();
+        const result = await reconcileBeforeDispatch(activeBasePath);
         if (result.blockers.length > 0) {
           return {
             ok: false,
@@ -2029,21 +2106,54 @@ export function createWiredAutoOrchestrationModule(
           return { ok: true, reason: "isolation-not-worktree" };
         }
         const safety = createWorktreeSafetyModule();
-        const snapshot = await deriveState(dispatchBasePath);
+        const activeBasePath = getLiveDispatchBasePath();
+        const snapshot = await deriveState(activeBasePath);
         const milestoneId = snapshot.activeMilestone?.id ?? null;
         const expectedBranch = milestoneId ? autoWorktreeBranch(milestoneId) : null;
-        const result = safety.validateUnitRoot({
+        let result = safety.validateUnitRoot({
           unitType,
           unitId,
           writeScope,
           projectRoot: runtimeBasePath,
-          unitRoot: dispatchBasePath,
+          unitRoot: activeBasePath,
           milestoneId,
           isolationMode: getIsolationMode(runtimeBasePath),
           expectedBranch,
         });
         if (!result.ok) {
-          return { ok: false, reason: `${result.kind}: ${result.reason}` };
+          const repaired = await repairAutoWorktreeSafetyFailure({
+            safetyResult: result,
+            projectRoot: runtimeBasePath,
+            activeRoot: activeBasePath,
+            milestoneId,
+            enterMilestone: async (id) => {
+              buildLifecycle().adoptSessionRoot(runtimeBasePath, s.originalBasePath || runtimeBasePath);
+              const enterResult = buildLifecycle().enterMilestone(id, {
+                notify: ctx.ui.notify.bind(ctx.ui),
+              });
+              if (!enterResult.ok) return { ok: false, reason: enterResult.reason };
+              rebuildScope(s.basePath, s.currentMilestoneId);
+              return { ok: true };
+            },
+            revalidate: () => safety.validateUnitRoot({
+              unitType,
+              unitId,
+              writeScope,
+              projectRoot: runtimeBasePath,
+              unitRoot: getLiveDispatchBasePath(),
+              milestoneId,
+              isolationMode: getIsolationMode(runtimeBasePath),
+              expectedBranch,
+            }),
+          });
+          result = repaired.result;
+          if (result.ok) {
+            return { ok: true, reason: repaired.repaired ? `repaired-${result.kind}` : result.kind };
+          }
+          const repairDetail = repaired.repairReason
+            ? ` (repair skipped: ${repaired.repairReason})`
+            : "";
+          return { ok: false, reason: `${result.kind}: ${result.reason}${repairDetail}` };
         }
         return { ok: true, reason: result.kind };
       },
@@ -2056,7 +2166,7 @@ export function createWiredAutoOrchestrationModule(
       },
       async preAdvanceGate() {
         try {
-          const gate = await preDispatchHealthGate(dispatchBasePath);
+          const gate = await preDispatchHealthGate(getLiveDispatchBasePath());
           if (gate.proceed) {
             return {
               kind: "pass",
@@ -2139,7 +2249,8 @@ export function createWiredAutoOrchestrationModule(
     },
     uokGate: {
       async emit(input) {
-        const prefs = loadEffectiveGSDPreferences(dispatchBasePath)?.preferences;
+        const activeBasePath = getLiveDispatchBasePath();
+        const prefs = loadEffectiveGSDPreferences(activeBasePath)?.preferences;
         const uokFlags = resolveUokFlags(prefs);
         if (!uokFlags.gates) return;
         const milestoneId = input.milestoneId ?? s.currentMilestoneId ?? undefined;
@@ -2157,7 +2268,7 @@ export function createWiredAutoOrchestrationModule(
             }),
           });
           await runner.run(input.gateId, {
-            basePath: dispatchBasePath,
+            basePath: activeBasePath,
             traceId: `pre-dispatch:${flowId}`,
             turnId: `orch-${seq}`,
             milestoneId,
@@ -2382,6 +2493,20 @@ export async function startAuto(
   // bootstrap-only path; this call ensures the resume path is also protected.
   if (recoverFailedMigration(base)) {
     ctx.ui.notify("Recovered unfinished migration (.gsd.migrating → .gsd).", "info");
+  }
+
+  const unmergedStartMessage = await getUnmergedMilestoneBlockMessageForBase(base, "auto");
+  if (unmergedStartMessage) {
+    ctx.ui.notify(unmergedStartMessage, "warning");
+    debugLog("startAuto", { phase: "unmerged-milestone-blocked", base });
+    return;
+  }
+
+  const blockedStartMessage = await getValidationBlockMessageForBase(base, "auto");
+  if (blockedStartMessage) {
+    ctx.ui.notify(blockedStartMessage, "warning");
+    debugLog("startAuto", { phase: "validation-blocked", base });
+    return;
   }
 
   const freshStartAssessment = await (interruptedAssessment

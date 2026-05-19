@@ -15,7 +15,8 @@
 
 import type { ExtensionContext, ExtensionAPI } from "@gsd/pi-coding-agent";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolveSliceFile, resolveSlicePath, resolveMilestoneFile } from "./paths.js";
+import { gsdProjectionRoot, resolveSliceFile, resolveSlicePath, resolveMilestoneFile } from "./paths.js";
+import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
 import { parseUnitId } from "./unit-id.js";
 import { isDbAvailable, getTask, getSliceTasks, getMilestoneSlices } from "./gsd-db.js";
 import type { TaskRow } from "./db-task-slice-rows.js";
@@ -126,9 +127,10 @@ function resolveVerificationTargets(
 /**
  * Post-unit guard for `validate-milestone` units (#4094).
  *
- * When validate-milestone writes verdict=needs-remediation, the agent is
- * expected to also call gsd_reassess_roadmap in the same turn to add
- * remediation slices. If they don't, the state machine re-derives
+ * When validate-milestone writes verdict=needs-attention, human review is
+ * required and auto-mode must pause. When it writes verdict=needs-remediation,
+ * the agent is expected to also call gsd_reassess_roadmap in the same turn to
+ * add remediation slices. If they don't, the state machine re-derives
  * `phase: validating-milestone` indefinitely (all slices still complete +
  * verdict still needs-remediation), wasting ~3 dispatches before the stuck
  * detector fires.
@@ -190,7 +192,13 @@ async function runValidateMilestonePostCheck(
     return "retry";
   };
 
-  const validationFile = resolveMilestoneFile(s.basePath, mid, "VALIDATION");
+  const validationBasePath = resolveCanonicalMilestoneRoot(s.basePath, mid);
+  const validationFile = join(
+    gsdProjectionRoot(validationBasePath),
+    "milestones",
+    mid,
+    `${mid}-VALIDATION.md`,
+  );
   if (!validationFile) {
     return setToolFailureRetry(
       "You must call gsd_validate_milestone to persist the validation results. No VALIDATION.md was created.",
@@ -205,6 +213,32 @@ async function runValidateMilestonePostCheck(
   }
 
   const verdict = extractVerdict(validationContent);
+  if (verdict === "needs-attention") {
+    ctx.ui.notify(
+      `Milestone ${mid} validation returned verdict=needs-attention. Pausing for human review.`,
+      "error",
+    );
+    process.stderr.write(
+      [
+        `validate-milestone: pausing — verdict=needs-attention for ${mid}.`,
+        `Review details with /gsd status.`,
+        `After fixing the issue, run /gsd validate-milestone.`,
+        `To accept the finding, run /gsd verdict pass --rationale "why this is okay".`,
+        `To defer it, run /gsd park ${mid}.`,
+        "",
+      ].join("\n"),
+    );
+    await persistMilestoneValidationGate(
+      "manual-attention",
+      "manual-attention",
+      "needs-attention verdict requires human review",
+      `Milestone ${mid} validation returned needs-attention`,
+      mid,
+    );
+    await pauseAuto(ctx, pi);
+    return "pause";
+  }
+
   if (verdict !== "needs-remediation") {
     await persistMilestoneValidationGate(
       "pass",
