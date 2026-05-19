@@ -759,7 +759,10 @@ export function updateProgressWidget(
         const healthIcon = healthLevel === "green" ? GLYPH.statusActive
           : healthLevel === "yellow" ? "!"
             : "x";
-        const healthStr = `  ${theme.fg(healthColor, healthIcon)} ${theme.fg(healthColor, healthSummary)}`;
+        const providerWaitStr = theme.fg("warning", "waiting on provider");
+        const healthStr = healthLevel === "green"
+          ? `  ${providerWaitStr}`
+          : `  ${providerWaitStr} ${theme.fg("dim", "·")} ${theme.fg(healthColor, healthIcon)} ${theme.fg(healthColor, healthSummary)}`;
 
         const headerLeft = `${pad}${dot} ${theme.fg("accent", theme.bold("GSD"))}  ${theme.fg("success", modeTag)}${healthStr}`;
 

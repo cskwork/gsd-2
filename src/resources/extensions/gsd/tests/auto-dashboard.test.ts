@@ -514,6 +514,74 @@ test("updateProgressWidget full mode keeps footer-owned signals out of auto deck
   assert.doesNotMatch(rendered, /\$/, "footer owns session cost display");
 });
 
+test("updateProgressWidget shows provider-waiting state consistently for auto and next modes", (t) => {
+  const dir = makeTempDir("auto-next-dashboard");
+  mkdirSync(join(dir, ".gsd"), { recursive: true });
+  const widgets: Array<{ render(width: number): string[]; dispose?: () => void }> = [];
+
+  t.after(() => {
+    for (const widget of widgets) widget.dispose?.();
+    _resetWidgetModeForTests();
+    clearSliceProgressCache();
+    cleanup(dir);
+  });
+
+  function renderDashboard(stepMode: boolean): string {
+    const holder: { widget?: { render(width: number): string[]; dispose?: () => void } } = {};
+    updateProgressWidget(
+      {
+        hasUI: true,
+        ui: {
+          setHeader() {},
+          setStatus() {},
+          setWidget(_key: string, factory: any) {
+            if (_key === "gsd-progress") {
+              const installed = factory(
+                { requestRender() {} },
+                { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+              );
+              holder.widget = installed;
+              widgets.push(installed);
+            }
+          },
+        },
+      } as any,
+      "complete-slice",
+      "M003/S01",
+      {
+        phase: "summarizing",
+        activeMilestone: { id: "M003", title: "Inline editing" },
+        activeSlice: { id: "S01", title: "Inline Edit" },
+        activeTask: null,
+      } as any,
+      {
+        getAutoStartTime: () => Date.now() - 12_000,
+        isStepMode: () => stepMode,
+        getCmdCtx: () => null,
+        getBasePath: () => dir,
+        isVerbose: () => false,
+        isSessionSwitching: () => false,
+        getCurrentDispatchedModelId: () => null,
+      },
+    );
+
+    assert.ok(holder.widget, "progress widget should be installed");
+    return holder.widget.render(120).join("\n");
+  }
+
+  const autoRendered = renderDashboard(false);
+  const nextRendered = renderDashboard(true);
+
+  assert.match(autoRendered, /GSD\s+AUTO/);
+  assert.match(nextRendered, /GSD\s+NEXT/);
+  assert.match(autoRendered, /waiting on provider/);
+  assert.match(nextRendered, /waiting on provider/);
+  assert.match(autoRendered, /completing\s+M003\/S01/);
+  assert.match(nextRendered, /completing\s+M003\/S01/);
+  assert.doesNotMatch(autoRendered, /Working/);
+  assert.doesNotMatch(nextRendered, /Working/);
+});
+
 test("last commit refresh backs off cleanly when base path is not a git repo", (t) => {
   const dir = makeTempDir("non-git");
   mkdirSync(dir, { recursive: true });

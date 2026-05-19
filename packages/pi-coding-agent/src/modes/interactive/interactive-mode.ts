@@ -292,7 +292,7 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private loadingAnimation: Loader | undefined = undefined;
-	private pendingWorkingMessage: string | undefined = undefined;
+	private pendingWorkingMessage: string | null | undefined = undefined;
 	private readonly defaultWorkingMessage = "Working...";
 	private lastBlockingError: string | undefined = undefined;
 
@@ -407,7 +407,7 @@ export class InteractiveMode {
 		this.adaptiveLayout = new AdaptiveLayoutComponent(() => ({
 			override: this.settingsManager.getAdaptiveMode(),
 			activeToolCount: this.pendingTools.size,
-			gsdPhase: this.pendingWorkingMessage,
+			gsdPhase: this.pendingWorkingMessage ?? undefined,
 			lastError: this.lastBlockingError,
 			sessionName: this.sessionManager.getSessionName(),
 			cwd: process.cwd(),
