@@ -2382,6 +2382,41 @@ export async function showSmartEntry(
     return;
   }
 
+  if (state.phase === "blocked") {
+    const choice = await showNextAction(ctx, {
+      title: `GSD — ${milestoneId}: ${milestoneTitle}`,
+      summary: state.blockers.length > 0
+        ? state.blockers
+        : [state.nextAction || "This milestone is blocked."],
+      actions: [
+        {
+          id: "status",
+          label: "View status",
+          description: "Review the blocker and current milestone state.",
+          recommended: true,
+        },
+        {
+          id: "park",
+          label: "Park milestone",
+          description: "Explicitly defer this milestone before starting other work.",
+        },
+      ],
+      notYetMessage: "Resolve the blocker, or park the milestone explicitly.",
+    });
+
+    if (choice === "status") {
+      const { fireStatusViaCommand } = await import("./commands.js");
+      await fireStatusViaCommand(ctx);
+    } else if (choice === "park") {
+      const success = parkMilestone(basePath, milestoneId, "Validation attention deferred by user");
+      ctx.ui.notify(
+        success ? `Parked ${milestoneId}. Run /gsd unpark ${milestoneId} to reactivate.` : `Could not park ${milestoneId} — milestone not found.`,
+        success ? "info" : "warning",
+      );
+    }
+    return;
+  }
+
   // ── No active slice ──────────────────────────────────────────────────
   if (!state.activeSlice) {
     const roadmapFile = resolveMilestoneFile(basePath, milestoneId, "ROADMAP");

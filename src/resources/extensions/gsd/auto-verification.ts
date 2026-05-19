@@ -126,9 +126,10 @@ function resolveVerificationTargets(
 /**
  * Post-unit guard for `validate-milestone` units (#4094).
  *
- * When validate-milestone writes verdict=needs-remediation, the agent is
- * expected to also call gsd_reassess_roadmap in the same turn to add
- * remediation slices. If they don't, the state machine re-derives
+ * When validate-milestone writes verdict=needs-attention, human review is
+ * required and auto-mode must pause. When it writes verdict=needs-remediation,
+ * the agent is expected to also call gsd_reassess_roadmap in the same turn to
+ * add remediation slices. If they don't, the state machine re-derives
  * `phase: validating-milestone` indefinitely (all slices still complete +
  * verdict still needs-remediation), wasting ~3 dispatches before the stuck
  * detector fires.
@@ -205,6 +206,26 @@ async function runValidateMilestonePostCheck(
   }
 
   const verdict = extractVerdict(validationContent);
+  if (verdict === "needs-attention") {
+    ctx.ui.notify(
+      `Milestone ${mid} validation returned verdict=needs-attention. Pausing for human review.`,
+      "error",
+    );
+    process.stderr.write(
+      `validate-milestone: pausing — verdict=needs-attention for ${mid}. ` +
+        `Address the attention item, override the verdict, or explicitly park the milestone.\n`,
+    );
+    await persistMilestoneValidationGate(
+      "manual-attention",
+      "manual-attention",
+      "needs-attention verdict requires human review",
+      `Milestone ${mid} validation returned needs-attention`,
+      mid,
+    );
+    await pauseAuto(ctx, pi);
+    return "pause";
+  }
+
   if (verdict !== "needs-remediation") {
     await persistMilestoneValidationGate(
       "pass",

@@ -464,13 +464,6 @@ async function buildRegistryAndFindActive(
       }
 
       if (allSlicesDone) {
-        const validation = getLatestAssessmentByScope(m.id, "milestone-validation");
-        const verdict = typeof validation?.status === "string" ? validation.status : undefined;
-        if (verdict === "needs-attention") {
-          registry.push({ id: m.id, title, status: "parked", ...(deps.length > 0 ? { dependsOn: deps } : {}) });
-          continue;
-        }
-
         activeMilestone = { id: m.id, title };
         activeMilestoneSlices = slices;
         activeMilestoneFound = true;
@@ -592,6 +585,21 @@ async function handleAllSlicesDone(
   // All roadmap slices are done (enforced by caller) and verdict is
   // needs-remediation — remediation cannot progress without new slices.
   // Return blocked instead of re-dispatching validate-milestone (#4506).
+  if (verdict === 'needs-attention') {
+    return {
+      activeMilestone, activeSlice: null, activeTask: null,
+      phase: 'blocked',
+      recentDecisions: [],
+      blockers: [
+        `Milestone ${activeMilestone.id} validation verdict is needs-attention. ` +
+          `Address the attention item and re-validate, run \`/gsd verdict pass --rationale "..."\` to override, or run \`/gsd park ${activeMilestone.id}\` to explicitly defer it.`,
+      ],
+      nextAction: `Resolve ${activeMilestone.id} validation attention before proceeding.`,
+      registry, requirements,
+      progress: { milestones: milestoneProgress, slices: sliceProgress },
+    };
+  }
+
   if (verdict === 'needs-remediation') {
     return {
       activeMilestone, activeSlice: null, activeTask: null,
@@ -1096,12 +1104,8 @@ export async function _deriveStateImpl(
       const validationContent = validationFile ? await cachedLoadFile(validationFile) : null;
       const validationTerminal = validationContent ? isValidationTerminal(validationContent) : false;
       const verdict = validationContent ? extractVerdict(validationContent) : undefined;
-      if (verdict === "needs-attention") {
-        registry.push({ id: mid, title, status: "parked" });
-        continue;
-      }
       // needs-remediation is terminal but requires re-validation (#3596)
-      const needsRevalidation = !validationTerminal || verdict === 'needs-remediation';
+      const needsRevalidation = !validationTerminal || verdict === 'needs-remediation' || verdict === 'needs-attention';
 
       if (summaryFile && await isTerminalMilestoneSummaryFile(summaryFile, cachedLoadFile)) {
         // Summary exists → milestone is complete regardless of validation state.
@@ -1322,6 +1326,27 @@ export async function _deriveStateImpl(
         recentDecisions: [],
         blockers: [],
         nextAction: `Validate milestone ${activeMilestone.id} before completion.`,
+        registry,
+        requirements,
+        progress: {
+          milestones: milestoneProgress,
+          slices: sliceProgress,
+        },
+      };
+    }
+
+    if (verdict === 'needs-attention') {
+      return {
+        activeMilestone,
+        activeSlice: null,
+        activeTask: null,
+        phase: 'blocked',
+        recentDecisions: [],
+        blockers: [
+          `Milestone ${activeMilestone.id} validation verdict is needs-attention. ` +
+            `Address the attention item and re-validate, run \`/gsd verdict pass --rationale "..."\` to override, or run \`/gsd park ${activeMilestone.id}\` to explicitly defer it.`,
+        ],
+        nextAction: `Resolve ${activeMilestone.id} validation attention before proceeding.`,
         registry,
         requirements,
         progress: {
