@@ -14,6 +14,22 @@ import {
   isValidationBlockAllowedCommand,
 } from "../validation-block-guard.js";
 
+function emitVisibleCommandBlock(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  message: string,
+): void {
+  if (pi && typeof pi.sendMessage === "function") {
+    pi.sendMessage({
+      customType: "gsd-command-block",
+      content: message,
+      display: true,
+    });
+    return;
+  }
+  ctx.ui.notify(message, "warning");
+}
+
 export async function handleGSDCommand(
   args: string,
   ctx: ExtensionCommandContext,
@@ -35,7 +51,7 @@ export async function handleGSDCommand(
       if (!isValidationBlockAllowedCommand(trimmed)) {
         const blockedMessage = await getValidationBlockMessageForBase(projectRoot(), trimmed);
         if (blockedMessage) {
-          ctx.ui.notify(blockedMessage, "warning");
+          emitVisibleCommandBlock(ctx, pi, blockedMessage);
           return true;
         }
       }
