@@ -187,6 +187,48 @@ test("resolveAgentEnd resolves a pending runUnit promise", async () => {
   assert.deepEqual(result.event, event);
 });
 
+test("runUnit suppresses the global working-message loader for auto dashboard runs", async () => {
+  _resetPendingResolve();
+  const workingMessages: unknown[] = [];
+
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: (message?: string | null) => {
+        workingMessages.push(message);
+      },
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
+  const pi = makeMockPi();
+  const s = makeMockSession();
+  const event = makeEvent();
+
+  const resultPromise = runUnit(
+    ctx,
+    pi,
+    s,
+    "complete-slice",
+    "M003/S01",
+    "complete slice",
+  );
+
+  await waitForMicrotasks(() => pi.calls.length === 1, "unit dispatch");
+  resolveAgentEnd(event);
+  const result = await resultPromise;
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(workingMessages, [null, undefined]);
+});
+
 test("runUnit failsafe defers cancellation while timeout recovery is making fresh progress", async () => {
   _resetPendingResolve();
   mock.timers.enable();
