@@ -1130,6 +1130,10 @@ export async function autoLoop(
           markFailed: markDispatchFailed,
           logWriteFailure: logDispatchLedgerWriteFailure,
         }) || dispatchSettled;
+        await s.orchestration?.retryActiveUnit({
+          unitType: iterData.unitType,
+          unitId: iterData.unitId,
+        });
         finishIncompleteIteration({
           status: "retry",
           reason: "finalize-retry",

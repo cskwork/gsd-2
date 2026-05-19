@@ -36,6 +36,7 @@ export interface AutoOrchestrationModule {
   start(sessionContext: AutoSessionContext): Promise<AutoAdvanceResult>;
   advance(): Promise<AutoAdvanceResult>;
   completeActiveUnit(unit: UnitRef): Promise<void>;
+  retryActiveUnit(unit: UnitRef): Promise<void>;
   resume(): Promise<AutoAdvanceResult>;
   stop(reason: string): Promise<AutoAdvanceResult>;
   getStatus(): AutoStatus;

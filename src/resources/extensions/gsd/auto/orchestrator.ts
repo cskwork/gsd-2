@@ -387,6 +387,25 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
     });
   }
 
+  public async retryActiveUnit(unit: { unitType: string; unitId: string }): Promise<void> {
+    const unitKey = `${unit.unitType}:${unit.unitId}`;
+    const activeUnitKey = this.status.activeUnit
+      ? `${this.status.activeUnit.unitType}:${this.status.activeUnit.unitId}`
+      : null;
+    if (activeUnitKey !== unitKey) return;
+
+    this.status.activeUnit = undefined;
+    this.lastAdvanceKey = null;
+    this.lastFinalizedUnitKey = null;
+    this.bumpTransition();
+    await this.deps.runtime.journalTransition({
+      name: "unit-retry",
+      reason: "finalize-retry",
+      unitType: unit.unitType,
+      unitId: unit.unitId,
+    });
+  }
+
   private bumpTransition(): void {
     this.status.transitionCount += 1;
     this.status.lastTransitionAt = now();
