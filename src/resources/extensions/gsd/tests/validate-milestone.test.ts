@@ -205,23 +205,26 @@ test("deriveState returns blocked when needs-remediation has no incomplete slice
   }
 });
 
-test("deriveState parks milestone when validation verdict is needs-attention and no summary (#6136)", async () => {
+test("deriveState blocks milestone when validation verdict is needs-attention and no summary", async () => {
   const base = makeTmpBase();
   try {
     writeRoadmap(base, "M001", ALL_DONE_ROADMAP);
     writeValidation(base, "M001", "---\nverdict: needs-attention\nremediation_round: 0\n---\n\n# Validation\nNeeds attention.");
 
     const state = await deriveState(base);
-    assert.equal(state.phase, "pre-planning");
-    assert.equal(state.activeMilestone, null);
-    assert.equal(state.registry.find(entry => entry.id === "M001")?.status, "parked");
-    assert.ok(state.nextAction.includes("parked"));
+    assert.equal(state.phase, "blocked");
+    assert.equal(state.activeMilestone?.id, "M001");
+    assert.equal(state.registry.find(entry => entry.id === "M001")?.status, "active");
+    assert.ok(
+      state.blockers.some(b => b.includes("needs-attention") && b.includes("/gsd park M001")),
+      "blocker message should explain explicit resolution paths",
+    );
   } finally {
     cleanup(base);
   }
 });
 
-test("deriveState parks DB-backed milestone when validation verdict is needs-attention (#6136)", async () => {
+test("deriveState blocks DB-backed milestone when validation verdict is needs-attention", async () => {
   const base = makeTmpBase();
   try {
     openTestDb(base);
@@ -237,10 +240,13 @@ test("deriveState parks DB-backed milestone when validation verdict is needs-att
     });
 
     const state = await deriveState(base);
-    assert.equal(state.phase, "pre-planning");
-    assert.equal(state.activeMilestone, null);
-    assert.equal(state.registry.find(entry => entry.id === "M001")?.status, "parked");
-    assert.ok(state.nextAction.includes("parked"));
+    assert.equal(state.phase, "blocked");
+    assert.equal(state.activeMilestone?.id, "M001");
+    assert.equal(state.registry.find(entry => entry.id === "M001")?.status, "active");
+    assert.ok(
+      state.blockers.some(b => b.includes("needs-attention") && b.includes("/gsd park M001")),
+      "blocker message should explain explicit resolution paths",
+    );
   } finally {
     cleanup(base);
   }
