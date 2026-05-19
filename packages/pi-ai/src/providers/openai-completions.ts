@@ -474,6 +474,11 @@ function maybeAddOpenRouterAnthropicCacheControl(
 	}
 }
 
+/**
+ * Convert pi-ai Context messages to OpenAI ChatCompletionMessageParam format.
+ * The compat object controls provider-specific behavior (e.g. stripReasoningContent,
+ * requiresThinkingAsText) that affects how assistant thinking blocks are serialized.
+ */
 export function convertMessages(
 	model: Model<"openai-completions">,
 	context: Context,
