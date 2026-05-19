@@ -2490,6 +2490,7 @@ test("autoLoop pauses instead of stopping for warning-level dispatch stop", asyn
   ctx.ui.setStatus = () => {};
   const pi = makeMockPi();
   const s = makeLoopSession();
+  let pauseContext: unknown;
 
   const deps = makeMockDeps({
     resolveDispatch: async () => {
@@ -2499,6 +2500,10 @@ test("autoLoop pauses instead of stopping for warning-level dispatch stop", asyn
         reason: 'UAT verdict for S01 is "partial" — blocking progression.',
         level: "warning" as const,
       };
+    },
+    pauseAuto: async (_ctx, _pi, errorContext) => {
+      pauseContext = errorContext;
+      deps.callLog.push("pauseAuto");
     },
   });
 
@@ -2515,6 +2520,11 @@ test("autoLoop pauses instead of stopping for warning-level dispatch stop", asyn
   assert.ok(
     !deps.callLog.includes("stopAuto"),
     "warning-level stop should NOT call stopAuto (hard stop)",
+  );
+  assert.equal(
+    (pauseContext as { message?: string } | undefined)?.message,
+    'UAT verdict for S01 is "partial" — blocking progression.',
+    "warning-level stop should pass pause reason into pauseAuto for persisted paused metadata",
   );
 });
 
