@@ -1689,6 +1689,7 @@ test("autoLoop dev path dispatches orchestration.advance results without legacy 
       completeActiveUnit: async (unit: { unitType: string; unitId: string }) => {
         finalizedUnits.push(`${unit.unitType}:${unit.unitId}`);
       },
+      retryActiveUnit: async () => {},
       resume: async () => ({ kind: "stopped" as const, reason: "unused" }),
       stop: async () => ({ kind: "stopped" as const, reason: "unused" }),
       getStatus: () => ({ phase: "running" as const, transitionCount: 1 }),
@@ -1759,6 +1760,7 @@ test("autoLoop consumes pending orchestration dispatch without advancing twice",
         throw new Error("advance must not run when a pending dispatch already exists");
       },
       completeActiveUnit: async () => {},
+      retryActiveUnit: async () => {},
       resume: async () => ({ kind: "stopped" as const, reason: "unused" }),
       stop: async () => ({ kind: "stopped" as const, reason: "unused" }),
       getStatus: () => ({ phase: "running" as const, transitionCount: 1 }),
@@ -1862,6 +1864,94 @@ test("autoLoop replays artifact retry dispatch before deriving the next unit", a
     assert.match(secondPrompt, /complete slice prompt/);
     assert.doesNotMatch(secondPrompt, /complete milestone prompt/);
     assert.equal(s.pendingVerificationRetryDispatch, null);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("autoLoop releases orchestration active unit before artifact retry", async () => {
+  _resetPendingResolve();
+  mock.timers.enable({ apis: ["Date", "setTimeout"], now: 80_000 });
+
+  try {
+    const ctx = makeMockCtx();
+    ctx.ui.setStatus = () => {};
+    ctx.ui.notify = () => {};
+    ctx.sessionManager = { getSessionFile: () => "/tmp/session.json" };
+    const pi = makeMockPi();
+    const stateSnapshot = {
+      phase: "summarizing",
+      activeMilestone: { id: "M005", title: "Milestone 5", status: "active" },
+      activeSlice: { id: "S01", title: "Slice 1" },
+      activeTask: null,
+      registry: [{ id: "M005", status: "active" }],
+      blockers: [],
+    } as any;
+    const retryUnits: string[] = [];
+    let preVerificationCalls = 0;
+    let s: any;
+    s = makeLoopSession({
+      currentMilestoneId: "M005",
+      orchestration: {
+        start: async () => ({ kind: "stopped" as const, reason: "unused" }),
+        advance: async () => {
+          s.pendingOrchestrationDispatch = {
+            unitType: "complete-slice",
+            unitId: "M005/S01",
+            prompt: "complete slice prompt",
+            pauseAfterUatDispatch: false,
+            state: stateSnapshot,
+            mid: "M005",
+            midTitle: "Milestone 5",
+          };
+          return {
+            kind: "advanced" as const,
+            unit: { unitType: "complete-slice", unitId: "M005/S01" },
+            stateSnapshot,
+          };
+        },
+        completeActiveUnit: async () => {},
+        retryActiveUnit: async (unit: { unitType: string; unitId: string }) => {
+          retryUnits.push(`${unit.unitType}:${unit.unitId}`);
+        },
+        resume: async () => ({ kind: "stopped" as const, reason: "unused" }),
+        stop: async () => ({ kind: "stopped" as const, reason: "unused" }),
+        getStatus: () => ({ phase: "running" as const, transitionCount: 1 }),
+      },
+    });
+
+    const deps = makeMockDeps({
+      postUnitPreVerification: async () => {
+        preVerificationCalls++;
+        if (preVerificationCalls === 1) {
+          s.pendingVerificationRetry = {
+            unitId: "M005/S01",
+            failureContext: "slice summary exists but did not satisfy the completion contract",
+            attempt: 1,
+          };
+          return "retry" as const;
+        }
+        return "continue" as const;
+      },
+      postUnitPostVerification: async () => {
+        if (preVerificationCalls >= 2) s.active = false;
+        return "continue" as const;
+      },
+    });
+
+    const loopPromise = autoLoop(ctx, pi, s, deps);
+    await waitForMicrotasks(() => pi.calls.length === 1, "initial orchestration complete-slice dispatch");
+    resolveAgentEnd(makeEvent());
+    await drainMicrotasks(100);
+    mock.timers.tick(30_000);
+    await waitForMicrotasks(() => pi.calls.length === 2, "orchestration retry dispatch");
+    resolveAgentEnd(makeEvent());
+    await loopPromise;
+
+    assert.deepEqual(retryUnits, ["complete-slice:M005/S01"]);
+    const retryPrompt = (pi.calls[1] as any[])[0].content;
+    assert.match(retryPrompt, /VERIFICATION FAILED/);
+    assert.match(retryPrompt, /complete slice prompt/);
   } finally {
     mock.timers.reset();
   }
