@@ -2001,7 +2001,7 @@ export async function runUnitPhase(
     }
   }
 
-  if (s.pendingVerificationRetry) {
+  if (s.pendingVerificationRetry && s.pendingVerificationRetry.unitId === unitId) {
     const retryCtx = s.pendingVerificationRetry;
     s.pendingVerificationRetry = null;
     const capped =
