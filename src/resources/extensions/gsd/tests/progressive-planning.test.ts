@@ -174,7 +174,7 @@ test("ADR-011: refining + flag flipped OFF mid-milestone → falls through to pl
   }
 });
 
-test("ADR-011: refining + existing PLAN heals stale sketch flag and skips dispatch", async (t) => {
+test("ADR-011: existing PLAN heals stale sketch flag via deriveStateFromDb (progressive_planning ON)", async (t) => {
   const originalCwd = process.cwd();
   const base = makeFixtureBase();
   t.after(() => cleanup(base, originalCwd));
@@ -188,9 +188,11 @@ test("ADR-011: refining + existing PLAN heals stale sketch flag and skips dispat
   );
   process.chdir(base);
 
+  // deriveStateFromDb auto-heals the stale sketch flag when PLAN.md exists,
+  // regardless of the progressive_planning preference.
   const state = await deriveStateFromDb(base);
-  assert.equal(state.phase, "refining");
-  assert.equal(getSlice("M001", "S02")?.is_sketch, 1, "pre: stale sketch flag");
+  assert.equal(getSlice("M001", "S02")?.is_sketch, 0, "derive: flag cleared when PLAN exists");
+  assert.equal(state.phase, "planning", "derive: phase advances past refining once flag is healed");
 
   const ctx: DispatchContext = {
     basePath: base,
@@ -200,8 +202,7 @@ test("ADR-011: refining + existing PLAN heals stale sketch flag and skips dispat
     prefs: { phases: { progressive_planning: true, reassess_after_slice: false } } as any,
   };
   const result = await resolveDispatch(ctx);
-  assert.equal(result.action, "skip");
-  assert.equal(getSlice("M001", "S02")?.is_sketch, 0, "post: sketch flag healed");
+  assert.equal(result.action, "dispatch", "planning phase dispatches plan-slice, not dead-ends");
 });
 
 test("ADR-011: autoHealSketchFlags flips is_sketch=0 when PLAN file exists", async (t) => {
