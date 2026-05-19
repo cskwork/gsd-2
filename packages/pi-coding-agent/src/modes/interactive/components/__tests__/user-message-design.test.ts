@@ -62,6 +62,11 @@ describe("UserMessageComponent open surface", () => {
 			joined.split("\n").some((line) => line.includes("You") && line.includes("─")),
 			`expected a titled top rule carrying the You label:\n${joined}`,
 		);
+		const plain = joined.split("\n");
+		const topRuleIndex = plain.findIndex((line) => line.includes("You") && line.includes("─"));
+		const contentIndex = plain.findIndex((line) => line.includes("feel like chat"));
+		assert.ok(contentIndex > topRuleIndex + 1, `expected a breathing row before content:\n${joined}`);
+		assert.equal(plain[contentIndex + 1]?.trim(), "", `expected a breathing row after content:\n${joined}`);
 	});
 
 	test("does not inject OSC 133 zones for unsupported terminals", () => {

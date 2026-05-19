@@ -177,6 +177,7 @@ export function renderAssistantRail(
 	let surface = style()
 		.border("open")
 		.bottomRule(false)
+		.paddingY(1)
 		.borderColor((text) => theme.fg(railColor, text))
 		.title(theme.fg(railColor, theme.bold(opts.label)));
 	if (opts.meta) {
@@ -205,6 +206,7 @@ export function renderUserRail(
 	let surface = style()
 		.border("open")
 		.bottomRule(false)
+		.paddingY(1)
 		.borderColor((text) => theme.fg("border", text))
 		.title(theme.fg("border", theme.bold(opts.label)));
 	if (opts.meta) {
