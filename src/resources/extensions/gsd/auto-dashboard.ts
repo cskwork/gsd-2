@@ -666,6 +666,9 @@ export function updateProgressWidget(
   if (typeof ctx.ui?.setStatus === "function") {
     ctx.ui.setStatus("gsd-step", undefined);
   }
+  if (!accessors.isSessionSwitching()) {
+    ctx.ui.setWidget("gsd-outcome", undefined);
+  }
 
   const verb = unitVerb(unitType);
   const phaseLabel = unitPhaseLabel(unitType);

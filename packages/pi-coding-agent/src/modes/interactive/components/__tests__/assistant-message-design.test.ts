@@ -37,6 +37,10 @@ describe("AssistantMessageComponent open surface", () => {
 			plain.some((line) => line.includes("GSD") && line.includes("─")),
 			`expected a titled top rule:\n${joined}`,
 		);
+		const topRuleIndex = plain.findIndex((line) => line.includes("GSD") && line.includes("─"));
+		const contentIndex = plain.findIndex((line) => line.includes("update the renderer"));
+		assert.ok(contentIndex > topRuleIndex + 1, `expected a breathing row before content:\n${joined}`);
+		assert.equal(plain[contentIndex + 1]?.trim(), "", `expected a breathing row after content:\n${joined}`);
 	});
 
 	test("renders metadata for a zero timestamp", () => {

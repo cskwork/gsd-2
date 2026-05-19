@@ -326,6 +326,44 @@ test("updateProgressWidget preserves the phase handoff during session switching"
   );
 });
 
+test("updateProgressWidget clears the phase handoff once active progress resumes", () => {
+  const calls: Array<[string, unknown]> = [];
+  updateProgressWidget(
+    {
+      hasUI: true,
+      ui: {
+        setWidget(key: string, factory: unknown) {
+          calls.push([key, factory]);
+        },
+        setHeader() {},
+        setStatus() {},
+      },
+    } as any,
+    "execute-task",
+    "M005/S01/T01",
+    {
+      phase: "executing",
+      activeSlice: { id: "S01", title: "Filter chip bar" },
+      activeTask: { id: "T01", title: "Add category filter" },
+    } as any,
+    {
+      getAutoStartTime: () => Date.now(),
+      isStepMode: () => false,
+      getCmdCtx: () => null,
+      getBasePath: () => "",
+      isVerbose: () => false,
+      isSessionSwitching: () => false,
+      getCurrentDispatchedModelId: () => null,
+    },
+  );
+
+  assert.ok(calls.some(([key]) => key === "gsd-progress"));
+  assert.ok(
+    calls.some(([key, value]) => key === "gsd-outcome" && value === undefined),
+    "handoff widget should clear once the active dashboard can render",
+  );
+});
+
 test("shouldRenderRoadmapProgress hides pre-roadmap zero-slice progress", () => {
   assert.equal(shouldRenderRoadmapProgress(null), false);
   assert.equal(shouldRenderRoadmapProgress({ done: 0, total: 0, activeSliceTasks: null } as any), false);
