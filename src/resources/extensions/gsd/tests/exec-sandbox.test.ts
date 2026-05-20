@@ -261,6 +261,23 @@ test('executeGsdExec: rejects original-root scripts from milestone worktrees', a
   }
 });
 
+test('executeGsdExec: rejects macOS /var alias of original root from milestone worktrees', async () => {
+  const originalRoot = '/var/folders/example/project';
+  const realpathedWorktree = '/private/var/folders/example/project/.gsd/worktrees/M004';
+
+  const result = await executeGsdExec(
+    { runtime: 'bash', script: `cd ${originalRoot} && node todo.js --help` },
+    { baseDir: realpathedWorktree, preferences: { context_mode: { enabled: true } } },
+  );
+
+  assert.equal(result.isError, true);
+  assert.equal((result.details as { error?: string }).error, 'invalid_params');
+  assert.match(
+    (result.details as { detail?: string }).detail ?? '',
+    /original project root/,
+  );
+});
+
 test('executeGsdExec: rejects original-root traversal after shell boolean operators', async () => {
   const base = freshBase();
   try {
