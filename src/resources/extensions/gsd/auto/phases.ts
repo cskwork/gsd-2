@@ -1450,6 +1450,9 @@ export async function runDispatch(
   const alreadyClosedReason = getAlreadyClosedDispatchReason(unitType, unitId);
   if (alreadyClosedReason) {
     s.pendingVerificationRetry = null;
+    loopState.recentUnits = [];
+    loopState.stuckRecoveryAttempts = Math.max(loopState.stuckRecoveryAttempts, 1);
+    deps.invalidateAllCaches();
     debugLog("autoLoop", {
       phase: "dispatch-skip-already-closed",
       unitType,
