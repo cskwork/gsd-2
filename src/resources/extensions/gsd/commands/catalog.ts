@@ -59,7 +59,7 @@ export const TOP_LEVEL_SUBCOMMANDS: readonly GsdCommandDefinition[] = [
   { cmd: "init", desc: "Project init wizard — detect, configure, bootstrap .gsd/" },
   { cmd: "setup", desc: "Configuration hub: status + sub-routes (llm, model, search, remote, keys, prefs, onboarding)" },
   { cmd: "onboarding", desc: "Re-run the setup wizard  [--resume|--reset|--step <name>]" },
-  { cmd: "migrate", desc: "Migrate a v1 .planning directory to .gsd format" },
+  { cmd: "migrate", desc: "Migrate a v1 .planning directory to DB-backed .gsd with backup + audit" },
   { cmd: "remote", desc: "Control remote auto-mode" },
   { cmd: "steer", desc: "Hard-steer plan documents during execution" },
   { cmd: "inspect", desc: "Show SQLite DB diagnostics" },
@@ -93,6 +93,10 @@ export const TOP_LEVEL_SUBCOMMANDS: readonly GsdCommandDefinition[] = [
 
 const NESTED_COMPLETIONS: CompletionMap = {
   brief: VISUAL_BRIEF_MODES.map((mode) => ({ cmd: mode.mode, desc: mode.description })),
+  discuss: [
+    { cmd: "--milestone", desc: "Target a specific milestone by ID (e.g. --milestone M014)" },
+    { cmd: "--slice", desc: "Target a specific slice by ID (e.g. --slice M014/S03)" },
+  ],
   auto: [
     { cmd: "--verbose", desc: "Show detailed execution output" },
     { cmd: "--debug", desc: "Enable debug logging" },

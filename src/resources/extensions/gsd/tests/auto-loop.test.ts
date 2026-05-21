@@ -1099,7 +1099,7 @@ test("autoLoop exits on terminal complete state", async (t) => {
   );
 });
 
-test("autoLoop persists stuck counter reset when dispatch recovery continues", async () => {
+test("autoLoop preserves stuck recovery counter when dispatch recovery continues", async () => {
   _resetPendingResolve();
 
   const ctx = makeMockCtx();
@@ -1163,8 +1163,8 @@ test("autoLoop persists stuck counter reset when dispatch recovery continues", a
 
     assert.equal(
       getRuntimeKv<number>("global", basePath, "stuck_recovery_attempts"),
-      0,
-      "dispatch-level artifact recovery exits through continue, so the reset counter must still persist",
+      1,
+      "dispatch-level artifact recovery exits through continue and must preserve escalation state",
     );
   } finally {
     try { closeDatabase(); } catch { /* noop */ }
@@ -2256,6 +2256,39 @@ test("autoLoop journals iteration-end when unit phase breaks after cancelled uni
   });
 });
 
+test("autoLoop journals iteration-end when dispatch skips the current unit", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+  const journalEvents: Array<{ eventType: string; data?: any }> = [];
+
+  const deps = makeMockDeps({
+    resolveDispatch: async () => {
+      s.active = false;
+      return { action: "skip" } as any;
+    },
+    emitJournalEvent: (entry: any) => {
+      journalEvents.push(entry);
+    },
+  });
+
+  await autoLoop(ctx, pi, s, deps);
+
+  const iterationStartIndex = journalEvents.findIndex((e) => e.eventType === "iteration-start");
+  const iterationEndIndex = journalEvents.findIndex((e) => e.eventType === "iteration-end");
+
+  assert.ok(iterationStartIndex >= 0, "skipped dispatch should still open an iteration");
+  assert.ok(iterationEndIndex > iterationStartIndex, "skipped dispatch must close the active iteration");
+  assert.deepEqual(journalEvents[iterationEndIndex]!.data, {
+    iteration: 1,
+    skipped: true,
+  });
+  assert.equal(pi.calls.length, 0, "dispatch skip must not send a unit prompt");
+});
+
 test("crash lock records session file from AFTER newSession, not before (#1710)", async (t) => {
   _resetPendingResolve();
 
@@ -2666,7 +2699,7 @@ test("autoLoop handles dispatch skip action by continuing", async (t) => {
   const skippedIterationEnd = journalEvents.find((e) => e.eventType === "iteration-end");
   assert.deepEqual(
     skippedIterationEnd?.data,
-    { iteration: 1 },
+    { iteration: 1, skipped: true },
     "dispatch skip must close the skipped iteration before re-deriving state",
   );
   assert.ok(
@@ -3400,6 +3433,81 @@ test("runUnitPhase pauses transient aborted cancellations instead of hard-stoppi
   assert.equal(deps.callLog.includes("stopAuto"), false);
 });
 
+test("runUnitPhase treats setup-race cancellations as pause-induced when session is already paused", async (t) => {
+  _resetPendingResolve();
+
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-paused-setup-race-"));
+  t.after(() => {
+    rmSync(basePath, { recursive: true, force: true });
+  });
+
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
+  const pi = makeMockPi();
+  const s = makeLoopSession({
+    basePath,
+    canonicalProjectRoot: basePath,
+    originalBasePath: basePath,
+    paused: false,
+    active: true,
+    cmdCtx: {
+      newSession: () => {
+        s.paused = true;
+        s.active = false;
+        return Promise.resolve({ cancelled: false });
+      },
+      getContextUsage: () => ({ percent: 10, tokens: 1000, limit: 10000 }),
+    },
+  });
+  const deps = makeMockDeps();
+  let seq = 0;
+
+  const result = await runUnitPhase(
+    { ctx, pi, s, deps, prefs: undefined, iteration: 1, flowId: "flow-paused-setup", nextSeq: () => ++seq },
+    {
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      prompt: "do work",
+      finalPrompt: "do work",
+      pauseAfterUatDispatch: false,
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Milestone" },
+        activeSlice: { id: "S01", title: "Slice" },
+        activeTask: { id: "T01", title: "Task" },
+        registry: [{ id: "M001", title: "Milestone", status: "active" }],
+        recentDecisions: [],
+        blockers: [],
+        nextAction: "",
+        progress: { milestones: { done: 0, total: 1 } },
+        requirements: { active: 0, validated: 0, deferred: 0, outOfScope: 0, blocked: 0, total: 0 },
+      } as any,
+      mid: "M001",
+      midTitle: "Milestone",
+      isRetry: false,
+      previousTier: undefined,
+    },
+    { recentUnits: [{ key: "execute-task/M001/S01/T01" }], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 },
+  );
+
+  assert.equal(result.action, "break");
+  assert.equal((result as any).reason, "pause-during-setup");
+  assert.equal(deps.callLog.includes("stopAuto"), false);
+});
+
 test("runUnitPhase remembers aborted milestone closeout for same-unit resume", async (t) => {
   _resetPendingResolve();
 
@@ -3478,6 +3586,103 @@ test("runUnitPhase remembers aborted milestone closeout for same-unit resume", a
   assert.equal(s.pendingVerificationRetryDispatch?.prompt, "complete milestone prompt");
   assert.equal(runtime?.phase, "paused");
   assert.equal(runtime?.lastProgressKind, "unit-aborted-pause");
+});
+
+test("runUnitPhase schedules default auto-resume for transient provider cancellations", async (t) => {
+  _resetPendingResolve();
+
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-provider-resume-"));
+  t.after(() => {
+    _resetPendingResolve();
+    rmSync(basePath, { recursive: true, force: true });
+  });
+
+  const originalSetTimeout = globalThis.setTimeout;
+  const timers: Array<{ fn: () => void; delay: number }> = [];
+  globalThis.setTimeout = ((fn: () => void, delay?: number) => {
+    timers.push({ fn, delay: delay ?? 0 });
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  try {
+    const notifications: Array<{ message: string; level?: string }> = [];
+    const ctx = {
+      ...makeMockCtx(),
+      ui: {
+        notify: (message: string, level?: string) => {
+          notifications.push({ message, level });
+        },
+        setStatus: () => {},
+        setWorkingMessage: () => {},
+      },
+      sessionManager: {
+        getEntries: () => [],
+      },
+      modelRegistry: {
+        getProviderAuthMode: () => undefined,
+        isProviderRequestReady: () => true,
+      },
+    } as any;
+    const pi = {
+      ...makeMockPi(),
+      sendMessage: () => {
+        queueMicrotask(() => resolveAgentEndCancelled({
+          message: "provider temporarily overloaded",
+          category: "provider",
+          isTransient: true,
+        }));
+      },
+    } as any;
+    const s = makeLoopSession({
+      basePath,
+      canonicalProjectRoot: basePath,
+      originalBasePath: basePath,
+    });
+    const deps = makeMockDeps();
+    let seq = 0;
+
+    const result = await runUnitPhase(
+      { ctx, pi, s, deps, prefs: undefined, iteration: 1, flowId: "flow-provider-resume", nextSeq: () => ++seq },
+      {
+        unitType: "execute-task",
+        unitId: "M001/S01/T01",
+        prompt: "do work",
+        finalPrompt: "do work",
+        pauseAfterUatDispatch: false,
+        state: {
+          phase: "executing",
+          activeMilestone: { id: "M001", title: "Milestone" },
+          activeSlice: { id: "S01", title: "Slice" },
+          activeTask: { id: "T01", title: "Task" },
+          registry: [{ id: "M001", title: "Milestone", status: "active" }],
+          recentDecisions: [],
+          blockers: [],
+          nextAction: "",
+          progress: { milestones: { done: 0, total: 1 } },
+          requirements: { active: 0, validated: 0, deferred: 0, outOfScope: 0, blocked: 0, total: 0 },
+        } as any,
+        mid: "M001",
+        midTitle: "Milestone",
+        isRetry: false,
+        previousTier: undefined,
+      },
+      { recentUnits: [], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 },
+    );
+
+    assert.equal(result.action, "break");
+    assert.equal((result as any).reason, "provider-pause");
+    assert.equal(deps.callLog.includes("pauseAuto"), true);
+    assert.ok(
+      timers.some((timer) => timer.delay === 30_000),
+      "transient provider pauses must schedule the default auto-resume delay",
+    );
+    assert.ok(
+      notifications.some((entry) => entry.message.includes("Auto-resuming in 30s")),
+      "default transient provider pause should announce the delayed resume",
+    );
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
 });
 
 test("runUnitPhase pauses ghost completions before closeout and finalize side effects", async (t) => {
@@ -4800,6 +5005,74 @@ test("dispatch Worktree Safety accepts sidecar-prefixed known unit types", async
 
   assert.equal(result.action, "next");
   assert.ok(!deps.callLog.includes("stopAuto"), "should not stop for sidecar-prefixed known unit types");
+});
+
+test("dispatch Worktree Safety allows hook units without Unit Tool Contract manifests", async (t) => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  const pi = makeMockPi();
+  const notifications: string[] = [];
+  ctx.ui.notify = (msg: string) => { notifications.push(msg); };
+
+  const projectRoot = mkdtempSync(join(tmpdir(), "gsd-wt-safety-hook-contract-"));
+  const worktreeRoot = join(projectRoot, ".gsd", "worktrees", "M001");
+  mkdirSync(worktreeRoot, { recursive: true });
+  t.after(() => rmSync(projectRoot, { recursive: true, force: true }));
+
+  const s = makeLoopSession({
+    basePath: worktreeRoot,
+    originalBasePath: projectRoot,
+    canonicalProjectRoot: projectRoot,
+  });
+  const deps = makeMockDeps({
+    getIsolationMode: () => "worktree",
+    resolveDispatch: async () => {
+      deps.callLog.push("resolveDispatch");
+      return {
+        action: "dispatch" as const,
+        unitType: "hook/session-context",
+        unitId: "M001/S01/T01",
+        prompt: "do the thing",
+      };
+    },
+  });
+
+  const result = await runDispatch(
+    {
+      ctx,
+      pi,
+      s,
+      deps,
+      prefs: undefined,
+      iteration: 1,
+      flowId: "test-flow",
+      nextSeq: () => 1,
+    },
+    {
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      } as any,
+      mid: "M001",
+      midTitle: "Test",
+    },
+    {
+      recentUnits: [],
+      stuckRecoveryAttempts: 0,
+      consecutiveFinalizeTimeouts: 0,
+    },
+  );
+
+  assert.equal(result.action, "next");
+  assert.ok(
+    !notifications.some((n) => n.includes("missing Tool Contract for hook/session-context")),
+    "hook units should not fail closed with missing-tool-contract",
+  );
 });
 
 test("pre-dispatch skip resolves before dispatch health and stuck accounting", async () => {
