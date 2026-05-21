@@ -711,6 +711,39 @@ describe('doctor-git', async () => {
     } else {
     }
 
+    // ─── Test: merged current worktree is not self-removed ─────────────
+    if (process.platform !== "win32") {
+    test('worktree_branch_merged (current worktree not removed)', async () => {
+      const dir = createRepoWithActiveMilestone();
+      cleanups.push(dir);
+
+      mkdirSync(join(dir, ".gsd", "worktrees"), { recursive: true });
+      run("git worktree add -b worktree/current-merged .gsd/worktrees/current-merged", dir);
+      const wtPath = realpathSync(join(dir, ".gsd", "worktrees", "current-merged"));
+      writeFileSync(join(wtPath, "current.txt"), "current worktree\n");
+      run("git add -A", wtPath);
+      run("git -c user.email=test@test.com -c user.name=Test commit -m \"current worktree\"", wtPath);
+      run("git merge worktree/current-merged --no-edit", dir);
+
+      const previousCwd = process.cwd();
+      process.chdir(wtPath);
+      try {
+        const fixed = await runGSDDoctor(wtPath, { fix: true });
+        const mergedIssues = fixed.issues.filter(i => i.code === "worktree_branch_merged");
+
+        assert.ok(mergedIssues.length > 0, "detects merged current worktree branch");
+        assert.ok(
+          !fixed.fixesApplied.some(f => f.includes("removed merged worktree")),
+          "does not remove the active current worktree",
+        );
+        assert.ok(existsSync(wtPath), "current worktree directory still exists after doctor --fix");
+      } finally {
+        try { process.chdir(previousCwd); } catch { process.chdir(dir); }
+      }
+    });
+    } else {
+    }
+
     // ─── Test: worktree_branch_merged NOT flagged for unmerged worktree ─
     if (process.platform !== "win32") {
     test('worktree_branch_merged (no false positive)', async () => {
