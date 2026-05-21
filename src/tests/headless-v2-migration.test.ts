@@ -44,7 +44,6 @@ const TERMINAL_PREFIXES = [
   'auto-mode complete',
   'no active milestone',
   'auto-mode idle',
-  ...PAUSED_PREFIXES,
 ]
 
 function isManualResolutionNotification(message: string): boolean {
@@ -53,6 +52,18 @@ function isManualResolutionNotification(message: string): boolean {
     message.includes('resolve conflicts manually and run /gsd auto to resume') ||
     message.includes('resolve and run /gsd auto to resume')
   )
+}
+
+function isNonBlockingPauseNotification(message: string): boolean {
+  return message.includes('idempotent advance: unit already active')
+}
+
+function isPauseNotification(message: string): boolean {
+  return PAUSED_PREFIXES.some((prefix) => message.startsWith(prefix))
+}
+
+function isPauseNotificationRequiringIntervention(message: string): boolean {
+  return isPauseNotification(message) && !isNonBlockingPauseNotification(message)
 }
 
 function getCommandBlockContent(event: Record<string, unknown>): string | null {
@@ -78,14 +89,22 @@ function isTerminalNotification(event: Record<string, unknown>): boolean {
   if (isBlockingCommandBlock(event)) return true
   if (event.type !== 'extension_ui_request' || event.method !== 'notify') return false
   const message = String(event.message ?? '').toLowerCase()
-  return TERMINAL_PREFIXES.some((prefix) => message.startsWith(prefix)) || isManualResolutionNotification(message)
+  return (
+    TERMINAL_PREFIXES.some((prefix) => message.startsWith(prefix)) ||
+    isPauseNotification(message) ||
+    isManualResolutionNotification(message)
+  )
 }
 
 function isBlockedNotification(event: Record<string, unknown>): boolean {
   if (isBlockingCommandBlock(event)) return true
   if (event.type !== 'extension_ui_request' || event.method !== 'notify') return false
   const message = String(event.message ?? '').toLowerCase()
-  return message.includes('blocked:') || PAUSED_PREFIXES.some((prefix) => message.startsWith(prefix)) || isManualResolutionNotification(message)
+  return (
+    message.includes('blocked:') ||
+    isPauseNotificationRequiringIntervention(message) ||
+    isManualResolutionNotification(message)
+  )
 }
 
 // ─── Mock RpcClient ─────────────────────────────────────────────────────────
