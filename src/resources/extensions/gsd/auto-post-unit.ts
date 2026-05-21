@@ -20,6 +20,7 @@ import { loadFile, parseSummary, resolveAllOverrides } from "./files.js";
 import { loadPrompt } from "./prompt-loader.js";
 import { isAwaitingUserInput } from "./user-input-boundary.js";
 import {
+  resolveMilestonePath,
   resolveSliceFile,
   resolveSlicePath,
   resolveTaskFile,
@@ -298,6 +299,36 @@ function stripKnownIdPrefix(value: string | undefined | null, id: string): strin
   const idLower = id.toLowerCase();
   if (lower.startsWith(`${idLower}:`)) return raw.slice(id.length + 1).trim() || undefined;
   return raw;
+}
+
+function resolveVerificationFailureMarkerPath(
+  unitType: string,
+  unitId: string,
+  basePath: string,
+): string | null {
+  const { milestone: mid, slice: sid, task: tid } = parseUnitId(unitId);
+  switch (unitType) {
+    case "complete-milestone": {
+      const existing = resolveMilestoneFile(basePath, mid, "VERIFICATION-FAILED");
+      if (existing) return existing;
+      const milestoneDir = resolveMilestonePath(basePath, mid);
+      return milestoneDir ? join(milestoneDir, `${mid}-VERIFICATION-FAILED.md`) : null;
+    }
+    case "complete-slice": {
+      const existing = resolveSliceFile(basePath, mid, sid!, "VERIFICATION-FAILED");
+      if (existing) return existing;
+      const sliceDir = resolveSlicePath(basePath, mid, sid!);
+      return sliceDir ? join(sliceDir, `${sid}-VERIFICATION-FAILED.md`) : null;
+    }
+    case "execute-task": {
+      const existing = resolveTaskFile(basePath, mid, sid!, tid!, "VERIFICATION-FAILED");
+      if (existing) return existing;
+      const tasksDir = resolveTasksDir(basePath, mid, sid!);
+      return tasksDir ? join(tasksDir, buildTaskFileName(tid!, "VERIFICATION-FAILED")) : null;
+    }
+    default:
+      return null;
+  }
 }
 
 async function buildTaskCommitContextForUnit(
@@ -1365,10 +1396,11 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
     }
 
     // Artifact verification
+    const verificationBasePath = s.currentUnit.workspaceRoot ?? s.basePath;
     let triggerArtifactVerified = false;
     if (!s.currentUnit.type.startsWith("hook/")) {
       try {
-        triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, s.basePath);
+        triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, verificationBasePath);
         if (triggerArtifactVerified) {
           invalidateAllCaches();
         }
@@ -1406,7 +1438,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
             if (mid) {
               const settled = await waitForMilestoneDbClose(mid);
               if (settled) {
-                triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, s.basePath);
+                triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, verificationBasePath);
                 if (triggerArtifactVerified) {
                   invalidateAllCaches();
                 }
@@ -1482,16 +1514,50 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
         }
       }
 
+      if (
+        !triggerArtifactVerified &&
+        s.currentUnit.type === "validate-milestone" &&
+        (
+          agentEndMessagesIncludeSuccessfulToolResult(opts?.agentEndMessages, "gsd_reassess_roadmap") ||
+          agentEndMessagesIncludeToolCall(opts?.agentEndMessages, "gsd_reassess_roadmap") ||
+          agentEndMessagesMentionTool(opts?.agentEndMessages, "gsd_reassess_roadmap") ||
+          unitActivityMentionsTool(s.basePath, s.currentUnit.type, s.currentUnit.id, "gsd_reassess_roadmap") ||
+          unitActivityMentionsTool(s.canonicalProjectRoot, s.currentUnit.type, s.currentUnit.id, "gsd_reassess_roadmap") ||
+          hasRoadmapReassessmentArtifact(s.basePath, parseUnitId(s.currentUnit.id).milestone) ||
+          hasRoadmapReassessmentArtifact(s.canonicalProjectRoot, parseUnitId(s.currentUnit.id).milestone)
+        )
+      ) {
+        const { milestone: mid } = parseUnitId(s.currentUnit.id);
+        if (mid && (
+          agentEndMessagesIncludeSuccessfulToolResult(opts?.agentEndMessages, "gsd_reassess_roadmap") ||
+          agentEndMessagesMentionTool(opts?.agentEndMessages, "gsd_reassess_roadmap") ||
+          unitActivityMentionsTool(s.basePath, s.currentUnit.type, s.currentUnit.id, "gsd_reassess_roadmap") ||
+          unitActivityMentionsTool(s.canonicalProjectRoot, s.currentUnit.type, s.currentUnit.id, "gsd_reassess_roadmap") ||
+          hasIncompleteMilestoneSlice(mid) ||
+          hasRoadmapReassessmentArtifact(s.basePath, mid) ||
+          hasRoadmapReassessmentArtifact(s.canonicalProjectRoot, mid)
+        )) {
+          triggerArtifactVerified = true;
+          invalidateAllCaches();
+          debugLog("postUnit", {
+            phase: "validate-milestone-reassessment-invalidated-validation",
+            unitType: s.currentUnit.type,
+            unitId: s.currentUnit.id,
+            milestoneId: mid,
+          });
+        }
+      }
+
       if (!triggerArtifactVerified && s.currentUnit.type === "research-project") {
         const retryKey = `${s.currentUnit.type}:${s.currentUnit.id}`;
         const outcome = finalizeProjectResearchTimeout(
-          s.basePath,
+          verificationBasePath,
           "Project research unit ended before all required dimensions produced durable files.",
         );
         s.pendingVerificationRetry = null;
         s.verificationRetryCount.delete(retryKey);
         s.verificationRetryFailureHashes.delete(retryKey);
-        triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, s.basePath);
+        triggerArtifactVerified = verifyExpectedArtifact(s.currentUnit.type, s.currentUnit.id, verificationBasePath);
         if (triggerArtifactVerified) {
           invalidateAllCaches();
           ctx.ui.notify(
@@ -1556,9 +1622,9 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           "warning",
         );
         // Fall through to "continue" — do NOT enter the retry or db-unavailable paths.
-      } else if (!triggerArtifactVerified && diagnoseWorktreeIntegrityFailure(s.basePath)) {
+      } else if (!triggerArtifactVerified && diagnoseWorktreeIntegrityFailure(verificationBasePath)) {
         const retryKey = `${s.currentUnit.type}:${s.currentUnit.id}`;
-        const worktreeFailure = diagnoseWorktreeIntegrityFailure(s.basePath)!;
+        const worktreeFailure = diagnoseWorktreeIntegrityFailure(verificationBasePath)!;
         s.pendingVerificationRetry = null;
         s.verificationRetryCount.delete(retryKey);
         s.verificationRetryFailureHashes.delete(retryKey);
@@ -1566,7 +1632,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           phase: "worktree-integrity-failure",
           unitType: s.currentUnit.type,
           unitId: s.currentUnit.id,
-          basePath: s.basePath,
+          basePath: verificationBasePath,
         });
         ctx.ui.notify(
           `${worktreeFailure} Retry ${s.currentUnit.id} after repair.`,
@@ -1576,7 +1642,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
         return "dispatched";
       } else if (!triggerArtifactVerified && !isDbAvailable()) {
         debugLog("postUnit", { phase: "artifact-verify-skip-db-unavailable", unitType: s.currentUnit.type, unitId: s.currentUnit.id });
-        const dbSkipDiag = diagnoseExpectedArtifact(s.currentUnit.type, s.currentUnit.id, s.basePath);
+        const dbSkipDiag = diagnoseExpectedArtifact(s.currentUnit.type, s.currentUnit.id, verificationBasePath);
         ctx.ui.notify(
           `Artifact missing for ${s.currentUnit.type} ${s.currentUnit.id} — DB unavailable, skipping retry.${dbSkipDiag ? ` Expected: ${dbSkipDiag}` : ""}`,
           "error",
@@ -1594,9 +1660,27 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           return "dispatched";
         }
 
-        const hasExpectedArtifact = resolveExpectedArtifactPath(s.currentUnit.type, s.currentUnit.id, s.basePath) !== null;
+        const hasExpectedArtifact = resolveExpectedArtifactPath(s.currentUnit.type, s.currentUnit.id, verificationBasePath) !== null;
         if (hasExpectedArtifact) {
           const retryKey = `${s.currentUnit.type}:${s.currentUnit.id}`;
+          const verificationFailureMarker = resolveVerificationFailureMarkerPath(s.currentUnit.type, s.currentUnit.id, s.basePath);
+          if (verificationFailureMarker && existsSync(verificationFailureMarker)) {
+            s.pendingVerificationRetry = null;
+            s.verificationRetryCount.delete(retryKey);
+            s.verificationRetryFailureHashes.delete(retryKey);
+            debugLog("postUnit", {
+              phase: "artifact-verify-failure-marker-detected",
+              unitType: s.currentUnit.type,
+              unitId: s.currentUnit.id,
+              markerPath: verificationFailureMarker,
+            });
+            ctx.ui.notify(
+              `${s.currentUnit.type} ${s.currentUnit.id} declined closeout (see ${relative(s.basePath, verificationFailureMarker)}). Pausing for human review.`,
+              "error",
+            );
+            await pauseAuto(ctx, pi);
+            return "dispatched";
+          }
           const prefs = loadEffectiveGSDPreferences(s.canonicalProjectRoot)?.preferences;
           const perUnitCapUsd =
             typeof prefs?.per_unit_cost_cap_usd === "number" && Number.isFinite(prefs.per_unit_cost_cap_usd) && prefs.per_unit_cost_cap_usd > 0
@@ -1650,7 +1734,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           const failureDetails = describeArtifactVerificationFailure(
             s.currentUnit.type,
             s.currentUnit.id,
-            s.basePath,
+            verificationBasePath,
           );
           if (attempt > MAX_ARTIFACT_VERIFICATION_RETRIES) {
             s.exhaustedVerificationUnits.add(retryKey);

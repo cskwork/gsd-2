@@ -1260,6 +1260,12 @@ export function _resolveAutoWorktreeExitActionForTest(
   return action === "none" ? "skip" : action;
 }
 
+/**
+ * Stop the running auto engine: tears down timers, releases locks, exits the
+ * current milestone (with optional worktree preservation for slice-parallel
+ * dispatch), and resets all engine state. Safe to call when the engine is
+ * already stopped.
+ */
 export async function stopAuto(
   ctx?: ExtensionContext,
   pi?: ExtensionAPI,
@@ -1271,7 +1277,7 @@ export async function stopAuto(
   const stopNotificationPrefix = formatAutoStopNotificationPrefix(reason);
   const displayReason = formatAutoStopDisplayReason(reason);
   const completionStopRequested = Boolean(options.completionWidget);
-  const renderCompletionWidget = completionStopRequested && process.env.GSD_HEADLESS === "1";
+  const installCompletionWidget = completionStopRequested;
   const preserveCompletionSurface = completionStopRequested;
   s.completionStopInProgress = preserveCompletionSurface;
 
@@ -1426,7 +1432,11 @@ export async function stopAuto(
           // Milestone still in progress — preserve branch for later resumption
           const r = lifecycle.exitMilestone(
             stopMilestoneId,
-            { merge: false, preserveBranch: true },
+            {
+              merge: false,
+              preserveBranch: true,
+              preserveWorktree: options.preserveWorktree ?? false,
+            },
             notifyCtx,
           );
           if (!r.ok && r.cause instanceof Error) throw r.cause;
@@ -1531,7 +1541,7 @@ export async function stopAuto(
       debugLog("stop-cleanup-ledger", { error: e instanceof Error ? e.message : String(e) });
     }
 
-    if (renderCompletionWidget && ctx && options.completionWidget) {
+    if (installCompletionWidget && ctx && options.completionWidget) {
       const ledger = getLedger();
       const units = ledger?.units ?? [];
       const totals = units.length > 0 ? getProjectTotals(units) : null;
@@ -1678,8 +1688,8 @@ export async function stopAuto(
 
     // UI cleanup
     ctx?.ui.setStatus("gsd-auto", undefined);
-    if (renderCompletionWidget) {
-      // Headless callers keep the durable completion widget/notification path.
+    if (installCompletionWidget) {
+      // Completion stops keep the durable final closeout surface visible.
     } else if (preserveCompletionSurface) {
       ctx?.ui.setWidget("gsd-progress", undefined);
       ctx?.ui.setWidget("gsd-outcome", undefined);
@@ -2801,6 +2811,7 @@ export async function startAuto(
       rebuildScope(s.basePath, s.currentMilestoneId);
     }
 
+    const loopDeps = buildLoopDeps(pi);
     ensureOrchestrationModule(ctx, pi, s.basePath || base);
     registerSigtermHandler(lockBase());
 
@@ -2883,7 +2894,7 @@ export async function startAuto(
       ctx,
       pi,
       s,
-      deps: buildLoopDeps(pi),
+      deps: loopDeps,
       runKernelLoop: runUokKernelLoop,
       runLegacyLoop: runLegacyAutoLoop,
     });
@@ -2920,6 +2931,7 @@ export async function startAuto(
   // Build scope after bootstrap has populated s.basePath / s.originalBasePath /
   // s.currentMilestoneId (including worktree setup inside bootstrapAutoSession).
   rebuildScope(s.basePath, s.currentMilestoneId);
+  const loopDeps = buildLoopDeps(pi);
   ensureOrchestrationModule(ctx, pi, s.basePath || base);
   captureProjectRootEnv(s.originalBasePath || s.basePath);
   registerAutoWorkerForSession(s);
@@ -2944,7 +2956,7 @@ export async function startAuto(
     ctx,
     pi,
     s,
-    deps: buildLoopDeps(pi),
+    deps: loopDeps,
     runKernelLoop: runUokKernelLoop,
     runLegacyLoop: runLegacyAutoLoop,
   });
@@ -3075,6 +3087,7 @@ export async function dispatchHookUnit(
     type: triggerUnitType,
     id: triggerUnitId,
     startedAt: hookStartedAt,
+    workspaceRoot: s.basePath,
   };
 
   const result = await s.cmdCtx!.newSession({ workspaceRoot: s.basePath });
@@ -3087,6 +3100,7 @@ export async function dispatchHookUnit(
     type: hookUnitType,
     id: triggerUnitId,
     startedAt: hookStartedAt,
+    workspaceRoot: s.basePath,
   };
 
   if (hookModel) {

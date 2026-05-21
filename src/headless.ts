@@ -83,6 +83,16 @@ export interface HeadlessOptions {
   bare?: boolean         // --bare: suppress CLAUDE.md/AGENTS.md, user skills, project preferences
 }
 
+const HEADLESS_CHAIN_AUTO_FLAG = '--headless-chain-auto'
+
+export function buildHeadlessSlashCommand(options: Pick<HeadlessOptions, 'command' | 'commandArgs' | 'auto'>): string {
+  const commandArgs = [...options.commandArgs]
+  if (options.command === 'new-milestone' && options.auto && !commandArgs.includes(HEADLESS_CHAIN_AUTO_FLAG)) {
+    commandArgs.push(HEADLESS_CHAIN_AUTO_FLAG)
+  }
+  return `/gsd ${options.command}${commandArgs.length > 0 ? ' ' + commandArgs.join(' ') : ''}`
+}
+
 /**
  * Commands classified as multi-turn in headless mode: they involve multiple
  * question rounds, codebase scanning, and artifact writing before the workflow
@@ -738,8 +748,10 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
     }
 
     // Handle extension_ui_request
-    if (eventObj.type === 'extension_ui_request' && clientStarted) {
-      // Check for terminal notification before auto-responding
+    if (eventObj.type === 'extension_ui_request') {
+      // State tracking runs regardless of clientStarted: bootstrap-time
+      // notifications (e.g. survivor-branch merge failures) arrive before
+      // the LLM session begins and must still trip the blocked/terminal gates.
       if (isBlockedNotification(eventObj)) {
         blocked = true
       }
@@ -751,6 +763,16 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
 
       if (isTerminalNotification(eventObj)) {
         completed = true
+      }
+
+      if (!clientStarted) {
+        // Before the LLM session starts, only state tracking matters.
+        // Resolve immediately on terminal; skip UI interaction handling.
+        if (completed) {
+          exitCode = blocked ? EXIT_BLOCKED : EXIT_SUCCESS
+          resolveCompletion()
+        }
+        return
       }
 
       // Answer injection: try to handle with pre-supplied answers before supervised/auto
@@ -927,12 +949,11 @@ async function runHeadlessOnce(options: HeadlessOptions, restartCount: number): 
     })
   }
 
-  if (!options.json) {
-    process.stderr.write(`[headless] Running /gsd ${options.command}${options.commandArgs.length > 0 ? ' ' + options.commandArgs.join(' ') : ''}...\n`)
-  }
-
   // Send the command
-  const command = `/gsd ${options.command}${options.commandArgs.length > 0 ? ' ' + options.commandArgs.join(' ') : ''}`
+  const command = buildHeadlessSlashCommand(options)
+  if (!options.json) {
+    process.stderr.write(`[headless] Running ${command}...\n`)
+  }
   try {
     await client.prompt(command)
   } catch (err) {
