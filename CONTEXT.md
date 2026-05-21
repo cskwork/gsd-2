@@ -65,6 +65,8 @@ Dispatch remains responsible for selecting the next Unit from reconciled state. 
 
   See `docs/dev/ADR-017-state-reconciliation-drift-driven.md`.
 
+- Foreground `/gsd next` and `/gsd auto` runs follow **Closeout Boundary Stop**: after the first durable task, slice, or milestone closeout boundary, the foreground terminal preserves the closeout transcript as the final visible surface instead of replacing it with a terminal roll-up widget. Headless runs may still emit durable terminal completion notifications/widgets for automation.
+
 ## Current implementation snapshot (phase 1)
 
 - `auto.ts` now wires a concrete Auto Orchestration module through `createWiredAutoOrchestrationModule(...)`.

@@ -57,4 +57,6 @@ test("getContextPauseAction pauses at or above a percentage threshold", () => {
   assert.equal(getContextPauseAction(90, 90), "pause");
   assert.equal(getContextPauseAction(95, 90), "pause");
   assert.equal(getContextPauseAction(95, 0), "none");
+  assert.equal(getContextPauseAction(0.75, 75), "pause");
+  assert.equal(getContextPauseAction(0.8, 0.75), "pause");
 });
