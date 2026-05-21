@@ -31,6 +31,7 @@ import { buildTaskFileName, gsdProjectionRoot } from "../paths.js";
 import { loadEffectiveGSDPreferences } from "../preferences.js";
 import { createRepositoryRegistryFromPreferences, defaultRepositoryTargets, type RepositoryRegistry } from "../repository-registry.js";
 
+
 export interface PlanSliceTaskInput {
   taskId: string;
   title: string;
@@ -263,7 +264,13 @@ export async function handlePlanSlice(
     return { error: `validation failed: ${(err as Error).message}` };
   }
 
-  const repositoryRegistry = loadRepositoryRegistry(basePath);
+  let repositoryRegistry: RepositoryRegistry;
+  try {
+    repositoryRegistry = loadRepositoryRegistry(basePath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `validation failed: ${message}` };
+  }
   const defaultTargets = defaultRepositoryTargets(repositoryRegistry);
   const repoValidationError = validateReferencedRepositories(params, repositoryRegistry, defaultTargets);
   if (repoValidationError) {
