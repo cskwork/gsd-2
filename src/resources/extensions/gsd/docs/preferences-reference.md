@@ -191,7 +191,7 @@ This config sets a parent workspace with two child repositories. The implicit `p
   - `halt` — stop auto-mode immediately.
   - Default: `"pause"`.
 
-- `context_pause_threshold`: number (0-100) — context window usage percentage at which auto-mode should pause to suggest checkpointing. Set to `0` to disable. Default: `0` (disabled).
+- `context_pause_threshold`: number (`0` or `1-100`) — live context window usage percentage at which auto-mode should pause to suggest checkpointing. Set to `0` to disable. Use whole percentages like `75`, not fractional ratios like `0.75`. Default: `0` (disabled).
 
 - `token_profile`: `"budget"`, `"balanced"`, `"quality"`, or `"burn-max"` — coordinates model selection, phase skipping, and context compression. `budget` skips research/reassessment and uses cheaper models; `balanced` (default) skips research/reassessment to reduce token burn; `quality` prefers higher-quality models; `burn-max` keeps full-context defaults, disables downgrade routing, and keeps phase skips off.
 
