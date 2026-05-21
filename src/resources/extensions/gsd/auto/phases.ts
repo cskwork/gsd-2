@@ -2210,7 +2210,7 @@ export async function runUnitPhase(
   _resetLogs();
   const unitStartedAt = Date.now();
   s.unitDispatchCount.set(dispatchKey, nextDispatchCount);
-  s.currentUnit = { type: unitType, id: unitId, startedAt: unitStartedAt };
+  s.currentUnit = { type: unitType, id: unitId, startedAt: unitStartedAt, workspaceRoot: s.basePath };
   s.rootWriteBaseline = isIsolatedWorktreeSession(s)
     ? captureRootDirtySnapshot(s.originalBasePath)
     : null;

@@ -3087,6 +3087,7 @@ export async function dispatchHookUnit(
     type: triggerUnitType,
     id: triggerUnitId,
     startedAt: hookStartedAt,
+    workspaceRoot: s.basePath,
   };
 
   const result = await s.cmdCtx!.newSession({ workspaceRoot: s.basePath });
@@ -3099,6 +3100,7 @@ export async function dispatchHookUnit(
     type: hookUnitType,
     id: triggerUnitId,
     startedAt: hookStartedAt,
+    workspaceRoot: s.basePath,
   };
 
   if (hookModel) {
