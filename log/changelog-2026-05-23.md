@@ -35,3 +35,13 @@
 - `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/auto-pause-double-entry-guard.test.ts src/resources/extensions/gsd/tests/auto-dashboard.test.ts src/resources/extensions/gsd/tests/post-unit-git-failure.test.ts`
 - `npm run typecheck:extensions`
 - `git diff --check`
+
+## Auto stop-capture resume loop
+
+- Consumed pending stop/pause captures after auto-mode honors them so `/gsd auto` does not pause again at every subsequent task boundary.
+- Added an explicit pause context for this fast-stop path so the dashboard shows the capture directive instead of falling back to a generic user-request reason.
+- Reason: the fast-stop detector matched pending capture text after each unit, but left the capture pending after pausing; resuming auto-mode saw the same directive again.
+
+## Verification
+
+- `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/auto-fast-stop-capture.test.ts`
