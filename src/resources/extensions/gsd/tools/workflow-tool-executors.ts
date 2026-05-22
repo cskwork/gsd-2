@@ -306,13 +306,64 @@ export interface TaskCompleteParams {
   milestoneId: string;
   oneLiner: string;
   narrative: string;
-  verification: string;
+  verification?: string;
   deviations?: string;
   knownIssues?: string;
   keyFiles?: string[];
   keyDecisions?: string[];
   blockerDiscovered?: boolean;
   verificationEvidence?: VerificationEvidenceInput[];
+}
+
+function normalizeTitleDelimiters(value: string): string {
+  return value
+    .replace(/\s*\/\s*/g, " and ")
+    .replace(/\s*[\u2013\u2014]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizePlanMilestoneParams(params: PlanMilestoneExecutorParams): PlanMilestoneExecutorParams {
+  return {
+    ...params,
+    title: typeof params.title === "string" ? normalizeTitleDelimiters(params.title) : params.title,
+    slices: Array.isArray(params.slices)
+      ? params.slices.map((slice) => ({
+          ...slice,
+          title: typeof slice.title === "string" ? normalizeTitleDelimiters(slice.title) : slice.title,
+        }))
+      : params.slices,
+  };
+}
+
+function coerceVerificationEvidence(value: VerificationEvidenceInput): Exclude<VerificationEvidenceInput, string> {
+  return typeof value === "string"
+    ? { command: value, exitCode: -1, verdict: "unknown (coerced from string)", durationMs: 0 }
+    : value;
+}
+
+function verificationSummaryFromEvidence(evidence: Exclude<VerificationEvidenceInput, string>[]): string | null {
+  const rows = evidence
+    .map((entry) => entry.command?.trim() || entry.verdict?.trim())
+    .filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  return rows.length > 0 ? rows.join("\n") : null;
+}
+
+function normalizeTaskCompleteParams(params: TaskCompleteParams): TaskCompleteParams | { error: string } {
+  const coercedEvidence = (params.verificationEvidence ?? []).map(coerceVerificationEvidence);
+  const verification = typeof params.verification === "string" && params.verification.trim().length > 0
+    ? params.verification
+    : verificationSummaryFromEvidence(coercedEvidence);
+
+  if (!verification) {
+    return { error: "verification is required unless verificationEvidence includes at least one command or verdict" };
+  }
+
+  return {
+    ...params,
+    verification,
+    verificationEvidence: coercedEvidence,
+  };
 }
 
 export type CompleteMilestoneExecutorParams = Partial<CompleteMilestoneParams> & Record<string, unknown>;
@@ -349,10 +400,14 @@ export async function executeTaskComplete(
       };
   }
   try {
-    const coerced = { ...params };
-    coerced.verificationEvidence = (params.verificationEvidence ?? []).map((v) =>
-      typeof v === "string" ? { command: v, exitCode: -1, verdict: "unknown (coerced from string)", durationMs: 0 } : v,
-    );
+    const coerced = normalizeTaskCompleteParams(params);
+    if ("error" in coerced) {
+      return {
+        content: [{ type: "text", text: `Error completing task: ${coerced.error}` }],
+        details: { operation: "complete_task", error: coerced.error },
+        isError: true,
+      };
+    }
 
     const result = await handleCompleteTask(coerced as any, basePath);
     if ("error" in result) {
@@ -819,7 +874,7 @@ export async function executePlanMilestone(
       };
   }
   try {
-    const result = await handlePlanMilestone(params, basePath);
+    const result = await handlePlanMilestone(normalizePlanMilestoneParams(params), basePath);
     if ("error" in result) {
       return {
         content: [{ type: "text", text: `Error planning milestone: ${result.error}` }],

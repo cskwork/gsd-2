@@ -687,7 +687,8 @@ export function registerDbTools(pi: ExtensionAPI): void {
     promptSnippet: "Complete a GSD task (DB write + summary render + checkbox toggle)",
     promptGuidelines: [
       "Use gsd_task_complete (or gsd_complete_task) when a task is finished and needs to be recorded.",
-      "All string fields are required. verificationEvidence is an array of objects with command, exitCode, verdict, durationMs.",
+      "Provide verification as a string, or provide verificationEvidence so the executor can derive a verification summary.",
+      "verificationEvidence is an array of objects with command, exitCode, verdict, durationMs.",
       "The tool validates required fields and returns an error message if any are missing.",
       "On success, returns the summaryPath where the SUMMARY.md was written.",
       "Idempotent — calling with the same params twice will upsert (INSERT OR REPLACE) without error.",
@@ -699,7 +700,7 @@ export function registerDbTools(pi: ExtensionAPI): void {
       milestoneId: Type.String({ description: "Milestone ID (e.g. M001)" }),
       oneLiner: Type.String({ description: "One-line summary of what was accomplished" }),
       narrative: Type.String({ description: "Detailed narrative of what happened during the task" }),
-      verification: Type.String({ description: "What was verified and how — commands run, tests passed, behavior confirmed" }),
+      verification: Type.Optional(Type.String({ description: "What was verified and how — commands run, tests passed, behavior confirmed. May be omitted when verificationEvidence is provided." })),
       // ── Enrichment metadata (optional — defaults to empty) ────────────
       deviations: Type.Optional(Type.String({ description: "Deviations from the task plan, or 'None.'" })),
       knownIssues: Type.Optional(Type.String({ description: "Known issues discovered but not fixed, or 'None.'" })),
