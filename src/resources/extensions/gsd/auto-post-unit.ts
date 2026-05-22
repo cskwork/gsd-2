@@ -59,7 +59,13 @@ import {
   persistHookState,
   resolveHookArtifactPath,
 } from "./post-unit-hooks.js";
-import { hasPendingCaptures, loadPendingCaptures, revertExecutorResolvedCaptures } from "./captures.js";
+import {
+  hasPendingCaptures,
+  loadPendingCaptures,
+  markCaptureExecuted,
+  markCaptureResolved,
+  revertExecutorResolvedCaptures,
+} from "./captures.js";
 import { debugLog } from "./debug-logger.js";
 import { runSafely } from "./auto-utils.js";
 import type { AutoSession, SidecarItem } from "./auto/session.js";
@@ -1998,7 +2004,32 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
           "warning",
         );
         debugLog("postUnit", { phase: "fast-stop", captureId: stopCapture.id });
-        await pauseAuto(ctx, pi);
+        try {
+          await pauseAuto(ctx, pi, {
+            message: `Stop directive detected in pending capture ${stopCapture.id}: "${stopCapture.text}".`,
+            category: "aborted",
+            stopReason: "stop-directive-capture",
+          });
+        } catch (e) {
+          debugLog("postUnit", { phase: "fast-stop-pause-error", error: String(e) });
+        }
+        try {
+          markCaptureResolved(
+            s.basePath,
+            stopCapture.id,
+            "stop",
+            "Auto-mode paused after honoring the pending stop directive.",
+            "Explicit stop/pause directive detected before triage.",
+            s.currentMilestoneId ?? undefined,
+          );
+          markCaptureExecuted(s.basePath, stopCapture.id);
+        } catch (e) {
+          debugLog("postUnit", {
+            phase: "fast-stop-consume-error",
+            captureId: stopCapture.id,
+            error: String(e),
+          });
+        }
         return "stopped";
       }
     } catch (e) {
