@@ -1,5 +1,8 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { classifyUnitComplexity, tierLabel, tierOrdinal, extractTaskMetadata } from "../complexity-classifier.js";
 import type { ComplexityTier, TaskMetadata } from "../complexity-classifier.js";
@@ -202,5 +205,30 @@ describe("ClassificationResult taskMetadata", () => {
 
   test("extractTaskMetadata is importable as a named export and is a function", () => {
     assert.equal(typeof extractTaskMetadata, "function", "extractTaskMetadata should be a callable function");
+  });
+
+  test("extractTaskMetadata tags UI/UX and frontend task plans", () => {
+    const base = mkdtempSync(join(tmpdir(), "gsd-uiux-meta-"));
+    try {
+      const tasksDir = join(base, ".gsd", "M001", "slices", "S01", "tasks");
+      mkdirSync(tasksDir, { recursive: true });
+      writeFileSync(
+        join(tasksDir, "T01-PLAN.md"),
+        [
+          "# T01",
+          "",
+          "- Files: src/App.tsx, src/styles.css",
+          "- Build responsive UI/UX polish for Korean users.",
+          "- Improve frontend layout, accessibility, and visual design.",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const metadata = extractTaskMetadata("M001/S01/T01", base);
+      assert.ok(metadata.tags?.includes("ui-ux"), "UI/UX plans should get a ui-ux tag");
+      assert.ok(metadata.tags?.includes("frontend"), "frontend plans should get a frontend tag");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

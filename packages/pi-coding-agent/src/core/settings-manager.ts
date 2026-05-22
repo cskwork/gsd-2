@@ -279,6 +279,18 @@ export interface SettingsError {
 	error: Error;
 }
 
+const KOREAN_FORK_DEFAULT_SETTINGS: Settings = {
+	defaultProvider: "openai-codex",
+	defaultModel: "gpt-5.5",
+};
+
+function mergeEffectiveSettings(globalSettings: Settings, projectSettings: Settings): Settings {
+	return deepMergeSettings(
+		deepMergeSettings(KOREAN_FORK_DEFAULT_SETTINGS, globalSettings),
+		projectSettings,
+	);
+}
+
 class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
 	private projectSettingsPath: string;
@@ -391,7 +403,7 @@ export class SettingsManager {
 		this.globalSettingsLoadError = globalLoadError;
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeEffectiveSettings(this.globalSettings, this.projectSettings);
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -531,7 +543,7 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeEffectiveSettings(this.globalSettings, this.projectSettings);
 	}
 
 	/** Apply additional overrides on top of current settings */
@@ -638,7 +650,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeEffectiveSettings(this.globalSettings, this.projectSettings);
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -655,7 +667,7 @@ export class SettingsManager {
 
 	private saveProjectSettings(settings: Settings): void {
 		this.projectSettings = stripGlobalOnlyKeys(structuredClone(settings));
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeEffectiveSettings(this.globalSettings, this.projectSettings);
 
 		if (this.projectSettingsLoadError) {
 			return;

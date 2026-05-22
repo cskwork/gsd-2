@@ -5,7 +5,8 @@ always_use_skills: []
 prefer_skills: []
 avoid_skills: []
 skill_rules: []
-custom_instructions: []
+custom_instructions:
+  - "한국 사용자를 기본 대상으로 삼고, 사용자에게 보이는 응답은 기본적으로 한국어로 작성한다."
 models: {}
 skill_discovery:
 skill_staleness_days:
@@ -91,7 +92,7 @@ remote_questions:
 uat_dispatch:
 post_unit_hooks: []
 pre_dispatch_hooks: []
-# language:
+language: Korean
 # experimental:
 #   rtk: false
 ---

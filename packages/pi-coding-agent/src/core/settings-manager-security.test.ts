@@ -25,6 +25,13 @@ describe("SettingsManager — global-only security settings", () => {
     }
   });
 
+  it("Korean fork defaults to OpenAI Codex when no settings exist", () => {
+    const sm = SettingsManager.inMemory();
+
+    assert.equal(sm.getDefaultProvider(), "openai-codex");
+    assert.equal(sm.getDefaultModel(), "gpt-5.5");
+  });
+
   it("returns allowedCommandPrefixes set via setAllowedCommandPrefixes", () => {
     const sm = SettingsManager.inMemory();
     assert.equal(sm.getAllowedCommandPrefixes(), undefined);
