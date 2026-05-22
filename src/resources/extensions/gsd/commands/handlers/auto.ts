@@ -158,7 +158,10 @@ export async function handleAutoCommand(trimmed: string, ctx: ExtensionCommandCo
       }
       return true;
     }
-    await pauseAuto(ctx, pi);
+    await pauseAuto(ctx, pi, {
+      message: "Paused by user request.",
+      category: "unknown",
+    });
     return true;
   }
 

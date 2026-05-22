@@ -1038,6 +1038,9 @@ function currentUnitLabel(): string | null {
   return `${unitVerb(s.currentUnit.type)} ${s.currentUnit.id}`;
 }
 
+const MISSING_PAUSE_CONTEXT_DETAIL =
+  "No explicit pause reason was provided by the caller. Check /gsd notifications for the preceding trigger.";
+
 function setLifecycleOutcome(
   ctx: ExtensionContext | undefined,
   input: {
@@ -1752,7 +1755,8 @@ export function _selectStopAutoWorktreeExit(args: {
 /**
  * Pause auto-mode without destroying state. Context is preserved.
  * The user can interact with the agent, then `/gsd auto` resumes
- * from disk state. Called when the user presses Escape during auto-mode.
+ * from disk state. Callers should pass errorContext unless this is an
+ * explicitly user-requested pause.
  */
 export async function pauseAuto(
   ctx?: ExtensionContext,
@@ -1761,6 +1765,7 @@ export async function pauseAuto(
 ): Promise<void> {
   if (!s.active) return;
   s.active = false;
+  const pauseDetail = _errorContext?.message ?? MISSING_PAUSE_CONTEXT_DETAIL;
   clearUnitTimeout();
   stopAutoCommandPolling();
 
@@ -1808,7 +1813,7 @@ export async function pauseAuto(
       activeRunDir: s.activeRunDir,
       autoStartTime: s.autoStartTime,
       milestoneLock: s.sessionMilestoneLock ?? undefined,
-      pauseReason: _errorContext?.message,
+      pauseReason: pauseDetail,
     };
     setRuntimeKv("global", "", PAUSED_SESSION_KV_KEY, pausedMeta);
   } catch (err) {
@@ -1879,15 +1884,13 @@ export async function pauseAuto(
   setLifecycleOutcome(ctx, {
     status: "paused",
     title: `${s.stepMode ? "Step" : "Auto"}-mode paused`,
-    detail: _errorContext?.message ?? "Paused by user request.",
+    detail: pauseDetail,
     nextAction: `Type to steer, or run ${resumeCmd} to resume.`,
     commands: [resumeCmd, "/gsd status for overview", "/gsd notifications for history"],
     unitLabel: pausedUnitLabel,
   });
   if (ctx) initHealthWidget(ctx);
-  const pauseMessage = _errorContext?.message
-    ? `${s.stepMode ? "Step" : "Auto"}-mode paused: ${_errorContext.message}`
-    : `${s.stepMode ? "Step" : "Auto"}-mode paused (Escape). Type to interact, or ${resumeCmd} to resume.`;
+  const pauseMessage = `${s.stepMode ? "Step" : "Auto"}-mode paused: ${pauseDetail}`;
   ctx?.ui.notify(
     pauseMessage,
     "info",
@@ -3136,12 +3139,14 @@ export async function dispatchHookUnit(
   s.unitTimeoutHandle = setTimeout(async () => {
     s.unitTimeoutHandle = null;
     if (!s.active) return;
-    ctx.ui.notify(
-      `Hook ${hookName} exceeded ${supervisor.hard_timeout_minutes ?? 30}min timeout. Pausing auto-mode.`,
-      "warning",
-    );
+    const message = `Hook ${hookName} exceeded ${supervisor.hard_timeout_minutes ?? 30}min timeout. Pausing auto-mode.`;
+    ctx.ui.notify(message, "warning");
     resetHookState();
-    await pauseAuto(ctx, pi);
+    await pauseAuto(ctx, pi, {
+      message,
+      category: "timeout",
+      isTransient: true,
+    });
   }, hookHardTimeoutMs);
 
   ctx.ui.setStatus("gsd-auto", s.stepMode ? "next" : "auto");

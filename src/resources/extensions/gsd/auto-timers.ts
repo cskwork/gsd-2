@@ -24,6 +24,7 @@ import { saveActivityLog } from "./activity-log.js";
 import { recoverTimedOutUnit, type RecoveryContext } from "./auto-timeout-recovery.js";
 import { resolveAgentEndCancelled } from "./auto/resolve.js";
 import type { AutoSession } from "./auto/session.js";
+import type { ErrorContext } from "./auto/types.js";
 import { logWarning, logError } from "./workflow-logger.js";
 
 export interface SupervisionContext {
@@ -35,7 +36,7 @@ export interface SupervisionContext {
   prefs: GSDPreferences | undefined;
   buildSnapshotOpts: () => CloseoutOptions & Record<string, unknown>;
   buildRecoveryContext: () => RecoveryContext;
-  pauseAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI) => Promise<void>;
+  pauseAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI, errorContext?: ErrorContext) => Promise<void>;
   /** Optional task estimate string (e.g. "30m", "2h") for timeout scaling (#2243). */
   taskEstimate?: string;
 }
@@ -246,11 +247,13 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       writeUnitRuntimeRecord(s.basePath, unitType, unitId, s.currentUnit.startedAt, {
         phase: "paused",
       });
-      ctx.ui.notify(
-        `Unit ${unitType} ${unitId} made no meaningful progress for ${supervisor.idle_timeout_minutes}min. Pausing auto-mode.`,
-        "warning",
-      );
-      await pauseAuto(ctx, pi);
+      const message = `Unit ${unitType} ${unitId} made no meaningful progress for ${supervisor.idle_timeout_minutes}min. Pausing auto-mode.`;
+      ctx.ui.notify(message, "warning");
+      await pauseAuto(ctx, pi, {
+        message,
+        category: "idle",
+        isTransient: true,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logError("timer", `[idle-watchdog] Unhandled error: ${message}`);
@@ -282,11 +285,13 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
       const recovery = await recoverTimedOutUnit(ctx, pi, unitType, unitId, "hard", buildRecoveryContext());
       if (recovery === "recovered") return;
 
-      ctx.ui.notify(
-        `Unit ${unitType} ${unitId} exceeded ${supervisor.hard_timeout_minutes}min hard timeout. Pausing auto-mode.`,
-        "warning",
-      );
-      await pauseAuto(ctx, pi);
+      const message = `Unit ${unitType} ${unitId} exceeded ${supervisor.hard_timeout_minutes}min hard timeout. Pausing auto-mode.`;
+      ctx.ui.notify(message, "warning");
+      await pauseAuto(ctx, pi, {
+        message,
+        category: "timeout",
+        isTransient: true,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logError("timer", `[hard-timeout] Unhandled error: ${message}`);
