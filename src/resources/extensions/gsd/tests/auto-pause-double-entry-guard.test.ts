@@ -14,6 +14,47 @@ import { pauseAuto, isAutoActive } from "../auto.ts";
 import { autoSession } from "../auto-runtime-state.ts";
 import { _isPauseOriginCancelledResult } from "../auto/phases.ts";
 
+test("pauseAuto fallback does not mislabel missing pause context as a user request", async () => {
+  const base = mkdtempSync(join(tmpdir(), "gsd-pause-reason-"));
+  const previousCwd = process.cwd();
+  const notifications: string[] = [];
+  let outcomeFactory: any;
+
+  autoSession.reset();
+  autoSession.active = true;
+
+  try {
+    process.chdir(base);
+
+    await pauseAuto({
+      hasUI: true,
+      ui: {
+        setStatus() {},
+        setWidget(key: string, factory: unknown) {
+          if (key === "gsd-outcome") outcomeFactory = factory;
+        },
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+      sessionManager: { getSessionFile: () => null },
+    } as any);
+
+    const output = outcomeFactory(
+      { requestRender() {} },
+      { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+    ).render(100).join("\n");
+
+    assert.match(output, /No explicit pause reason/);
+    assert.doesNotMatch(output, /Paused by user request/);
+    assert.match(notifications.at(-1) ?? "", /No explicit pause reason/);
+  } finally {
+    autoSession.reset();
+    process.chdir(previousCwd);
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("pauseAuto sets s.active = false synchronously before first await (blocks concurrent re-entry)", async () => {
   const base = mkdtempSync(join(tmpdir(), "gsd-double-pause-guard-"));
   const previousCwd = process.cwd();

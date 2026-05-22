@@ -87,6 +87,7 @@ import {
 } from "./project-research-policy.js";
 import { validateArtifact } from "./schemas/validate.js";
 import { verificationRetryKey } from "./auto/verification-retry-policy.js";
+import type { ErrorContext } from "./auto/types.js";
 import { getLedger } from "./metrics.js";
 import { getUnitCostSpikeAction } from "./auto-budget.js";
 import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
@@ -722,7 +723,7 @@ export interface PostUnitContext {
   buildSnapshotOpts: (unitType: string, unitId: string) => CloseoutOptions & Record<string, unknown>;
   lockBase: () => string;
   stopAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI, reason?: string) => Promise<void>;
-  pauseAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI) => Promise<void>;
+  pauseAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI, errorContext?: ErrorContext) => Promise<void>;
   updateProgressWidget: (ctx: ExtensionContext, unitType: string, unitId: string, state: import("./types.js").GSDState) => void;
 }
 
@@ -1667,12 +1668,13 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           unitType: s.currentUnit.type,
           unitId: s.currentUnit.id,
         });
-        ctx.ui.notify(
-          `${s.currentUnit.type} ${s.currentUnit.id} is waiting for your input — pausing auto-mode instead of retrying the missing artifact.`,
-          "info",
-        );
+        const reason = `${s.currentUnit.type} ${s.currentUnit.id} is waiting for your input — pausing auto-mode instead of retrying the missing artifact.`;
+        ctx.ui.notify(reason, "info");
         s.lastToolInvocationError = null;
-        await pauseAuto(ctx, pi);
+        await pauseAuto(ctx, pi, {
+          message: reason,
+          category: "unknown",
+        });
         return "dispatched";
       } else if (!triggerArtifactVerified && s.lastToolInvocationError && isDeterministicPolicyError(s.lastToolInvocationError)) {
         const retryKey = `${s.currentUnit.type}:${s.currentUnit.id}`;
@@ -1700,11 +1702,12 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           unitId: s.currentUnit.id,
           basePath: verificationBasePath,
         });
-        ctx.ui.notify(
-          `${worktreeFailure} Retry ${s.currentUnit.id} after repair.`,
-          "error",
-        );
-        await pauseAuto(ctx, pi);
+        const reason = `${worktreeFailure} Retry ${s.currentUnit.id} after repair.`;
+        ctx.ui.notify(reason, "error");
+        await pauseAuto(ctx, pi, {
+          message: reason,
+          category: "unknown",
+        });
         return "dispatched";
       } else if (!triggerArtifactVerified && !isDbAvailable()) {
         debugLog("postUnit", { phase: "artifact-verify-skip-db-unavailable", unitType: s.currentUnit.type, unitId: s.currentUnit.id });
@@ -1722,7 +1725,10 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           debugLog("postUnit", { phase: "tool-invocation-error-pause", unitType: s.currentUnit.type, unitId: s.currentUnit.id, error: s.lastToolInvocationError });
           ctx.ui.notify(errMsg, "error");
           s.lastToolInvocationError = null;
-          await pauseAuto(ctx, pi);
+          await pauseAuto(ctx, pi, {
+            message: errMsg,
+            category: "tool-schema",
+          });
           return "dispatched";
         }
 
@@ -1740,11 +1746,12 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
               unitId: s.currentUnit.id,
               markerPath: verificationFailureMarker,
             });
-            ctx.ui.notify(
-              `${s.currentUnit.type} ${s.currentUnit.id} declined closeout (see ${relative(s.basePath, verificationFailureMarker)}). Pausing for human review.`,
-              "error",
-            );
-            await pauseAuto(ctx, pi);
+            const reason = `${s.currentUnit.type} ${s.currentUnit.id} declined closeout (see ${relative(s.basePath, verificationFailureMarker)}). Pausing for human review.`;
+            ctx.ui.notify(reason, "error");
+            await pauseAuto(ctx, pi, {
+              message: reason,
+              category: "unknown",
+            });
             return "dispatched";
           }
           const prefs = loadEffectiveGSDPreferences(s.canonicalProjectRoot)?.preferences;
@@ -1757,11 +1764,12 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
             s.pendingVerificationRetry = null;
             s.verificationRetryCount.delete(retryKey);
             s.verificationRetryFailureHashes.delete(retryKey);
-            ctx.ui.notify(
-              `Unit ${s.currentUnit.id} hit per-unit cap $${perUnitCapUsd.toFixed(2)} — pausing auto-mode.`,
-              "error",
-            );
-            await pauseAuto(ctx, pi);
+            const reason = `Unit ${s.currentUnit.id} hit per-unit cap $${perUnitCapUsd.toFixed(2)} — pausing auto-mode.`;
+            ctx.ui.notify(reason, "error");
+            await pauseAuto(ctx, pi, {
+              message: reason,
+              category: "unknown",
+            });
             return "dispatched";
           }
           if (getUnitCostSpikeAction(unitCostUsd, rollingAvgUsd, 3.0) === "pause") {
@@ -1789,11 +1797,12 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
               );
               return "continue";
             }
-            ctx.ui.notify(
-              `Unit ${s.currentUnit.id} cost spike detected (${unitCostUsd.toFixed(2)} vs avg ${rollingAvgUsd.toFixed(2)}) — pausing auto-mode.`,
-              "error",
-            );
-            await pauseAuto(ctx, pi);
+            const reason = `Unit ${s.currentUnit.id} cost spike detected (${unitCostUsd.toFixed(2)} vs avg ${rollingAvgUsd.toFixed(2)}) — pausing auto-mode.`;
+            ctx.ui.notify(reason, "error");
+            await pauseAuto(ctx, pi, {
+              message: reason,
+              category: "unknown",
+            });
             return "dispatched";
           }
           const attempt = (s.verificationRetryCount.get(retryKey) ?? 0) + 1;
@@ -1806,11 +1815,12 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           if (attempt > MAX_ARTIFACT_VERIFICATION_RETRIES) {
             s.exhaustedVerificationUnits.add(retryKey);
             debugLog("postUnit", { phase: "artifact-verify-exhausted", unitType: s.currentUnit.type, unitId: s.currentUnit.id, attempt });
-            ctx.ui.notify(
-              `${failureDetails} Pausing auto-mode after ${MAX_ARTIFACT_VERIFICATION_RETRIES} retries.`,
-              "error",
-            );
-            await pauseAuto(ctx, pi);
+            const reason = `${failureDetails} Pausing auto-mode after ${MAX_ARTIFACT_VERIFICATION_RETRIES} retries.`;
+            ctx.ui.notify(reason, "error");
+            await pauseAuto(ctx, pi, {
+              message: reason,
+              category: "unknown",
+            });
             return "dispatched";
           }
           s.verificationRetryCount.set(retryKey, attempt);

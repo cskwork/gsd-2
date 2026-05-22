@@ -22,3 +22,16 @@
 ## Verification
 
 - `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/workflow-tool-executors.test.ts`
+
+## Auto pause reason surface
+
+- Changed `pauseAuto` so a missing pause context renders a diagnostic reason instead of falsely labeling the pause as user-requested.
+- Passed explicit pause contexts through manual pause commands and common automatic pause paths: idle timeout, hard timeout, hook timeout, user-input wait, worktree integrity failure, tool invocation failure, verification marker, and cost guards.
+- Reason: auto-mode had multiple internal `pauseAuto(ctx, pi)` callers; when those paused the run, the outcome card could show `Paused by user request.` even though the real trigger was automatic.
+
+## Verification
+
+- `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/auto-pause-double-entry-guard.test.ts`
+- `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/auto-pause-double-entry-guard.test.ts src/resources/extensions/gsd/tests/auto-dashboard.test.ts src/resources/extensions/gsd/tests/post-unit-git-failure.test.ts`
+- `npm run typecheck:extensions`
+- `git diff --check`
