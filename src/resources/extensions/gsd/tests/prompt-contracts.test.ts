@@ -47,6 +47,13 @@ test("system prompt references CODEBASE.md and /gsd codebase", () => {
   assert.match(prompt, /auto-refreshes it when tracked files change/i);
 });
 
+test("system prompt defaults user-visible responses to Korean", () => {
+  const prompt = readPrompt("system");
+  assert.match(prompt, /default response language is Korean/i);
+  assert.match(prompt, /한국어/);
+  assert.match(prompt, /Korean users/i);
+});
+
 test("system prompt hard rules forbid fabricating user responses", () => {
   const prompt = readPrompt("system");
   assert.match(prompt, /never fabricate, simulate, or role-play user responses/i);

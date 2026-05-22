@@ -106,4 +106,21 @@ export const GOOGLE_GEMINI_CLI_MODELS = {
 			contextWindow: 1048576,
 			maxTokens: 65535,
 		} satisfies Model<"google-gemini-cli">,
+		"gemini-3.5-flash": {
+			id: "gemini-3.5-flash",
+			name: "Gemini 3.5 Flash (Cloud Code Assist)",
+			api: "google-gemini-cli",
+			provider: "google-gemini-cli",
+			baseUrl: "https://cloudcode-pa.googleapis.com",
+			reasoning: true,
+			input: ["text", "image"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+			contextWindow: 1048576,
+			maxTokens: 65535,
+		} satisfies Model<"google-gemini-cli">,
 	} as const satisfies Record<string, Model<any>>;

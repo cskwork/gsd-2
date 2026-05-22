@@ -45,7 +45,7 @@ export interface RoutingDecision {
   /** Human-readable reason for this decision */
   reason: string;
   /** How the model was selected */
-  selectionMethod: "tier-only" | "capability-scored";
+  selectionMethod: "tier-only" | "capability-scored" | "ui-ux-policy";
   /** Capability scores per eligible model (capability-scored path only) */
   capabilityScores?: Record<string, number>;
   /** Tools filtered out due to provider incompatibility (ADR-005) */
@@ -114,6 +114,7 @@ export const MODEL_CAPABILITY_TIER: Record<string, ComplexityTier> = {
   "o3": "heavy",
   "o4-mini": "heavy",
   "o4-mini-deep-research": "heavy",
+  "gemini-3.5-flash": "standard",
 };
 
 // ─── Cost Table (per 1K input tokens, approximate USD) ───────────────────────
@@ -150,6 +151,7 @@ const MODEL_COST_PER_1K_INPUT: Record<string, number> = {
   "o4-mini-deep-research": 0.005,
   "gemini-2.0-flash": 0.0001,
   "gemini-2.5-pro": 0.00125,
+  "gemini-3.5-flash": 0.00125,
   "deepseek-chat": 0.00014,
 };
 
@@ -202,6 +204,7 @@ export const MODEL_CAPABILITY_PROFILES: Record<string, ModelCapabilities> = {
 
   // ── Google ─────────────────────────────────────────────────────────────────
   "gemini-2.5-pro":               { coding: 75, debugging: 70, research: 85, reasoning: 75, speed: 55, longContext: 90, instruction: 75 },
+  "gemini-3.5-flash":             { coding: 88, debugging: 82, research: 88, reasoning: 88, speed: 70, longContext: 90, instruction: 85 },
   "gemini-2.0-flash":             { coding: 50, debugging: 40, research: 50, reasoning: 40, speed: 95, longContext: 60, instruction: 65 },
   "gemini-flash-2.0":             { coding: 50, debugging: 40, research: 50, reasoning: 40, speed: 95, longContext: 60, instruction: 65 },
 
@@ -260,6 +263,9 @@ export function computeTaskRequirements(
   if (unitType === "execute-task" && metadata) {
     if (metadata.tags?.some(t => /^(docs?|readme|comment|config|typo|rename)$/i.test(t))) {
       return { ...base, instruction: 0.9, coding: 0.3, speed: 0.7 };
+    }
+    if (isUiUxTask(metadata)) {
+      return { ...base, instruction: 0.95, longContext: 0.75, reasoning: 0.75, coding: 0.7 };
     }
     if (metadata.complexityKeywords?.some(k => k === "concurrency" || k === "compatibility")) {
       return { ...base, debugging: 0.9, reasoning: 0.8 };
@@ -346,6 +352,32 @@ function buildFallbackChain(selectedModelId: string, phaseConfig: ResolvedModelC
   ].filter(f => f !== selectedModelId);
 }
 
+const UI_UX_TASK_TAGS = /^(ui-ux|ux|ui|frontend|front-end|design|visual-design|accessibility|responsive)$/i;
+const UI_UX_PREFERRED_MODELS = [
+  "claude-code/claude-opus-4-7",
+  "google-gemini-cli/gemini-3.5-flash",
+  "claude-code/claude-sonnet-4-6",
+  "google-gemini-cli/gemini-3.1-pro-preview",
+];
+
+function isUiUxTask(metadata?: TaskMetadata): boolean {
+  return Boolean(
+    metadata?.tags?.some(t => UI_UX_TASK_TAGS.test(t))
+      || metadata?.complexityKeywords?.some(k => UI_UX_TASK_TAGS.test(k)),
+  );
+}
+
+function findUiUxPolicyModel(metadata: TaskMetadata | undefined, availableModelIds: string[]): string | undefined {
+  if (!isUiUxTask(metadata)) return undefined;
+  for (const preferred of UI_UX_PREFERRED_MODELS) {
+    if (availableModelIds.includes(preferred)) return preferred;
+    const barePreferred = bareModelId(preferred);
+    const match = availableModelIds.find(id => bareModelId(id) === barePreferred);
+    if (match) return match;
+  }
+  return undefined;
+}
+
 /**
  * Load capability overrides from user preferences' modelOverrides section.
  * Returns a map of model ID → partial capability overrides to deep-merge with built-in profiles.
@@ -422,6 +454,18 @@ export function resolveModelForComplexity(
       wasDowngraded: false,
       reason: `configured model "${configuredPrimary}" is not in the known tier map — honoring explicit config`,
       selectionMethod: "tier-only",
+    };
+  }
+
+  const uiUxPolicyModel = findUiUxPolicyModel(taskMetadata, availableModelIds);
+  if (uiUxPolicyModel) {
+    return {
+      modelId: uiUxPolicyModel,
+      fallbacks: buildFallbackChain(uiUxPolicyModel, phaseConfig),
+      tier: requestedTier,
+      wasDowngraded: false,
+      reason: `ui/ux policy: ${uiUxPolicyModel}`,
+      selectionMethod: "ui-ux-policy",
     };
   }
 
@@ -556,9 +600,9 @@ export function defaultRoutingConfig(): DynamicRoutingConfig {
  *   3. CANONICAL_TIER_MODELS[tier] as last-resort fallback
  */
 const CANONICAL_TIER_MODELS: Record<ComplexityTier, string> = {
-  light: "claude-haiku-4-5",
-  standard: "claude-sonnet-4-6",
-  heavy: "claude-opus-4-6",
+  light: "gpt-5.3-codex-spark",
+  standard: "gpt-5.5",
+  heavy: "gpt-5.5",
 };
 
 export function canonicalModelForTier(tier: ComplexityTier): string {
@@ -571,9 +615,8 @@ export function canonicalModelForTier(tier: ComplexityTier): string {
  * honoring `routingConfig.tier_models[tier]` when set. Returns undefined when
  * no available model matches the tier.
  *
- * `crossProvider`: when false, restricts the search to models that share the
- * canonical (Anthropic) provider for the tier. When true, any provider is
- * eligible.
+ * `crossProvider`: when false, restricts the search to Claude-family models.
+ * When true, any provider is eligible.
  */
 function findModelForTier(
   tier: ComplexityTier,
@@ -588,8 +631,7 @@ function findModelForTier(
     return eligible[0];
   }
 
-  // Same-provider only: keep models whose bare ID matches a canonical
-  // Anthropic ID at this tier (i.e., a claude-* model in the tier map).
+  // Same-provider only: keep Claude-family models at this tier.
   const sameProvider = eligible.filter(id => {
     const bare = bareModelId(id);
     return MODEL_CAPABILITY_TIER[bare] === tier && bare.startsWith("claude-");
@@ -605,7 +647,7 @@ function findModelForTier(
  * Precedence:
  *   1. configured `tier_models[tier]`, if provided and available
  *   2. tier-matching model from any provider in `availableModelIds`
- *   3. canonical Anthropic ID as a fallback only when nothing else matches
+ *   3. canonical Codex ID as a fallback only when nothing else matches
  *      (or `availableModelIds` is empty, e.g., during early bootstrap)
  *
  * @param tier              The capability tier to resolve

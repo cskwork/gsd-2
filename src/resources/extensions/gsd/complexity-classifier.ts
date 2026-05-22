@@ -253,6 +253,8 @@ export function extractTaskMetadata(unitId: string, basePath: string): TaskMetad
     if (content.match(/\b(doc|readme|comment|jsdoc)\b/i)) tags.push("docs");
     if (content.match(/\b(config|env|setting)\b/i)) tags.push("config");
     if (content.match(/\b(rename|typo|spelling)\b/i)) tags.push("rename");
+    if (content.match(/\b(ui\/ux|ui\b|ux\b|frontend|front-end|responsive|accessibility|visual design)\b/i)) tags.push("ui-ux");
+    if (content.match(/\b(frontend|front-end|react|tsx|css|html)\b/i)) tags.push("frontend");
     meta.tags = tags;
 
     // Try to extract estimated lines from content

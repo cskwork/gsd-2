@@ -299,12 +299,12 @@ test("cross-provider: configured primary available by bare ID wins over equivale
 
 // ─── resolveModelForTier (provider-agnostic tier resolution) ────────────────
 
-test("resolveModelForTier: returns canonical Anthropic model when no available models", () => {
+test("resolveModelForTier: returns canonical Codex models when no available models", () => {
   try {
     resetLegacyTelemetry();
-    assert.equal(resolveModelForTier("heavy", []), "claude-opus-4-6");
-    assert.equal(resolveModelForTier("standard", []), "claude-sonnet-4-6");
-    assert.equal(resolveModelForTier("light", []), "claude-haiku-4-5");
+    assert.equal(resolveModelForTier("heavy", []), "gpt-5.5");
+    assert.equal(resolveModelForTier("standard", []), "gpt-5.5");
+    assert.equal(resolveModelForTier("light", []), "gpt-5.3-codex-spark");
     assert.equal(getLegacyTelemetry()["legacy.providerDefaultUsed"], 3);
   } finally {
     resetLegacyTelemetry();
@@ -315,8 +315,8 @@ test("resolveModelForTier: returns canonical model when it is available", () => 
   try {
     resetLegacyTelemetry();
     assert.equal(
-      resolveModelForTier("heavy", ["claude-opus-4-6", "claude-sonnet-4-6"]),
-      "claude-opus-4-6",
+      resolveModelForTier("heavy", ["gpt-5.5", "claude-opus-4-7"]),
+      "gpt-5.5",
     );
     assert.equal(getLegacyTelemetry()["legacy.providerDefaultUsed"], 0);
   } finally {
@@ -360,9 +360,9 @@ test("resolveModelForTier: falls back to canonical when no tier match available"
     resetLegacyTelemetry();
     // Only unknown models available — getModelTier classifies unknowns as
     // "standard", so a request for "heavy" finds no match and the canonical
-    // Anthropic ID is returned as a documented fallback.
+    // Codex frontier ID is returned as a documented fallback.
     const result = resolveModelForTier("heavy", ["some-custom-model"]);
-    assert.equal(result, "claude-opus-4-6");
+    assert.equal(result, "gpt-5.5");
     assert.equal(getLegacyTelemetry()["legacy.providerDefaultUsed"], 1);
   } finally {
     resetLegacyTelemetry();
@@ -421,12 +421,12 @@ test("resolveProfileDefaults: honors dynamic routing tier_models pins", async ()
   assert.equal(defaults.models?.subagent, "claude-haiku-4-5");
 });
 
-test("resolveProfileDefaults: empty availableModelIds falls back to canonical Anthropic IDs", async () => {
+test("resolveProfileDefaults: empty availableModelIds falls back to canonical Codex IDs", async () => {
   const { resolveProfileDefaults } = await import("../preferences-models.js");
   const defaults = resolveProfileDefaults("balanced", []);
   // Documented fallback only — when registry is unavailable at bootstrap.
   const planningModel = defaults.models?.planning;
-  assert.ok(typeof planningModel === "string" && planningModel.startsWith("claude-"));
+  assert.equal(planningModel, "gpt-5.5");
 });
 
 test("resolveProfileDefaults: burn-max omits models so user choice is preserved", async () => {
@@ -481,6 +481,13 @@ test("computeTaskRequirements boosts instruction for docs-tagged tasks", () => {
   assert.ok((reqs.coding ?? 1) <= 0.4);
 });
 
+test("computeTaskRequirements treats UI/UX tasks as design-sensitive work", () => {
+  const reqs = computeTaskRequirements("execute-task", { tags: ["ui-ux"] });
+  assert.ok((reqs.instruction ?? 0) >= 0.9);
+  assert.ok((reqs.longContext ?? 0) >= 0.7);
+  assert.ok((reqs.reasoning ?? 0) >= 0.7);
+});
+
 test("computeTaskRequirements returns generic vector for unknown unit type", () => {
   const reqs = computeTaskRequirements("unknown-unit");
   assert.ok(reqs.reasoning !== undefined);
@@ -501,6 +508,53 @@ test("resolveModelForComplexity uses capability scoring when enabled", () => {
   );
   assert.equal(result.wasDowngraded, true);
   assert.equal(result.selectionMethod, "capability-scored");
+});
+
+test("resolveModelForComplexity routes UI/UX execution to Claude Code before Codex", () => {
+  const config: DynamicRoutingConfig = {
+    ...defaultRoutingConfig(),
+    enabled: true,
+    capability_routing: true,
+  };
+  const result = resolveModelForComplexity(
+    makeClassification("standard"),
+    { primary: "openai-codex/gpt-5.5", fallbacks: [] },
+    config,
+    [
+      "openai-codex/gpt-5.5",
+      "claude-code/claude-opus-4-7",
+      "google-gemini-cli/gemini-3.5-flash",
+    ],
+    "execute-task",
+    { tags: ["ui-ux"] },
+  );
+
+  assert.equal(result.modelId, "claude-code/claude-opus-4-7");
+  assert.equal(result.selectionMethod, "ui-ux-policy");
+  assert.equal(result.wasDowngraded, false);
+});
+
+test("resolveModelForComplexity routes UI/UX execution to Gemini when Claude Code is unavailable", () => {
+  const config: DynamicRoutingConfig = {
+    ...defaultRoutingConfig(),
+    enabled: true,
+    capability_routing: true,
+  };
+  const result = resolveModelForComplexity(
+    makeClassification("standard"),
+    { primary: "openai-codex/gpt-5.5", fallbacks: [] },
+    config,
+    [
+      "openai-codex/gpt-5.5",
+      "google-gemini-cli/gemini-3.5-flash",
+    ],
+    "execute-task",
+    { tags: ["frontend"] },
+  );
+
+  assert.equal(result.modelId, "google-gemini-cli/gemini-3.5-flash");
+  assert.equal(result.selectionMethod, "ui-ux-policy");
+  assert.equal(result.wasDowngraded, false);
 });
 
 test("resolveModelForComplexity falls back to tier-only when capability_routing is false", () => {
