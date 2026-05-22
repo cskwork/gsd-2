@@ -148,6 +148,62 @@ test("executeTaskComplete coerces string verificationEvidence entries", async ()
   }
 });
 
+test("executeTaskComplete derives verification from evidence when omitted", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    const planDir = join(base, ".gsd", "milestones", "M001", "slices", "S01");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "S01-PLAN.md"), "# S01\n\n- [ ] **T01: Demo** `est:5m`\n");
+
+    const result = await inProjectDir(base, () => executeTaskComplete({
+      milestoneId: "M001",
+      sliceId: "S01",
+      taskId: "T01",
+      oneLiner: "Completed task",
+      narrative: "Did the work",
+      verificationEvidence: ["npm test"],
+    } as any, base));
+
+    assert.equal(result.details.operation, "complete_task");
+
+    const db = _getAdapter();
+    assert.ok(db, "DB should be open");
+    const task = db!.prepare(
+      "SELECT verification_result FROM tasks WHERE milestone_id = ? AND slice_id = ? AND id = ?",
+    ).get("M001", "S01", "T01") as Record<string, unknown>;
+
+    assert.equal(task["verification_result"], "npm test");
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executeTaskComplete rejects missing verification when no evidence exists", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    const planDir = join(base, ".gsd", "milestones", "M001", "slices", "S01");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "S01-PLAN.md"), "# S01\n\n- [ ] **T01: Demo** `est:5m`\n");
+
+    const result = await inProjectDir(base, () => executeTaskComplete({
+      milestoneId: "M001",
+      sliceId: "S01",
+      taskId: "T01",
+      oneLiner: "Completed task",
+      narrative: "Did the work",
+    } as any, base));
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.details.error), /verification is required/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
 test("executeSliceComplete preserves omitted optional requirement arrays", async () => {
   const base = makeTmpBase();
   try {
@@ -317,6 +373,42 @@ test("executePlanMilestone writes roadmap state and rendered roadmap path", asyn
     const roadmapPath = String(result.details.roadmapPath);
     assert.ok(existsSync(roadmapPath), "roadmap should be rendered to disk");
     assert.match(readFileSync(roadmapPath, "utf-8"), /Workflow MCP planning/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
+test("executePlanMilestone normalizes title delimiters before handler validation", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+
+    const result = await inProjectDir(base, () => executePlanMilestone({
+      milestoneId: "M001",
+      title: "Client/API handoff",
+      vision: "Plan milestone over shared executors.",
+      slices: [
+        {
+          sliceId: "S01",
+          title: "UI/UX shell",
+          risk: "medium",
+          depends: [],
+          demo: "Milestone plan persists through MCP.",
+          goal: "Persist roadmap state.",
+          successCriteria: "ROADMAP.md renders from DB.",
+          proofLevel: "integration",
+          integrationClosure: "Prompts and MCP call the same handler.",
+          observabilityImpact: "Executor tests cover output paths.",
+        },
+      ],
+    }, base));
+
+    assert.equal(result.details.operation, "plan_milestone");
+    const roadmapPath = String(result.details.roadmapPath);
+    const roadmap = readFileSync(roadmapPath, "utf-8");
+    assert.match(roadmap, /Client and API handoff/);
+    assert.match(roadmap, /S01: UI and UX shell/);
   } finally {
     closeDatabase();
     cleanup(base);

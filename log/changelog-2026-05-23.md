@@ -13,3 +13,12 @@
 - `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/complexity-classifier.test.ts`
 - `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/prompt-contracts.test.ts`
 - `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test packages/pi-coding-agent/src/core/settings-manager-security.test.ts`
+
+## Tool-input recovery
+
+- Normalized milestone and slice title delimiters at the MCP executor boundary so model output like `Client/API` and `UI/UX` becomes safe GSD state text before the strict DB-backed handler validates it.
+- Made `gsd_task_complete.verification` optional at the schema boundary when `verificationEvidence` is present, deriving the verification summary from evidence while still rejecting completions that provide neither.
+
+## Verification
+
+- `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/workflow-tool-executors.test.ts`
