@@ -13,7 +13,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'readline';
@@ -246,16 +246,16 @@ async function getChangedFilesFromStdin() {
 
 function getChangedFilesFromGit(base = 'main') {
   try {
-    const output = execSync(
-      `git diff --name-only ${base}...HEAD`,
+    const output = execFileSync(
+      'git', ['diff', '--name-only', '--end-of-options', `${base}...HEAD`],
       { cwd: REPO_ROOT, encoding: 'utf8' }
     );
     return output.trim().split('\n').filter(Boolean);
   } catch {
     // Fallback: compare staged + unstaged changes
     try {
-      const output = execSync(
-        'git diff --name-only HEAD',
+      const output = execFileSync(
+        'git', ['diff', '--name-only', 'HEAD'],
         { cwd: REPO_ROOT, encoding: 'utf8' }
       );
       return output.trim().split('\n').filter(Boolean);
